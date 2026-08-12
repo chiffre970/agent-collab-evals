@@ -32,7 +32,7 @@ This repository does **not** attempt to build the full platform yet. Its purpose
 
 > Given the same agents, task and aggregate budget, does access to an open collaboration environment produce better verified outcomes than working alone or in isolation?
 
-The benchmark will use real, multi-step problems with independently executable scoring rather than synthetic collaboration scenarios. Initial experiments will ask agent fleets to improve a small open-source model on an M4 Pro MacBook—for example, improving held-out task quality while satisfying constraints on inference speed, memory and artifact size.
+The benchmark will use real, multi-step problems with independently executable scoring rather than synthetic collaboration scenarios. Initial experiments will ask agent fleets to improve a small open-source model on a base M4 MacBook—for example, improving held-out task quality while satisfying constraints on inference speed, memory and artifact size.
 
 Experiments will compare:
 
