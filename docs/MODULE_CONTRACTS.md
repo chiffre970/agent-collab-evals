@@ -28,17 +28,15 @@ cli
 
 Concrete adapters depend inward on the port types. The campaign definition declares required capabilities and outcome semantics but cannot instantiate adapters. The composition root is the only module that binds ports to implementations.
 
-## Study manifest
+## Study and run manifests
 
-Every study version freezes:
+Every study version freezes the complete randomized block plan before its first confirmatory run:
 
 ```text
 StudyManifest
   study_id: string
   study_version: string
-  replicate_id: string
-  random_seed: integer
-  condition: solo | native_multiagent | peer_isolated | peer_collab
+  conditions: [solo, native_multiagent, peer_isolated, peer_collab]
   organisation_size: integer
   harness: AdapterRef + HarnessProfile
   collaboration: AdapterRef + CollaborationProfile
@@ -48,35 +46,81 @@ StudyManifest
   evaluator: AdapterRef + EvaluatorProfile
   model: ModelProfile
   budget: BudgetEnvelope
+  actor_allocation: ActorAllocationPolicy
   campaign: CampaignRef
   peer_activation: PeerActivationPolicy
   measurement: MeasurementProtocol
   submission_policy: SubmissionPolicy
   observer_policy: read_only | none
+  block_plan: RandomizedBlockPlan
+  analysis_plan: AnalysisPlanRef
+
+RandomizedBlockPlan
+  algorithm: name + version
+  master_seed: integer
+  blocks: ordered list<BlockAssignment>
+
+BlockAssignment
+  block_id: string
+  replicate_id: string
+  variant_id: string
+  slots: ordered list<RunAssignment>
+
+RunAssignment
+  run_id: string
+  execution_position: integer
+  run_seed: integer
+  assigned_condition: solo | native_multiagent | peer_isolated | peer_collab
+
+ResolvedRunManifest
+  study_manifest_digest: digest
+  block_id: string
+  replicate_id: string
+  variant_id: string
+  run_id: string
+  execution_position: integer
+  run_seed: integer
+  condition: solo | native_multiagent | peer_isolated | peer_collab
+  resolved_configuration_digest: digest
 ```
+
+The randomization algorithm assigns condition labels to already defined execution slots and seeds. The runner materializes and hashes every `BlockAssignment` before any outcome is observed. `ResolvedRunManifest` is derived mechanically from one of those assignments; it cannot choose its own condition, variant or seed. This preserves the assignment mechanism needed for the preregistered randomization test and makes retries traceable to the original slot.
 
 `AdapterRef` records implementation name, semantic version or commit, configuration digest and declared capability version.
 
-`ModelProfile` records provider, requested model identifier, expected returned identity or fingerprint when available, endpoint class, inference parameters, retry policy, price-catalog version and `ProviderCachePolicy`. Cache policy is one of `disabled`, `actor_run_scoped` or `provider_managed_observed`. A confirmatory peer comparison requires effective actor isolation through a provider namespace, a frozen non-semantic per-actor isolation prefix, or disabled caching; `provider_managed_observed` without isolation is calibration-only. V0 defaults to the DeepSeek direct API and qualifies Flash and Pro through this same profile; no port contains DeepSeek-specific types.
+`ModelProfile` records provider, exact requested model identifier, expected returned identity or fingerprint when available, endpoint class, inference parameters, retry policy, price-catalog version and `ProviderCachePolicy`. Cache policy is one of `disabled`, `actor_run_scoped` or `provider_managed_observed`. A confirmatory peer comparison requires effective actor isolation through a provider namespace, a frozen non-semantic per-actor isolation prefix, or disabled caching; `provider_managed_observed` without isolation is calibration-only. One profile is selected before a study begins and is used unchanged in every condition and block. V0 starts with a predetermined low-cost direct-API profile; any later higher-capability model is a separate study version. No port contains provider-specific types.
 
 `PeerActivationPolicy` freezes the number of top-level sessions, start barrier, job-delivery schedule, maximum concurrency, wake/resume behavior and deadline handling. V0 uses `eager_all`: exactly `N` peer sessions are created and receive every job. The controller applies the same policy to `peer_isolated` and `peer_collab` without inspecting condition-specific content or runtime activity.
 
 `MeasurementProtocol` freezes resource reset, image and dependency digests, warmup, repetition count and order, reference canaries, environmental recording, contamination tolerances and condition-blind retry or invalidation rules.
 
-`BudgetEnvelope` contains at least:
+`BudgetEnvelope` contains organisation-level maxima. `ActorAllocationPolicy` adds fixed actor-level maxima for the two peer conditions:
 
 ```text
-api_usd_cap: decimal
-wall_time_seconds: integer
-cloud_gpu_seconds: integer
-research_request_cap: integer
-research_byte_cap: integer
-max_live_agents: integer
-max_candidate_submissions: integer
-max_provider_retries: integer
+BudgetEnvelope
+  api_usd_cap: decimal
+  wall_time_seconds: integer
+  cloud_gpu_seconds: integer
+  research_request_cap: integer
+  research_byte_cap: integer
+  max_live_agents: integer
+  max_candidate_submissions: integer
+  max_provider_retries: integer
+
+ActorAllocationPolicy
+  mode: fixed_nontransferable
+  api_usd_cap_per_actor: decimal
+  cloud_gpu_seconds_per_actor: integer
+  research_request_cap_per_actor: integer
+  research_byte_cap_per_actor: integer
+  candidate_submissions_per_actor: integer
+  provider_retries_per_actor: integer
+  compute_schedule: DeterministicActorSchedule
 ```
 
-The resolved manifest and capability manifests are hashed before campaign start. Any effective configuration mismatch invalidates the run.
+For both peer conditions, every top-level actor receives the same fixed allocation, the allocations sum exactly to the corresponding organisation limits, and unused capacity is not transferred between actors in V0. `solo` and `native_multiagent` use the organisation envelope directly. A later registered study may test pooled or transferable resources, but that is a different treatment.
+
+The study manifest, complete block plan, resolved run manifest and capability manifests are hashed before campaign start. Any effective configuration mismatch invalidates the run.
 
 ## Durable campaign domain
 
@@ -84,6 +128,11 @@ The resolved manifest and capability manifests are hashed before campaign start.
 CampaignInstance
   campaign_run_id: string
   study_id: string
+  study_version: string
+  block_id: string
+  replicate_id: string
+  variant_id: string
+  run_id: string
   condition: CoordinationCondition
   organisation: Organisation
   jobs: ordered list<Job>
@@ -154,12 +203,22 @@ The OpenCode adapter must:
 
 Harness events are observational. The adapter does not enforce the authoritative dollar limit, filesystem boundary, network policy or external capability quota.
 
+## Artifact publication service
+
+```text
+interface ArtifactPublicationService:
+  publish(scope, actor_context, body, reply_to?, artifact_refs?) -> Entry
+  read_published_artifact(scope, actor_context, entry_id, artifact_ref) -> bytes
+```
+
+This application service implements the agent-facing publication operation over `CollaborationBackend` and `StorageBackend`. It translates owned raw references into grants, but contains no recommendation, task-allocation or artifact-merging policy.
+
 ## Collaboration backend port
 
 ```text
 interface CollaborationBackend:
   provision(campaign_run_id, visibility: none | actor_private | organisation_shared) -> CollaborationScope
-  publish(scope, actor_context, body, reply_to?, artifact_refs?) -> Entry
+  publish(scope, actor_context, body, reply_to?, artifact_grants?) -> Entry
   list_recent(scope, actor_context, cursor?, limit?) -> Page<Entry>
   get_thread(scope, actor_context, entry_id) -> list<Entry>
   search(scope, actor_context, query, cursor?, limit?) -> Page<Entry>
@@ -178,7 +237,20 @@ Visibility rules:
 
 The two peer modes must use the same implementation version, persistence rules, pagination, tool descriptions and operation limits wherever truthful. Authorization checks—not client filtering—enforce visibility.
 
-Collaboration visibility is the only cross-actor publication path in the peer comparison. Candidate and evaluator feedback, broker results, queue metadata, caches, files and artifacts remain actor-private until their owner explicitly publishes content or a permitted artifact reference in `peer_collab`. Publishing cannot grant access to an artifact that the authenticated actor is not authorized to read.
+Collaboration visibility is the only cross-actor publication path in the peer comparison. Candidate and evaluator feedback, broker results, queue metadata, caches, files and artifacts remain actor-private until their owner explicitly publishes content or a permitted artifact grant in `peer_collab`.
+
+An `ArtifactGrant` is an unforgeable, campaign-scoped capability bound to one artifact digest, its owner and an audience. Before publication, the application service asks `StorageBackend` to issue a grant after proving that the authenticated actor may read and share the artifact. `CollaborationBackend` accepts only a valid grant whose campaign, publisher and audience match its authenticated scope and stores the grant with the entry. A reader presents that grant back to storage. A raw or guessed `ArtifactRef` never conveys cross-actor access, and `actor_private` scopes cannot issue an organisation-audience grant. This makes explicit publication implementable without either adapter discovering or calling the other.
+
+```text
+ArtifactGrant
+  grant_id: string
+  campaign_run_id: string
+  artifact_digest: digest
+  owner_actor_id: string
+  audience: actor_id | organisation_id
+  issued_at: timestamp
+  authorization_proof: opaque authenticated bytes
+```
 
 ## Compute backend and broker
 
@@ -202,9 +274,11 @@ interface ComputeBroker:
 
 `ComputeBackend` knows how to operate a cloud GPU, local fake or replay target. It does not know the experimental condition, agent prompts or campaign outcome.
 
-`ComputeBroker` is the enforcement boundary. It validates actor/run identity, capability scope, command allowlists, content digests, exclusive leases, concurrent execution and GPU-time quota. Infrastructure credentials remain behind the broker. An actor can observe only its own handles, coarse status and results; it cannot inspect another actor's request, queue position, cache state, timing or output. The broker uses the same scheduling discipline in both peer conditions.
+`ComputeBroker` is the enforcement boundary. It validates actor/run identity, capability scope, command allowlists, content digests, exclusive leases, concurrent execution and GPU-time quota. Infrastructure credentials remain behind the broker. An actor can observe only its own handles, coarse status and results; it cannot inspect another actor's request, queue position, cache state, timing or output.
 
-Only one agent experiment or evaluator measurement may hold a GPU lease at a time. Scored execution follows the manifest's `MeasurementProtocol`: restore the declared image and clean state, record relevant device and software state, perform fixed warmup, run the frozen repetitions in the frozen order, and bracket candidate measurements with reference canaries. Canary drift beyond tolerance triggers the predeclared retry or invalidation rule, never an ad hoc condition-specific decision. Each reset, lease, repetition, canary and release emits a receipt.
+In both peer conditions, each actor has the same fixed, non-transferable GPU-time allocation and a predeclared deterministic schedule of fixed-duration execution slots. Exploratory compute and public evaluation requested by an actor run only in that actor's slots and count against its allocation. An unused slot is not reassigned, and another actor's demand cannot change the requesting actor's admission result or visible completion schedule. The same schedule-generation algorithm and slot geometry are used in both conditions. This deliberately sacrifices V0 utilization efficiency to prevent a shared GPU queue becoming an incidental peer channel. Pooled scheduling and collaboration-mediated reallocation are deferred treatments.
+
+Only one agent experiment or evaluator measurement may hold a GPU lease at a time. Public measurements execute in the submitting actor's predeclared slots during the agent-visible phase. Hidden measurements begin only after that phase closes and follow the manifest's separate condition-blind evaluation schedule. Scored execution follows the `MeasurementProtocol`: restore the declared image and clean state, record relevant device and software state, perform fixed warmup, run the frozen repetitions in the frozen order, and bracket candidate measurements with reference canaries. Canary drift beyond tolerance triggers the predeclared retry or invalidation rule, never an ad hoc condition-specific decision. Each reset, lease, repetition, canary and release emits a receipt.
 
 ## Research backend and broker
 
@@ -221,7 +295,7 @@ interface ResearchBroker:
   fetch(actor_context, capability_token, resource_id) -> Document
 ```
 
-Adapters may implement disabled research, a frozen corpus or controlled live access. The broker enforces allowed sources, request and byte quotas, recording and scope isolation. Search history, fetch results and caches are actor-private in both peer conditions; an owner may explicitly publish a result through the collaboration backend only in `peer_collab`. Research state cannot cross campaign runs.
+Adapters may implement disabled research, a frozen corpus or controlled live access. The broker enforces allowed sources, fixed per-actor request and byte quotas, recording and scope isolation. Search history, fetch results and caches are actor-private in both peer conditions; one actor's use cannot reduce another's allowance. An owner may explicitly publish a result through the collaboration backend only in `peer_collab`. Research state cannot cross campaign runs.
 
 Controlled live access must satisfy all of the following:
 
@@ -238,10 +312,11 @@ Controlled live access must satisfy all of the following:
 
 ```text
 interface StorageBackend:
-  open_campaign(campaign_run_id) -> StorageScope
+  open_campaign(campaign_run_id, artifact_policy: ArtifactVisibilityPolicy) -> StorageScope
   append(scope, event: RunEvent) -> SequenceNumber
   put_artifact(scope, actor_context, bytes, media_type, metadata) -> ArtifactRef
-  get_artifact(scope, actor_context, ref) -> bytes
+  issue_artifact_grant(scope, actor_context, ref, audience) -> ArtifactGrant
+  get_artifact(scope, actor_context, ref, grant?) -> bytes
   save_snapshot(scope, CampaignSnapshot) -> SnapshotRef
   export(scope) -> CampaignExport
   seal(scope, final_manifest, checksums) -> StorageReceipt
@@ -249,7 +324,7 @@ interface StorageBackend:
 
 The V0 local adapter may use JSONL, SQLite and content-addressed files. It guarantees monotonic event sequence numbers, immutable artifact hashes, atomic snapshots and campaign-scoped export.
 
-Storage records evidence but does not infer validity or enforce budgets. Its authorization layer does enforce campaign, actor-private and organisation-shared artifact visibility. In `peer_isolated`, an actor cannot discover an artifact's existence or metadata merely by guessing its digest. In `peer_collab`, cross-actor artifact reads require an explicit authorized collaboration reference; storage never promotes visibility automatically.
+Storage records evidence but does not infer validity or enforce budgets. Its authorization layer does enforce campaign, actor-private and organisation-shared artifact visibility. In `peer_isolated`, an actor cannot discover an artifact's existence or metadata merely by guessing its digest, and the storage scope cannot issue organisation-audience grants. In `peer_collab`, a cross-actor read requires the grant carried by an explicitly published collaboration entry. Storage never promotes visibility automatically, and grants from another campaign, owner or artifact fail closed.
 
 ## Evaluator port
 
@@ -277,7 +352,7 @@ interface SubmissionRegistry:
   select(submissions: SubmissionSet, policy: OutcomePolicy) -> SelectionResult
 ```
 
-Submissions are immutable. Candidate existence, artifact metadata and public feedback are actor-private while work remains open; `peer_isolated` actors cannot enumerate or infer one another's submissions. The registry may see all submissions for neutral post-closure selection but never turns aggregation into an agent-visible channel.
+Submissions are immutable. Candidate existence, artifact metadata and public feedback are actor-private while work remains open; `peer_isolated` actors cannot enumerate or infer one another's submissions. Each peer has the same fixed, non-transferable submission allowance, so another actor cannot consume its capacity or cause a quota rejection. The registry may see all submissions for neutral post-closure selection but never turns aggregation into an agent-visible channel.
 
 Limits and the neutral selector are identical across conditions. Each peer submission must stand alone; the registry never merges artifacts. `SelectionResult` contains either the best eligible candidate under the campaign's normalized public ordering and deterministic tie-break, or its declared default/failure outcome. A campaign-provided reference candidate participates like any other system-owned candidate. The same fallback and selector over `peer_isolated` and `peer_collab` are required for the communication estimand.
 
@@ -285,6 +360,7 @@ Limits and the neutral selector are identical across conditions. Each peer submi
 
 ```text
 interface BudgetAccount:
+  provision_actor(actor_context, allocation: ActorBudgetAllocation) -> ActorBudgetHandle
   reserve(context: ModelRequestContext, maximum_usd) -> Reservation | Rejected
   settle(reservation_id, ProviderUsage) -> Charge
   release(reservation_id, reason) -> void
@@ -295,7 +371,8 @@ Enforcement rules:
 
 - Every model credential available to a campaign terminates at the gateway.
 - Sandbox network policy denies direct model-provider egress.
-- Primary, peer, subagent, retry, compaction and auxiliary model calls share one account.
+- Primary, peer, subagent, retry, compaction and auxiliary model calls remain under one organisation account.
+- In both peer conditions, each top-level actor is additionally constrained by the same fixed, non-transferable suballocation. A request is admitted only if both its actor allocation and organisation envelope can cover the reservation.
 - Reservations use decimal arithmetic, conservative maximums and a versioned price catalog.
 - Requests that could exceed the cap are rejected before provider execution.
 - Provider usage and receipts are retained unchanged and reconciled after settlement.
@@ -306,6 +383,8 @@ Enforcement rules:
 OpenCode's cost and token fields are retained as observational telemetry. They are reconciled against the gateway but never authorize requests, extend the cap or replace provider-accounting evidence.
 
 `ModelRequestContext` identifies campaign, actor, harness session and call. The gateway derives it from authenticated transport context; model-supplied or agent-supplied identity headers cannot select another actor's account or cache namespace.
+
+An actor may observe only its own charges, remaining allocation and rejections. Because the peer allocations partition the organisation envelope and unused capacity is not reassigned, another peer's activity cannot cause an actor's model call to be admitted or rejected in V0.
 
 The study declares how identity drift is handled before execution. A persistent returned model or fingerprint change creates a new `study_version`; a change within a randomized block normally invalidates and reruns the whole block. Missing provider identity fields are recorded explicitly rather than inferred.
 
@@ -325,6 +404,7 @@ Minimum event kinds include:
 - requested/returned model identity, fingerprint, cache usage and provider receipts;
 - tool calls and results;
 - collaboration reads, writes and authorization denials;
+- artifact-grant issuance, use and denial;
 - compute leases, resets, repetitions, canaries and releases;
 - compute and research broker admissions, actor-visible status, results and denials;
 - candidate submissions, public evaluation, selection and hidden evaluation;
@@ -338,25 +418,29 @@ Events and OpenCode traces are evidence. The corresponding gateway, sandbox, aut
 Before the first confirmatory pilot, tests must prove:
 
 - A fake `HarnessRuntime` can run the core lifecycle without importing OpenCode.
+- The registered block plan deterministically produces the same resolved run manifests, and no run may alter its assigned condition, variant, seed or execution slot.
+- Every condition and block uses the exact registered model profile; a capability-check failure cannot trigger an in-study model substitution.
 - OpenCode sessions and workspaces survive delivery of a second job in the same campaign.
 - Native handoffs work only in `native_multiagent` and respect `N`.
 - Both peer modes eagerly activate exactly `N` sessions under the same start barrier, delivery schedule, concurrency and deadline rules.
 - `peer_isolated` and `peer_collab` expose the same peer-tool schema.
-- Cross-actor collaboration-entry reads fail in `peer_isolated`; explicitly published entries and references succeed within the organisation in `peer_collab`.
-- Cross-actor candidate discovery, public feedback, broker jobs/results, queue metadata, caches and artifact reads fail in `peer_isolated`; in `peer_collab`, they remain private until explicitly published.
+- Cross-actor collaboration-entry reads fail in `peer_isolated`; explicitly published entries and grant-bearing artifact references succeed within the organisation in `peer_collab`.
+- Raw, guessed, forged, unpublished, wrong-owner and cross-campaign artifact references or grants fail closed.
+- Cross-actor candidate discovery, public feedback, broker jobs/results, queue metadata, caches and artifact reads fail in `peer_isolated`; in `peer_collab`, they remain private until explicitly published with the required grant.
 - Cross-campaign collaboration, artifact, research-cache and event reads fail.
-- All model sessions share one enforced budget account and cannot reach the provider directly.
+- All model sessions remain under one organisation envelope and cannot reach the provider directly; peer actors also cannot exceed, transfer or observe one another's fixed suballocations.
 - Compute and research calls cannot bypass their brokers or quotas.
+- Peer compute and public-evaluation requests run only in their actor's predeclared deterministic slots; another actor's demand cannot change admission, visible status or completion timing.
 - GPU measurements hold exclusive leases and deterministically apply reset, warmup, repetition and canary rules.
 - Controlled web access rejects redirect and DNS-rebinding attempts to private or metadata addresses and enforces MIME, byte and quarantine policy.
 - Every settled provider response is reconciled with observational harness telemetry.
 - Returned provider identity, fingerprint and cache accounting are captured and identity drift applies the frozen block-validity rule.
 - Hidden evaluator inputs and outputs never enter agent-visible storage.
-- Candidate limits, campaign-specific default outcomes and neutral public-score selection are identical across all four conditions.
+- The organisation-level candidate total, campaign-specific default outcomes and neutral public-score selection are identical across all four conditions; the two peer arms also use identical fixed actor sublimits.
 - A campaign definition can swap compute, research, storage and evaluator adapters without source changes.
 
 Before a fleet-size study above V0, a fake-runtime load test with at least 100 simulated actors must demonstrate bounded pagination, independent notification cursors, event-stream backpressure, fair compute-queue admission and complete campaign export without all-to-all polling.
 
 ## Change policy
 
-Adapter versions, capability manifests, model profiles, common instructions, tool schemas, price catalogs, sandbox policies, budgets, campaign definitions, evaluators and selection rules may change during calibration. After registration, any such change requires a new `study_version` and a new complete set of condition runs.
+Adapter versions, capability manifests, model profiles, common instructions, tool schemas, price catalogs, sandbox policies, budgets, actor allocations, block assignments, analysis plans, campaign definitions, evaluators and selection rules may change during calibration. After registration, any such change requires a new `study_version` and a new complete set of condition runs.

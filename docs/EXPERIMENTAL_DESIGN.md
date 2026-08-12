@@ -27,9 +27,9 @@ Every run uses the same pinned OpenCode release, model profile, base tools, task
 
 The native condition is deliberately not a hand-built supervisor/worker workflow. It uses the strongest stable default behavior supplied by the pinned runtime. The model decides whether and when to hand work to subagents.
 
-The two peer conditions are identical in session topology, fleet size, activation schedule, base tools, peer-tool schema, private-workspace policy, candidate policy and aggregate resource envelope. V0 eagerly activates all `N` peers behind the same start barrier and applies the same concurrency, wake/resume and deadline rules. Only collaboration visibility and the minimal factual instructions required to describe it differ.
+The two peer conditions are identical in session topology, fleet size, activation schedule, base tools, peer-tool schema, private-workspace policy, candidate policy, aggregate resource envelope and fixed per-actor allocations. V0 eagerly activates all `N` peers behind the same start barrier and applies the same concurrency, wake/resume and deadline rules. Each peer receives equal, non-transferable API, GPU, research and submission allowances, plus the same deterministic compute-slot schedule in both conditions. Only collaboration visibility and the minimal factual instructions required to describe it differ.
 
-`peer_isolated` is an actor-level information boundary, not merely a private message board. Agents cannot discover one another or observe another actor's entries, artifacts, candidates, public feedback, compute or research jobs and results, queue metadata or caches. The neutral selector and post-run analysis may aggregate these records only after the agent-visible phase has closed.
+`peer_isolated` is an actor-level information boundary, not merely a private message board. Agents cannot discover one another or observe another actor's entries, artifacts, candidates, public feedback, compute or research jobs and results, queue metadata or caches. Fixed allowances prevent one actor from signalling by consuming another's capacity, while deterministic compute slots prevent demand-dependent queue timing. The neutral selector and post-run analysis may aggregate records only after the agent-visible phase has closed.
 
 The peer-collaboration condition is minimally elicited. Each agent receives the mission and factual instructions for using the collaboration tool, including that peers may see and respond to shared work. No roles, leader, task division, collaboration quota, recommended strategy or specialization is supplied.
 
@@ -42,6 +42,7 @@ Within a study version, paired conditions have identical:
 - OpenCode version and common runtime configuration;
 - model provider, model version and inference settings;
 - organisation-level API-dollar cap;
+- fixed peer-actor API, GPU, research and candidate suballocations;
 - wall-clock and cloud-GPU allowances;
 - base workspace, mission and initial evidence;
 - non-coordination tools and their permissions;
@@ -111,28 +112,30 @@ The gateway stops admitting calls before the cap can be exceeded using conservat
 
 The manifest freezes the provider-cache policy. Confirmatory peer runs require effective actor and campaign isolation through provider namespaces, a frozen non-semantic isolation prefix or disabled caching; no condition is selectively prewarmed. Every response records requested and returned model identifiers, any revision or system fingerprint, provider request ID, cached-token accounting and the applicable price-catalog version. A fingerprint change within a randomized block normally invalidates and reruns the complete block under the predeclared rule; a persistent model change creates a new study version.
 
+The peer arms remain under the same organisation cap, but each top-level peer also has the same fixed, non-transferable API-dollar subcap. The peer subcaps partition the organisation cap exactly. A peer can observe only its own spend and rejection state, so another actor cannot exhaust its model allowance. The same rule applies to GPU time, research requests and bytes, candidate submissions and provider retries. `solo` and `native_multiagent` use the full organisation envelope because their session topology is intentionally part of those secondary comparisons.
+
 Cloud GPU usage is a separate, identically capped campaign resource. Report API and GPU dollars separately and combined; do not let cheap model calls buy extra GPU time or vice versa in the initial study.
 
 ## Calibration and freezing
 
 Calibration occurs before confirmatory comparison and may determine:
 
-- the DeepSeek agent-model profile used to operate the agents;
 - the separate small open-weight target model optimized by the first campaign;
 - `N`, the maximum live agents;
 - the API-dollar, wall-time and cloud-GPU caps;
+- peer-actor suballocations and deterministic compute-slot geometry, with aggregate limits chosen to partition exactly;
 - OpenCode settings that make native subagents usable without assigned roles;
 - public-feedback granularity and candidate cap;
 - the hidden quality tolerance, primary score and evaluator resolution;
 - task difficulty that avoids floor and ceiling effects.
 
-Calibration runs are excluded from confirmatory estimates. After freezing, any change to the runtime, model profile, instructions, tool schema, prices, task materials, evaluator, selection rule or budget creates a new study version.
+Calibration runs are excluded from confirmatory estimates. After freezing, any change to the runtime, model profile, instructions, tool schema, prices, task materials, evaluator, selection rule, block assignment, actor allocation or budget creates a new study version.
 
-The DeepSeek direct API is the V0 default for agent inference. Flash and Pro use the same `ModelProfile` boundary; qualification selects one before freezing. Before confirmatory use, a small qualification set must show that the selected agent model can reliably use the OpenCode base tools, native subagent mechanism and collaboration tool. If neither DeepSeek profile qualifies, select another provider before freezing rather than compensating with condition-specific prompts. The open-weight target model is calibrated independently for optimization headroom, task difficulty and GPU cost.
+The agent model is predetermined for each study rather than chosen by comparing condition performance. V0 begins with a declared low-cost direct-API profile and uses that exact provider, model identifier, endpoint and inference configuration in every condition and block. A short common capability check is pass/fail: it verifies that the profile can use OpenCode's base tools, native subagent mechanism and collaboration tool, but it does not rank models or estimate the collaboration effect. If the profile fails, that study is reported as infeasible and any replacement is registered as a new study version. If the low-cost study is promising, a higher-capability model is tested as a separate, fully repeated four-condition study; results are never pooled across models as though they came from one experiment. Choosing whether to fund that later study is a program-level exploratory decision, not part of the first study's confirmatory claim, and every attempted model study is reported. The open-weight serving target is calibrated independently for optimization headroom, task difficulty and GPU cost.
 
 ## Randomization and replication
 
-Campaign variants are assigned in randomized complete blocks. A block contains the same variant or job sequence and resource envelope run once under all four conditions. Condition order is randomized to reduce provider, cloud and time-of-day effects.
+Campaign variants are assigned in randomized complete blocks. A block contains the same variant or job sequence and resource envelope run once under all four conditions. Before execution, a versioned randomization algorithm assigns condition labels to predeclared execution slots and run seeds. The complete block schedule, including block, variant, slot, seed, assigned condition and execution order, is hashed into the study manifest before any outcome is observed. Each campaign receives a mechanically derived resolved-run manifest. Condition order is randomized to reduce provider, cloud and time-of-day effects.
 
 Use repeated stochastic runs rather than claiming deterministic replay. Preserve the full manifest, artifacts and available traces for every replicate.
 
@@ -152,7 +155,7 @@ Do not discard an inconvenient valid run as an outlier without a predeclared mec
 
 ## Candidate finalization
 
-All conditions may submit the same maximum number of immutable candidates and receive the same public validation feedback. At the deadline, the runner selects the eligible candidate with the greatest public-validation score under a frozen ordering and tie-break, then evaluates it on hidden data. For serving optimization, the reference server participates as a system-owned fallback and candidates are ordered by public percentage improvement over it. Thus the winner of `peer_isolated` is simply the strongest independently produced improvement. The identical rule applies to `peer_collab`, `native_multiagent` and `solo`.
+All conditions receive the same organisation-level maximum number of immutable candidates and the same public validation feedback. In each peer arm, that maximum is divided into equal, non-transferable per-actor allowances; one peer cannot consume another's slots or learn about its submissions through a quota rejection. At the deadline, the runner selects the eligible candidate with the greatest public-validation score under a frozen ordering and tie-break, then evaluates it on hidden data. For serving optimization, the reference server participates as a system-owned fallback and candidates are ordered by public percentage improvement over it. Thus the winner of `peer_isolated` is simply the strongest independently produced improvement. The identical neutral rule applies to `peer_collab`, `native_multiagent` and `solo`.
 
 For campaigns without a meaningful reference artifact, the selector instead uses the campaign's frozen normalized public criterion. If no candidate is eligible, it returns the campaign-defined failure-floor outcome. Hidden scores never participate in selection.
 
@@ -195,7 +198,7 @@ Only after the V0 comparison is working should the research program vary:
 ## Main threats to validity
 
 - **Peer-treatment leakage:** `peer_isolated` and `peer_collab` must differ only in communication visibility and the instructions needed to expose it. Hidden shared caches, files or broker state would invalidate the communication estimand.
-- **Indirect peer channels:** candidate listings, public feedback, broker queues, timing, artifacts and research or provider caches can communicate even when the board is private. They remain actor-scoped until closure unless explicitly published in `peer_collab`.
+- **Indirect peer channels:** candidate listings, public feedback, broker queues, timing, artifacts and research or provider caches can communicate even when the board is private. V0 uses actor-scoped caches and results, fixed non-transferable allowances, deterministic compute slots and capability-bearing artifact publication. Conformance tests must still attempt timing, quota-exhaustion and guessed-reference channels before confirmatory runs.
 - **Runtime-treatment coupling:** native and peer conditions necessarily expose different tools and topology. Minimize and publish instruction differences.
 - **Weak native baseline:** customized or broken subagent behavior would make collab look artificially good. Use pinned stock general-purpose behavior and qualification tests.
 - **Provider-runtime mismatch:** some models may not use a runtime's tools well. Qualify before freezing and repeat later with other model profiles.

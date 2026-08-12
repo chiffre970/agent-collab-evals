@@ -14,6 +14,7 @@ A campaign definition provides:
 - public validation feedback;
 - an independently bound hidden evaluator;
 - a common resource envelope;
+- fixed, non-transferable peer-actor allocations and a deterministic compute schedule;
 - per-job or campaign-level outcome aggregation;
 - enough variants and repeated campaign runs for blocked comparison.
 
@@ -34,7 +35,7 @@ A confirmatory campaign must:
 
 A campaign does not need a forced mid-run change. Changes, interruptions and accumulated organisational memory are valuable later treatments, but requiring them now would confound the first test.
 
-For the peer comparison, `peer_isolated` and `peer_collab` must use the same `N`, activation timing, scheduling policy, session topology and stopping rules. The exact policy is selected during calibration and frozen in the study manifest. Visibility of peer entries and referenced artifacts is the treatment; an extra head start, always-on coordinator or different wake-up rule is not.
+For the peer comparison, `peer_isolated` and `peer_collab` must use the same `N`, activation timing, scheduling policy, session topology, stopping rules and per-actor resource allocations. The exact policy is selected during calibration and frozen in the study manifest. API, GPU, research and candidate allowances are equal and non-transferable across peers in V0, and GPU requests run only in predeclared actor slots. Visibility of peer entries and grant-bearing artifact references is the treatment; an extra head start, shared quota, demand-sensitive queue or different wake-up rule is not.
 
 ## Research modes
 
@@ -43,7 +44,7 @@ Campaigns that need external evidence declare one of two bounded modes and use t
 - **Frozen research:** a versioned corpus or recorded search-and-fetch environment is replayed for reproducible confirmatory comparison.
 - **Controlled live research:** agents receive read-only search and fetch through the research broker, with source policy, request and byte quotas, private/local/metadata-network blocking, download controls and complete recording. This better represents real work, but results must acknowledge that the web can change between experimental blocks.
 
-Neither mode exposes raw network access, cloud credentials or unrelated host files. Recorded results and caches remain scoped according to the condition so they cannot become an accidental peer channel.
+Neither mode exposes raw network access, cloud credentials or unrelated host files. Recorded results, caches and request/byte allowances remain actor-scoped in both peer conditions so they cannot become an accidental peer channel. An agent may share a result in `peer_collab` only through an explicit collaboration publication and, for an artifact, a valid campaign-scoped grant.
 
 ## Campaign 1: small-model cloud serving
 
@@ -73,7 +74,9 @@ Before condition comparison, sequential pilot runs choose a small serving **targ
 - hidden quality measurement is stable;
 - the task does not collapse to selecting one obvious configuration flag.
 
-The agent model is qualified separately from the serving target. V0 calls the DeepSeek direct API; Flash and Pro are alternative configurations behind `ModelProfile`, and qualification selects one using the same shell/edit, native-handoff and peer-tool tasks. A non-DeepSeek provider is used only if both direct profiles fail that common qualification. The selected agent model, endpoint, runtime, inference settings and price catalog are then frozen for the study.
+Calibration also chooses aggregate API, GPU, research, retry and candidate limits that divide exactly into equal actor allocations for the peer conditions, plus a deterministic compute-slot duration and cadence that leave enough room for a valid single-agent attempt.
+
+The agent model is specified separately from the serving target. The first study declares one low-cost direct-API `ModelProfile` before any condition runs. A common pass/fail check verifies basic shell/edit, native-handoff and peer-tool operation; it neither ranks candidate models nor uses condition outcome differences. The exact provider, model identifier, endpoint, runtime, inference settings and price catalog are frozen across all four conditions and every block. A failed capability check ends that study as infeasible; changing to another model creates a new study version. If the initial result is promising, a higher-capability model is evaluated by repeating the complete four-condition design in a later study.
 
 ### Fixed inputs
 
@@ -84,6 +87,7 @@ The agent model is qualified separately from the serving target. V0 calls the De
 - Public and hidden request-set digests.
 - Quality metric, tolerance and latency limits.
 - API-dollar, GPU-time, wall-time and submission caps.
+- Equal fixed peer-actor API, GPU, research and submission allocations plus deterministic compute slots.
 - Adapter versions and capability-manifest digests.
 
 ### Agent-controlled surface
@@ -112,7 +116,7 @@ Every submitted candidate first receives public validation:
 5. repeated and concurrent-load stability on the public workload;
 6. prohibited-shortcut inspection.
 
-The frozen reference server is automatically registered as a system-owned candidate. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
+The frozen reference server is automatically registered as a system-owned candidate. Every condition has the same total candidate allowance; in the peer arms it is divided equally into fixed actor allowances so peers cannot consume or signal through one another's capacity. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
 
 The primary metric for a candidate passing the hidden gates is sustained goodput on the held-out workload under the frozen latency service-level objective. Report alongside it:
 
@@ -144,7 +148,7 @@ Do not reveal which variant dimension is stressed in the hidden workload beyond 
 2. Qualify stock runtime-native handoffs and run `native_multiagent` pilots.
 3. Qualify the identical peer-tool schema under actor-private `peer_isolated` and organisation-shared `peer_collab` scopes.
 4. Verify that no files, artifacts, caches or broker state form an accidental channel in `peer_isolated`.
-5. Freeze one study version and run randomized complete blocks across all four conditions.
+5. Materialize and hash the full randomized block schedule, then run its assigned slots across all four conditions.
 6. Replicate across additional serving variants.
 7. Only then vary organisation size, model profile or job-sequence length.
 
@@ -229,16 +233,17 @@ The following are separate experiments because they change more than peer commun
 - human-agent mixed teams;
 - privileged agents, approvals and consequential actions;
 - alternative peer visibility or candidate-selection policies.
+- pooled or transferable peer budgets, submissions and compute scheduling.
 
 ## Build order
 
 1. Define the domain ports and make fake adapters pass the durable two-job campaign lifecycle.
-2. Pin OpenCode as the first `HarnessRuntime` adapter and implement the provider-neutral model profile plus enforced dollar gateway.
-3. Implement local storage, sandbox policy, cloud-GPU compute and disabled/frozen research adapters behind their ports and brokers.
+2. Pin OpenCode as the first `HarnessRuntime` adapter and implement the provider-neutral model profile plus enforced organisation and actor dollar limits.
+3. Implement local storage with artifact grants, sandbox policy, deterministic actor-slotted cloud-GPU compute and disabled/frozen research adapters behind their ports and brokers.
 4. Implement the serving campaign definition and evaluator adapter end to end with `solo`.
 5. Enable stock runtime-native handoffs without custom orchestration.
 6. Implement the collaboration adapter with identical actor-private and organisation-shared peer-tool modes.
-7. Add trace export, human observation labels and randomized four-condition block execution.
+7. Add trace export, human observation labels, frozen block/run manifests and randomized four-condition execution.
 8. Complete calibration and freeze the first confirmatory study.
 9. Run and publish the four-condition serving experiment.
 10. Decide from evidence whether to add a multi-job campaign, second task family or collaboration feature.

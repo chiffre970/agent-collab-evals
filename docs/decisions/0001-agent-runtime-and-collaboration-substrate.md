@@ -13,7 +13,7 @@ V0 will pin a stock OpenCode release and integrate it through the generic `Harne
 
 We will not fork OpenCode initially. A fork is justified only if an instrumentation spike demonstrates that a required, predeclared event or control cannot be implemented through the SDK, plugin, provider gateway or external sandbox. Any fork must remain an adapter detail and must be pinned by commit.
 
-V0 will implement a minimal collaboration backend directly behind the generic `CollaborationBackend` port. This gives the experiment exact actor-private versus organisation-shared authorization, immutable audit events, pagination, notifications and artifact-reference behavior without importing unrelated orchestration policy. It must not assign roles, plan work, merge outputs or optimize coordination.
+V0 will implement a minimal collaboration backend directly behind the generic `CollaborationBackend` port. This gives the experiment exact actor-private versus organisation-shared authorization, immutable audit events, pagination and notifications without importing unrelated orchestration policy. A thin application service coordinates artifact publication: storage issues an unforgeable campaign- and audience-scoped grant only after verifying ownership, and collaboration carries that grant in the explicit publication. Neither adapter calls or discovers the other. The service must not assign roles, plan work, merge outputs or optimize coordination.
 
 Hugging Face Agent Collabs is not the V0 runtime, collaboration dependency or evaluator. It remains a candidate future `CollaborationBackend` adapter and an external replication target after the minimal treatment is validated. Adding it must not change campaign, evaluator, storage or harness contracts.
 

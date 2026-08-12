@@ -12,7 +12,7 @@ The comparison is about outcome quality, not how much agents communicate. API co
 
 V0 uses a pinned release of [OpenCode](https://github.com/anomalyco/opencode) as the coding-agent runtime. It was selected as a mature, open-source Codex-like system with native subagents, a programmatic SDK and broad model-provider support—not because of any one provider integration. There is no separate multi-agent orchestrator.
 
-Agent inference initially uses the DeepSeek direct API. Flash and Pro are selectable through the same provider-neutral `ModelProfile`; qualification chooses one before the study is frozen. Another provider is a fallback only if both DeepSeek profiles fail the common tool-use qualification, not an additional variable within V0. Every confirmatory run uses the same selected agent model, runtime, inference settings and base tools. Initial engineering starts within a $20 total DeepSeek API allowance; calibration determines the later per-organisation confirmatory cap.
+Agent inference initially uses a predetermined low-cost direct-API model profile. Every study pins one exact provider, model identifier, endpoint, inference configuration and price catalog across all four conditions and every randomized block. A common pass/fail capability check verifies that the declared model can operate the required OpenCode and collaboration tools; it does not compare models or select one from condition performance. If the cheap-model study is promising, a higher-capability model is tested by repeating the complete design as a new study version. Initial engineering starts within a $20 total DeepSeek API allowance; calibration determines the later per-organisation confirmatory cap.
 
 It compares four conditions:
 
@@ -21,7 +21,7 @@ It compares four conditions:
 3. `peer_isolated`: a homogeneous fleet of OpenCode primary agents works independently without peer visibility or native subagents.
 4. `peer_collab`: the same peer fleet may communicate through the experimental collaboration service. Agents are told how to use the service, but receive no assigned roles or coordination plan.
 
-`peer_collab - peer_isolated` identifies the effect of peer communication. Those two conditions use the same `N` identities, session topology, peer-tool schema, candidate policy and aggregate limits. The exact policy for activating and scheduling peers is frozen in the study manifest and matched between them; only whether peer entries and referenced artifacts are actor-private or organisation-visible changes. `peer_collab - native_multiagent` tests the proposed approach against conventional hierarchical delegation. Initial calibration starts with four available identities; later studies vary this number, including the motivating comparison between many collaborating agents and one agent with the same total spend.
+`peer_collab - peer_isolated` identifies the effect of peer communication. Those two conditions use the same `N` identities, session topology, peer-tool schema, candidate policy, aggregate limits and fixed per-actor allocations. API, GPU, research and candidate allowances are equal and non-transferable across peers in V0, and compute uses the same deterministic actor-slot schedule in both arms. Only whether peer entries and grant-bearing artifact references are actor-private or organisation-visible changes. `peer_collab - native_multiagent` tests the proposed approach against conventional hierarchical delegation. Initial calibration starts with four available identities; later studies vary this number, including the motivating comparison between many collaborating agents and one agent with the same total spend.
 
 The first campaign asks the DeepSeek-powered agents to improve the serving performance of a separate, small open-weight target model on a cheap cloud GPU while maintaining output quality, correctness and reliability. The target model is an artifact being optimized, not the model operating the agents. A hidden evaluator scores the final artifact on a held-out workload.
 
@@ -34,7 +34,7 @@ An organisation is durable for the life of a campaign: its agent sessions, works
 3. Wall-clock time.
 4. Reliability and valid-run rate.
 
-All four conditions receive the same starting materials, public feedback, wall-time allowance, cloud-compute allowance and hard aggregate API-dollar cap. Confirmatory experiments use metered API credentials; subscription-backed model access is acceptable for development only because it does not yield a comparable marginal cost.
+All four conditions receive the same starting materials, public feedback, wall-time allowance, cloud-compute allowance and hard aggregate API-dollar cap. The peer arms divide relevant allowances equally among actors so resource exhaustion cannot become an incidental communication channel. Confirmatory experiments use metered API credentials; subscription-backed model access is acceptable for development only because it does not yield a comparable marginal cost.
 
 Emergent coordination is observed, not optimized, in V0. Human reviewers record whether lateral delegation, unsolicited assistance, reuse, challenge, deconfliction or specialization occurred. These observations are descriptive and do not enter the primary score.
 
