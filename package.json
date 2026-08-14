@@ -1,0 +1,16 @@
+{
+  "name": "agent-collab-evals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check:openrouter": "node --check scripts/preflight/openrouter.mjs",
+    "preflight:openrouter": "node --env-file=.env scripts/preflight/openrouter.mjs"
+  },
+  "dependencies": {
+    "@openrouter/sdk": "1.2.34"
+  }
+}

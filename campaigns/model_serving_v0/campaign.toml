@@ -1,0 +1,41 @@
+schema_version = "model-serving-campaign/v0alpha1"
+campaign_id = "model-serving-v0"
+status = "calibration"
+mission_file = "mission.md"
+submission_schema = "submission.schema.json"
+
+[target_model]
+id = "Qwen/Qwen3-4B"
+revision = "1cfa9a7208912126459214e8b04321603b3df60c"
+license = "Apache-2.0"
+
+[hardware]
+provider = "modal"
+environment = "dev"
+gpu_type = "L4"
+gpu_count = 1
+
+[reference]
+candidate_manifest = "reference/candidate.json"
+adapter = "modal-vllm"
+vllm_version = "0.21.0"
+cuda_image = "nvidia/cuda:12.9.0-devel-ubuntu22.04"
+generation_config = "vllm"
+served_model_name = "target-model"
+
+[workload]
+public_correctness = "workloads/public/correctness.jsonl"
+public_profile = "workloads/public/profile.toml"
+hidden_contract = "evaluator/hidden_contract.json"
+
+[evaluation]
+primary_metric = "goodput_requests_per_second"
+quality_gate = "reference_relative"
+slo_status = "unset_until_reference_calibration"
+hidden_data_status = "external_unmaterialized"
+
+[development_limits]
+modal_usd_cap = "5.00"
+openrouter_usd_cap = "2.00"
+gpu_seconds_per_solo_run = 1800
+candidate_submissions = 2

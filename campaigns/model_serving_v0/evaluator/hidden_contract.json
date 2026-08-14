@@ -1,0 +1,20 @@
+{
+  "schema_version": "model-serving-hidden-input/v0alpha1",
+  "materialization": "external_after_submission_closure",
+  "required_digests": [
+    "correctness_requests",
+    "quality_requests",
+    "performance_profile"
+  ],
+  "required_gates": [
+    "artifact_integrity",
+    "cold_start",
+    "api_schema",
+    "correctness",
+    "quality_relative_to_reference",
+    "stability",
+    "prohibited_shortcuts"
+  ],
+  "primary_metric": "goodput_requests_per_second",
+  "agent_visible": false
+}

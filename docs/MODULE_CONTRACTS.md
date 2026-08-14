@@ -257,6 +257,8 @@ interface HarnessRuntime:
 
 `OrganisationSpec` includes the condition, persistent workspace handles, model endpoint routed through `BudgetGateway`, tool grants, native-handoff policy and the frozen peer activation policy. Its maximum live identities are derived from `organisation_size`: one for `solo`, and at most `N` for every other condition.
 
+`deliver` is idempotent for the same session, `job_id` and canonical materials digest. Repeating an interrupted fan-out completes missing deliveries without duplicating accepted work; reusing a `job_id` with a different materials digest fails closed.
+
 The OpenCode adapter must:
 
 - use the pinned OpenCode server, SDK and effective configuration in the manifest;

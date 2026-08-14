@@ -1,0 +1,3 @@
+{"id":"exact-echo","messages":[{"role":"user","content":"Reply with exactly CALIBRATION_OK and nothing else."}],"max_tokens":16,"check":{"kind":"exact","value":"CALIBRATION_OK"}}
+{"id":"small-arithmetic","messages":[{"role":"user","content":"What is 17 + 25? Reply with only the integer."}],"max_tokens":16,"check":{"kind":"regex","value":"^42$"}}
+{"id":"basic-fact","messages":[{"role":"user","content":"What is the capital of France? Reply with only the city name."}],"max_tokens":16,"check":{"kind":"casefold_exact","value":"paris"}}

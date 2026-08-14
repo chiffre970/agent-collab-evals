@@ -1,0 +1,24 @@
+schema_version = "serving-workload/v0alpha1"
+seed = 1729
+metric_percentiles = [50, 95, 99]
+
+[[buckets]]
+id = "short"
+input_tokens = 128
+output_tokens = 128
+request_rates = [1, 2, 4, 8]
+num_prompts = 32
+
+[[buckets]]
+id = "medium"
+input_tokens = 1024
+output_tokens = 256
+request_rates = [1, 2, 4]
+num_prompts = 24
+
+[[buckets]]
+id = "long"
+input_tokens = 4096
+output_tokens = 256
+request_rates = [1, 2]
+num_prompts = 12

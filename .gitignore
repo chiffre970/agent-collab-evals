@@ -23,6 +23,10 @@ __pycache__/
 .coverage.*
 htmlcov/
 
+# Node dependencies and caches
+node_modules/
+.npm/
+
 # Local tooling and operating-system files
 .DS_Store
 .idea/

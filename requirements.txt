@@ -1,0 +1,5 @@
+# Install the standard-library core and CLI from this checkout.
+-e .
+
+# Runtime dependency for Modal-backed compute and preflight entry points.
+modal==1.5.4

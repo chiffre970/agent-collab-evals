@@ -46,9 +46,35 @@ OpenCode telemetry supports measurement and reconciliation only. Hard limits are
 
 This repository is the minimum system needed to test the collaboration thesis. It is not yet the governed organisational platform described in [the product vision](docs/VISION.md). V0 excludes permission routing, procurement, approvals, organisational search, recommendation, long-term cross-campaign memory and autonomous real-world actions.
 
+## Executable slice
+
+The repository now contains the first scenario-shaped vertical slice:
+
+- a dependency-free domain core with narrow harness, event and snapshot ports;
+- a deterministic fake harness and atomic local campaign persistence;
+- a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
+- a pure nine-point public benchmark plan for vLLM 0.21.0; and
+- a private Modal adapter that starts the frozen stock reference on one L4 and
+  runs an API canary.
+
+Run the local slice without model or GPU spend:
+
+```bash
+collab-evals validate-scenario
+collab-evals fake-solo
+python -m unittest discover -s tests -v
+```
+
+This is calibration infrastructure, not a completed experimental platform.
+OpenCode conformance, the collaboration service, enforcement brokers,
+submission selection, public and hidden evaluators, and registered
+four-condition execution remain explicit later gates. See
+[implementation status](docs/IMPLEMENTATION_STATUS.md).
+
 ## Design documents
 
 - [Local setup](docs/SETUP.md)
+- [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module contracts](docs/MODULE_CONTRACTS.md)
 - [Experimental design](docs/EXPERIMENTAL_DESIGN.md)
