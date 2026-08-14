@@ -1,0 +1,54 @@
+schema_version = "model-serving-measurement/v0alpha1"
+phase = "calibration"
+repetitions = 3
+point_order = "canonical_per_repetition"
+
+[lifecycle]
+container_reset = "fresh_single_use_per_repetition"
+server_reset = "new_process_per_repetition"
+model_weight_cache = "prepopulated_pinned_revision"
+engine_cache = "fresh_ephemeral_per_repetition"
+primary_scope = "post_warmup_steady_state"
+cold_start_scope = "process_spawn_to_health_secondary"
+
+[warmup]
+server_canary_requests = 1
+point_requests = 2
+
+[timing]
+primary_source = "vllm_in_container_perf_counter"
+lifecycle_source = "in_container_monotonic"
+modal_source = "observational_only"
+client_source = "observational_only"
+
+[environment]
+base_image_digest = "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092"
+gpu_type = "L4"
+gpu_memory_mib = 23034
+gpu_driver_version = "580.95.05"
+gpu_power_limit_watts = "72.00"
+modal_client_version = "1.5.4"
+resolved_package_digest = "sha256:4455c0b21d306127bf6f61ddc5319f4898aab49732bc6dbf6a1da2658cd5111b"
+resolved_package_policy = "require_exact_digest"
+driver_policy = "require_exact_version"
+clocks_and_power_policy = "provider_managed_record_observable"
+
+[timeouts]
+server_startup_seconds = 600
+point_seconds = 600
+repetition_seconds = 1800
+
+[failure]
+request_failure = "invalidate_repetition"
+point_failure = "abort_repetition"
+retry = "one_whole_repetition_for_infrastructure_only"
+max_attempts = 2
+
+[canary]
+bracketing = "reference_before_and_after_candidate_batch"
+drift_policy = "record_only_until_calibration"
+
+[persistence]
+raw = "verbatim_evaluator_private"
+normalized = "integer_units_atomic_bundle"
+release = "after_registered_boundary"

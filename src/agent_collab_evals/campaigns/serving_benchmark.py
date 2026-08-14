@@ -14,6 +14,9 @@ from .model_serving import BenchmarkPlan, ManifestValidationError
 class BenchmarkInvocation:
     bucket_id: str
     request_rate: int
+    input_tokens: int
+    output_tokens: int
+    num_prompts: int
     result_file: Path
     argv: tuple[str, ...]
 
@@ -25,6 +28,7 @@ def build_vllm_benchmark_invocations(
     model_source: str,
     served_model_name: str,
     result_directory: Path,
+    warmup_requests: int,
     goodput_slos_ms: Mapping[str, int] | None = None,
 ) -> tuple[BenchmarkInvocation, ...]:
     """Build argv arrays only; execution belongs to a compute adapter."""
@@ -36,6 +40,12 @@ def build_vllm_benchmark_invocations(
         raise ManifestValidationError("benchmark base_url must not contain credentials")
     if not model_source or not served_model_name:
         raise ManifestValidationError("model source and served model name are required")
+    if (
+        not isinstance(warmup_requests, int)
+        or isinstance(warmup_requests, bool)
+        or warmup_requests < 1
+    ):
+        raise ManifestValidationError("benchmark warmup requests must be positive")
 
     slos = goodput_slos_ms or {}
     if set(slos) - {"ttft", "tpot", "e2el"}:
@@ -78,11 +88,13 @@ def build_vllm_benchmark_invocations(
                 str(plan.seed),
                 "--temperature",
                 "0",
+                "--extra-body",
+                '{"chat_template_kwargs":{"enable_thinking":false}}',
                 "--random-range-ratio",
                 "0",
                 "--ignore-eos",
                 "--num-warmups",
-                "2",
+                str(warmup_requests),
                 "--disable-tqdm",
                 "--percentile-metrics",
                 "ttft,tpot,itl,e2el",
@@ -104,6 +116,9 @@ def build_vllm_benchmark_invocations(
                 BenchmarkInvocation(
                     bucket_id=bucket.bucket_id,
                     request_rate=request_rate,
+                    input_tokens=bucket.input_tokens,
+                    output_tokens=bucket.output_tokens,
+                    num_prompts=bucket.num_prompts,
                     result_file=result_directory / filename,
                     argv=tuple(argv),
                 )

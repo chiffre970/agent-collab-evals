@@ -20,6 +20,7 @@ candidate_manifest = "reference/candidate.json"
 adapter = "modal-vllm"
 vllm_version = "0.21.0"
 cuda_image = "nvidia/cuda:12.9.0-devel-ubuntu22.04"
+cuda_image_digest = "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092"
 generation_config = "vllm"
 served_model_name = "target-model"
 
@@ -33,6 +34,7 @@ primary_metric = "goodput_requests_per_second"
 quality_gate = "reference_relative"
 slo_status = "unset_until_reference_calibration"
 hidden_data_status = "external_unmaterialized"
+measurement_profile = "evaluator/measurement.toml"
 
 [development_limits]
 modal_usd_cap = "5.00"

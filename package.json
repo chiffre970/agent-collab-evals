@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "check:openrouter": "node --check scripts/preflight/openrouter.mjs",
+    "check:openrouter": "node --check scripts/preflight/openrouter.mjs && node scripts/preflight/openrouter.mjs --validate-profile",
     "preflight:openrouter": "node --env-file=.env scripts/preflight/openrouter.mjs"
   },
   "dependencies": {

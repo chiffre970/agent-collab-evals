@@ -1,0 +1,32 @@
+{
+  "schema_version": "model-profile/v0alpha1",
+  "profile_id": "deepseek-v4-flash-openrouter-development",
+  "status": "development",
+  "transport": "openrouter",
+  "endpoint": "https://openrouter.ai/api/v1",
+  "requested_model": "deepseek/deepseek-v4-flash-0731",
+  "expected_stream_model": "deepseek/deepseek-v4-flash-0731",
+  "expected_metadata_model": "deepseek/deepseek-v4-flash-20260731",
+  "provider": {
+    "order": [
+      "DeepInfra"
+    ],
+    "only": [
+      "DeepInfra"
+    ],
+    "expected": "DeepInfra",
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true,
+    "zdr": true
+  },
+  "inference": {
+    "reasoning_effort": "low"
+  },
+  "preflight": {
+    "max_completion_tokens": 512
+  },
+  "client": {
+    "app_title": "agent-collab-evals"
+  }
+}

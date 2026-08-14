@@ -54,8 +54,10 @@ The repository now contains the first scenario-shaped vertical slice:
 - a deterministic fake harness and atomic local campaign persistence;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0; and
-- a private Modal adapter that starts the frozen stock reference on one L4 and
-  runs an API canary.
+- a pinned warm-steady-state measurement protocol, strict vLLM result
+  normalizer and atomic evaluator-private raw-result store;
+- a private Modal adapter that can run either an API canary or one isolated
+  nine-point stock-reference repetition on one L4.
 
 Run the local slice without model or GPU spend:
 

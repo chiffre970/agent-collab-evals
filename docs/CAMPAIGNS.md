@@ -116,6 +116,29 @@ Every submitted candidate first receives public validation:
 5. repeated and concurrent-load stability on the public workload;
 6. prohibited-shortcut inspection.
 
+Serving performance is scored on a warm, steady-state phase, while startup is
+kept as a separate gate and secondary outcome. Each repetition begins in a
+fresh single-use compute container with a new server process, a pre-populated
+model-weight cache pinned to the registered revision and a fresh ephemeral
+engine cache. The evaluator waits for health, runs the fixed canary and
+per-point warmups, and only then starts each point's primary timer. It records
+process-spawn-to-health latency separately. This provides warm serving
+measurements without depending on provider container reuse or maintaining an
+idle paid GPU pool.
+
+Excluding lifecycle work from the serving score does not make it free:
+provider queueing where observable, container startup, model loading, warmups,
+measurement and teardown all count toward evaluator wall time, GPU seconds and
+dollar cost. Public evaluation reserves and charges the complete worst-case
+lifecycle duration, not only the warmed phase.
+
+The authoritative primary timer is the pinned benchmark client's monotonic
+timer inside the evaluator container, issuing requests over loopback to the
+candidate server. Client-to-cloud wall time, provider pending time and provider
+dashboard/call-graph timestamps are observational lifecycle evidence only;
+they never enter goodput or request-latency scores. Every result records the
+timing source explicitly.
+
 The frozen reference server is automatically registered as a system-owned candidate. Every condition has the same total candidate allowance; in the peer arms it is divided equally into fixed actor allowances so peers cannot consume or signal through one another's capacity. Before candidate admission, the registry proves authenticated artifact ownership and reserves the public evaluator's worst-case duration from the submitting actor's GPU allocation and slots. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads under a separate evaluator measurement account. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
 
 The primary metric for a candidate passing the hidden gates is sustained goodput on the held-out workload under the frozen latency service-level objective. Report alongside it:

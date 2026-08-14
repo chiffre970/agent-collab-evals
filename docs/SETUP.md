@@ -45,27 +45,37 @@ agent workspaces or committed files.
 
 ## OpenRouter
 
-Put the OpenRouter API key after `OPENROUTER_API_KEY=` in `.env`. The defaults
-pin the dated DeepSeek V4 Flash model to DeepInfra's compatible endpoint,
-require zero data retention, deny provider data collection, disable fallbacks
-and cap the preflight response at 512 completion tokens. Run the small
-streaming request with:
+Put the OpenRouter API key after `OPENROUTER_API_KEY=` in `.env`. The dated
+model, endpoint, expected returned identity, provider route, privacy policy and
+preflight inference settings live in the versioned
+`config/model_profiles/deepseek-v4-flash-openrouter-development.json` profile.
+They are deliberately not environment variables: changing a behavior-changing
+input must create a reviewable profile change and digest. Validate that profile
+without a credential or network call with:
+
+```bash
+npm run check:openrouter
+```
+
+Then run the small streaming request with:
 
 ```bash
 npm run preflight:openrouter
 ```
 
 The command streams the answer, verifies the response against a deterministic
-canary, prints token/cost metadata and writes a key-free JSON receipt under
-ignored `tmp/preflight/`. It fails rather than silently selecting another
-provider or treating a reasoning-only response as usable. The preflight routing
-settings are a development default; a registered campaign must copy the
-finalized settings into its immutable study manifest instead of depending on
-`.env`.
+canary, and waits up to 15.5 seconds for OpenRouter's eventually consistent
+generation metadata to attest the returned provider and canonical model,
+prints token/cost metadata and writes a key-free JSON receipt under ignored
+`tmp/preflight/`. The receipt includes the exact profile-byte digest. It fails
+rather than silently accepting another provider or model, or treating a
+reasoning-only response as usable. This is a development profile; a registered
+campaign must reference a separately frozen registered profile from its
+immutable study manifest.
 
-The local `OPENROUTER_MAX_COMPLETION_TOKENS` setting is sent as the legacy
+The profile's `preflight.max_completion_tokens` setting is sent as the legacy
 `max_tokens` wire parameter because the pinned DeepSeek endpoint advertises
-that parameter. `requireParameters` remains enabled so future incompatibility
+that parameter. `require_parameters` remains enabled so future incompatibility
 fails visibly instead of being silently ignored.
 
 ## Modal
@@ -112,12 +122,47 @@ OpenAI-compatible server and requires an exact chat canary. Retries are
 disabled and the function is capped at 1,800 seconds. A cold first invocation
 can take several minutes. The command writes a key-free receipt atomically to
 ignored `tmp/calibration/model-serving-reference-smoke.json`; pass
-`--output-path` to select a different local receipt path.
+`--output-path` to select a different local receipt path. The CUDA base image
+is pinned to its linux/amd64 manifest digest rather than relying on the mutable
+tag alone.
 
-The reference smoke is not the serving baseline. The nine public benchmark
-points are defined and validated locally, but baseline execution remains gated
-on evaluator-owned result persistence and a fully resolved image/dependency
-identity. Do not use calibration output as confirmatory evidence.
+The reference smoke is not the serving baseline. After explicitly approving
+the GPU spend, run exactly one baseline repetition with:
+
+```bash
+.venv/bin/modal run -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --baseline --repetition 1 --attempt 1
+```
+
+The command uses a fresh single-use container and server process, but scores
+only after health, a server canary and two fixed warmup requests per point. It
+runs all nine points in canonical order and atomically writes the raw and
+normalized evaluator-private bundle below ignored
+`tmp/calibration/model-serving-reference/`. Startup, total client-observed time
+and in-container function-body time are recorded separately from the serving
+score. If an infrastructure-only failure qualifies for the one allowed
+whole-repetition retry, rerun that repetition with `--attempt 2`; both attempts
+remain durable.
+
+Formal baseline commands require a clean Git worktree and record the commit and
+Modal client version before allocating the GPU. The measurement profile also
+requires the exact resolved package-set digest, GPU memory, driver and power
+limit observed in the engineering pilot; drift fails the repetition rather
+than silently changing the calibration environment.
+
+Do not start repetition 2 until repetition 1 is inspected. Later repetitions
+fail closed if the resolved package set, base image, GPU model, memory, driver
+or power limit changes. Baseline calibration output is not confirmatory
+evidence.
+
+This split is intentional. Modal distinguishes queueing/container
+initialization from function execution in its
+[cold-start documentation](https://modal.com/docs/guide/cold-start), and its
+[call-graph capture](https://modal.com/docs/sdk/py/latest/FunctionCall) is
+documented as best-effort rather than a critical timing interface. The
+evaluator therefore uses vLLM's in-container monotonic benchmark timer for
+goodput and latency, while retaining client and function-body durations only
+for operations and cost analysis.
 
 Verify the local installation with:
 

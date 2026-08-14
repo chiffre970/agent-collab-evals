@@ -80,6 +80,9 @@ class ModelServingCampaign:
             "hidden_contract": cls._member(
                 root, str(raw["workload"]["hidden_contract"])
             ),
+            "measurement_profile": cls._member(
+                root, str(raw["evaluation"]["measurement_profile"])
+            ),
         }
         transitive = {
             name: digest_file(path) for name, path in declared_files.items()
@@ -92,6 +95,7 @@ class ModelServingCampaign:
         )
         campaign = cls(root, raw, transitive, manifest_digest)
         campaign.validate_reference_candidate()
+        campaign.measurement_profile()
         return campaign
 
     @property
@@ -112,6 +116,19 @@ class ModelServingCampaign:
             self.root, str(self.raw["reference"]["candidate_manifest"])
         )
 
+    @property
+    def measurement_profile_path(self) -> Path:
+        return self._member(
+            self.root, str(self.raw["evaluation"]["measurement_profile"])
+        )
+
+    def measurement_profile(self):
+        """Load the evaluator profile lazily to keep campaign modules decoupled."""
+
+        from .serving_measurement import MeasurementProfile
+
+        return MeasurementProfile.load(self.measurement_profile_path)
+
     def materialize(self, task_seed: int) -> MaterializedJobs:
         if task_seed < 0:
             raise ManifestValidationError("task_seed must be non-negative")
@@ -128,6 +145,9 @@ class ModelServingCampaign:
                 "public_correctness"
             ],
             "public_profile_digest": self.transitive_digests["public_profile"],
+            "measurement_profile_digest": self.transitive_digests[
+                "measurement_profile"
+            ],
         }
         material_digest = digest_value(material)
         job = Job(
@@ -144,6 +164,9 @@ class ModelServingCampaign:
                 ),
                 "reference_candidate": str(
                     self.raw["reference"]["candidate_manifest"]
+                ),
+                "measurement_profile": str(
+                    self.raw["evaluation"]["measurement_profile"]
                 ),
             },
         )
@@ -230,6 +253,8 @@ class ModelServingCampaign:
             raise ManifestValidationError("reference vLLM version mismatch")
         if build["image_ref"] != reference["cuda_image"]:
             raise ManifestValidationError("reference CUDA image mismatch")
+        if build["image_digest"] != reference["cuda_image_digest"]:
+            raise ManifestValidationError("reference CUDA image digest mismatch")
         if build["dependency_lock"] != f"vllm=={reference['vllm_version']}":
             raise ManifestValidationError("reference dependency lock mismatch")
 
@@ -424,6 +449,7 @@ class ModelServingCampaign:
                 "adapter",
                 "vllm_version",
                 "cuda_image",
+                "cuda_image_digest",
                 "generation_config",
                 "served_model_name",
             },
@@ -436,10 +462,13 @@ class ModelServingCampaign:
             "adapter",
             "vllm_version",
             "cuda_image",
+            "cuda_image_digest",
             "served_model_name",
         ):
             if not isinstance(reference.get(key), str) or not reference[key]:
                 raise ManifestValidationError(f"reference.{key} is required")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", reference["cuda_image_digest"]):
+            raise ManifestValidationError("reference CUDA image digest is invalid")
         for key in ("mission_file", "submission_schema"):
             if not isinstance(raw.get(key), str) or not raw[key]:
                 raise ManifestValidationError(f"{key} is required")
@@ -456,7 +485,13 @@ class ModelServingCampaign:
         evaluation = ModelServingCampaign._mapping(raw, "evaluation")
         ModelServingCampaign._exact_keys(
             evaluation,
-            {"primary_metric", "quality_gate", "slo_status", "hidden_data_status"},
+            {
+                "primary_metric",
+                "quality_gate",
+                "slo_status",
+                "hidden_data_status",
+                "measurement_profile",
+            },
             "evaluation",
         )
         expected_evaluation = {
@@ -465,8 +500,12 @@ class ModelServingCampaign:
             "slo_status": "unset_until_reference_calibration",
             "hidden_data_status": "external_unmaterialized",
         }
-        if dict(evaluation) != expected_evaluation:
+        if any(evaluation.get(key) != value for key, value in expected_evaluation.items()):
             raise ManifestValidationError("unsupported calibration evaluation profile")
+        if not isinstance(evaluation.get("measurement_profile"), str) or not evaluation[
+            "measurement_profile"
+        ]:
+            raise ManifestValidationError("evaluation.measurement_profile is required")
 
         limits = ModelServingCampaign._mapping(raw, "development_limits")
         ModelServingCampaign._exact_keys(

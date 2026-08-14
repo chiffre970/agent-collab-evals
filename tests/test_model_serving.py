@@ -40,6 +40,7 @@ class ModelServingCampaignTests(unittest.TestCase):
             model_source="/models/pinned-qwen",
             served_model_name="target-model",
             result_directory=Path("/results"),
+            warmup_requests=self.campaign.measurement_profile().point_warmups,
         )
 
         self.assertEqual(len(invocations), 9)
@@ -49,6 +50,8 @@ class ModelServingCampaignTests(unittest.TestCase):
         self.assertEqual(first.argv[:3], ("vllm", "bench", "serve"))
         self.assertIn("/models/pinned-qwen", first.argv)
         self.assertIn("--save-detailed", first.argv)
+        warmup_index = first.argv.index("--num-warmups")
+        self.assertEqual(first.argv[warmup_index + 1], "2")
         self.assertEqual(first.result_file, Path("/results/short-1rps.json"))
 
     def test_benchmark_goodput_slos_are_explicit(self) -> None:
@@ -58,11 +61,33 @@ class ModelServingCampaignTests(unittest.TestCase):
             model_source="/models/pinned-qwen",
             served_model_name="target-model",
             result_directory=Path("results"),
+            warmup_requests=2,
             goodput_slos_ms={"ttft": 500, "tpot": 50},
         )[0]
 
         index = invocation.argv.index("--goodput")
         self.assertEqual(invocation.argv[index + 1 : index + 3], ("tpot:50", "ttft:500"))
+
+    def test_measurement_profile_is_transitively_pinned(self) -> None:
+        profile = self.campaign.measurement_profile()
+
+        self.assertEqual(profile.primary_scope, "post_warmup_steady_state")
+        self.assertEqual(profile.container_reset, "fresh_single_use_per_repetition")
+        self.assertEqual(profile.point_warmups, 2)
+        self.assertEqual(profile.repetitions, 3)
+        self.assertEqual(
+            profile.digest, self.campaign.transitive_digests["measurement_profile"]
+        )
+        schedule = profile.schedule(self.campaign.benchmark_plan())
+        self.assertEqual(len(schedule), 27)
+        self.assertEqual(
+            (schedule[0].repetition, schedule[0].bucket_id, schedule[0].request_rate),
+            (1, "short", 1),
+        )
+        self.assertEqual(
+            (schedule[9].repetition, schedule[9].bucket_id, schedule[9].request_rate),
+            (2, "short", 1),
+        )
 
     def test_materialization_is_seeded_and_deterministic(self) -> None:
         first = self.campaign.materialize(1729)
