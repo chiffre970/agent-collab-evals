@@ -41,6 +41,10 @@ smallest useful seams before adding the runtime and collaboration machinery.
   package-set metadata. Its baseline path runs one complete repetition in a
   fresh single-use container, persists partial failure evidence and never uses
   provider timing as the serving score.
+- Three clean-build formal stock-reference repetitions completed without
+  retries: 672/672 requests and 27/27 raw artifacts validated under identical
+  manifests, package set and GPU identity. The calibration ledger records
+  provenance, variability and provisional bucket-specific TTFT/TPOT SLOs.
 
 ## Not implemented
 
@@ -52,27 +56,27 @@ The following remain gates, not implied capabilities:
    routing.
 3. Collaboration, publication authorization, artifact storage, submission,
    compute and research services.
-4. Evaluator-owned untrusted candidate launch, public result release, executed
-   baseline repetitions, SLO calibration, hidden gates and neutral selection.
+4. Evaluator-owned untrusted candidate launch, durable external evidence,
+   public result release, registered SLO/scalar policy, hidden gates and neutral
+   selection.
 5. Four-condition scheduling, registered manifests, audit export and the
    preregistered statistical analysis.
 
 ## Next implementation gate
 
-The baseline executor has completed one valid nine-point engineering pilot,
-recorded in the [calibration ledger](calibration/MODEL_SERVING_V0.md). Because
-that run came from an uncommitted implementation worktree, it validates the
-path but is not a formal baseline repetition. Its resolved package/GPU state is
-now pinned in the next profile, and future baseline runs require a clean Git
-commit before allocating a GPU.
+The baseline executor has completed one engineering pilot and three valid
+formal repetitions, recorded in the
+[calibration ledger](calibration/MODEL_SERVING_V0.md). The request-level result
+is stable and the ledger proposes bucket-specific TTFT/TPOT SLOs, a 90% joint
+attainment rule, three candidate repetitions and unchanged hard lifecycle
+limits. Those conclusions have not been silently written into the source
+measurement profile.
 
-The next billable gate is formal reference repetition 1 from that clean build.
-If it is valid, inspect point duration, request failures, environment identity
-and raw-result shape before repetitions 2 and 3. The three formal calibration
-bundles then determine the provisional latency SLOs, canary-drift tolerance,
-variability model and GPU reservation duration. Those derived values require a
-new registered measurement-profile version; they are not silently written
-back into the calibration evidence.
+The next evaluator gate is to implement offline/direct vLLM goodput replay,
+freeze the exact cross-bucket scalar and improvement bound in a new profile,
+and validate score sensitivity with at least one legitimate non-reference
+candidate. The raw evidence also needs a durable evaluator-owned backend before
+confirmatory execution; the ignored local store is not sufficient retention.
 
 The OpenCode conformance spike can proceed independently of evaluator
 calibration. Both must pass before broader V0 implementation assumes OpenCode
