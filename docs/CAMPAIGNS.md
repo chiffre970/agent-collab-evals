@@ -14,7 +14,7 @@ A campaign definition provides:
 - public validation feedback;
 - an independently bound hidden evaluator;
 - a common resource envelope;
-- fixed, non-transferable peer-actor allocations and a condition-blind serialized compute scheduler;
+- fixed, non-transferable peer-actor allocations and a deterministic fixed-duration actor-slot schedule;
 - per-job or campaign-level outcome aggregation;
 - enough variants and repeated campaign runs for blocked comparison.
 
@@ -35,7 +35,7 @@ A confirmatory campaign must:
 
 A campaign does not need a forced mid-run change. Changes, interruptions and accumulated organisational memory are valuable later treatments, but requiring them now would confound the first test.
 
-Both peer conditions use the same registered `N`, timing, topology, stopping rules, fixed per-actor allowances and condition-blind serialized compute scheduler. The initial pilot starts with `N = 4`; later registered studies may scale it, but `N` cannot change after condition outcomes are inspected. Agents see only coarse state for their own compute jobs. Only visibility of peer entries and explicitly published artifacts differs. This isolates information sharing; pooled budgets and transferable capacity are reserved for a required follow-up.
+Both peer conditions use the same registered `N`, timing, topology, stopping rules, fixed per-actor allowances and deterministic actor-slot/result-release schedule. The initial pilot starts with `N = 4`; later registered studies may scale it, but `N` cannot change after condition outcomes are inspected. Exploratory compute and public evaluation both run in and charge the submitting actor's slots; unused time remains idle. Agents see only coarse state for their own compute jobs at the fixed release boundary. Only visibility of peer entries and explicitly published artifacts differs. This isolates information sharing; pooled budgets and transferable capacity are reserved for a required follow-up.
 
 ## Research modes
 
@@ -76,7 +76,7 @@ Before condition comparison, sequential pilot runs choose a small serving **targ
 
 Calibration chooses aggregate API, GPU, research, retry and candidate limits that divide equally among the study's frozen `N` peers, with enough per-actor compute time for a valid attempt.
 
-The agent model is separate from the serving target. DeepSeek Flash through the direct API is used for engineering and smoke tests. Before preregistration, DeepSeek Pro must pass one common task-feasibility check covering shell/edit, native handoffs and peer tools. The confirmatory study then freezes the exact Pro profile across all four conditions and blocks; any post-freeze change creates a new study version.
+The agent model is separate from the serving target. After engineering and one common pass/fail task-feasibility check covering shell/edit, native handoffs and peer tools, the first registered four-condition study freezes the exact DeepSeek `deepseek-v4-flash` profile. A preregistered progression rule may fund a separate four-condition `deepseek-v4-pro` study if the Flash evidence is promising. Pro never replaces Flash within a study, the two model results are not pooled, and all attempted registered studies—including a decision not to progress—are reported. Each study also freezes its billing catalog, rate schedule and price-tier/block policy.
 
 ### Fixed inputs
 
@@ -87,8 +87,8 @@ The agent model is separate from the serving target. DeepSeek Flash through the 
 - Public and hidden request-set digests.
 - Quality metric, tolerance and latency limits.
 - API-dollar, GPU-time, wall-time and submission caps.
-- Equal fixed peer-actor API, GPU, research and submission allocations plus the same serialized scheduler policy.
-- Adapter versions and capability-manifest digests.
+- Equal fixed peer-actor API, GPU, research and submission allocations plus the same deterministic actor-slot/result-release policy.
+- Platform, application-service, adapter and enforcement-component versions, build/configuration digests and capability-manifest digests.
 
 ### Agent-controlled surface
 
@@ -116,7 +116,7 @@ Every submitted candidate first receives public validation:
 5. repeated and concurrent-load stability on the public workload;
 6. prohibited-shortcut inspection.
 
-The frozen reference server is automatically registered as a system-owned candidate. Every condition has the same total candidate allowance; in the peer arms it is divided equally into fixed actor allowances so peers cannot consume or signal through one another's capacity. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
+The frozen reference server is automatically registered as a system-owned candidate. Every condition has the same total candidate allowance; in the peer arms it is divided equally into fixed actor allowances so peers cannot consume or signal through one another's capacity. Before candidate admission, the registry proves authenticated artifact ownership and reserves the public evaluator's worst-case duration from the submitting actor's GPU allocation and slots. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads under a separate evaluator measurement account. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
 
 The primary metric for a candidate passing the hidden gates is sustained goodput on the held-out workload under the frozen latency service-level objective. Report alongside it:
 
@@ -150,9 +150,10 @@ Do not reveal which variant dimension is stressed in the hidden workload beyond 
 2. Qualify stock runtime-native handoffs and run `native_multiagent` pilots.
 3. Qualify the identical peer-tool schema under actor-private `peer_isolated` and organisation-shared `peer_collab` scopes.
 4. Verify that no files, artifacts, caches or broker state form an accidental channel in `peer_isolated`.
-5. Materialize and hash the full randomized block schedule, then run its assigned execution positions across all four conditions.
-6. Run the required pooled-resource follow-up and select the required persistent non-coding campaign.
-7. Replicate across additional variants or organisation sizes as justified by the result.
+5. Materialize and hash the Flash study's full randomized block schedule, then run its assigned execution positions across all four conditions.
+6. Apply the preregistered progression rule; if it passes, register and run a separate complete Pro study, and otherwise record non-progression.
+7. Run the required pooled-resource follow-up and select the required persistent non-coding campaign.
+8. Replicate across additional variants or organisation sizes as justified by the result.
 
 ## Optional close-domain replication: software delivery
 
@@ -238,13 +239,13 @@ Pooled or transferable peer budgets, submissions and compute scheduling are the 
 
 ## Build order
 
-1. Run the two-day stock-OpenCode SDK/plugin proof from ADR 0001. Stop for an explicit runtime decision if it fails.
+1. Run the two-day stock-OpenCode proof from ADR 0001: out-of-process observational events where possible, a separately pinned non-mutating instrumentation plugin only where necessary, and a distinct peer-tool integration path. Stop for an explicit runtime decision if it fails.
 2. Define the minimal manifests and domain ports, then make fake adapters pass a durable two-job lifecycle.
-3. Implement the minimal collaboration contract, local storage and opaque server-authorized artifact publication; complete the ADR's five-day fake-campaign exit check or switch to the HF Agent Collabs adapter.
+3. Implement the minimal collaboration contract, local storage, durable publication registry and opaque server-authorized artifact publication. If the five-day fake-campaign exit check fails, stop and run the ADR's bounded substrate assessment; adopt or fork HF Agent Collabs only through an explicit recorded decision after it passes the treatment contract.
 4. Add the provider-neutral model profile, budget gateway, sandbox, immutable compute staging and disabled/frozen research adapters behind their ports and brokers.
 5. Implement the serving campaign and hidden evaluator end to end with `solo`.
 6. Qualify stock native handoffs and the matched actor-private/organisation-shared peer modes.
 7. Add trace export, human observation labels, frozen block/run manifests and randomized four-condition execution.
-8. Complete calibration and freeze the first confirmatory study.
-9. Run and publish the four-condition serving experiment.
+8. Complete calibration and freeze the first Flash confirmatory study, including its billing policy, analysis plan and Flash-to-Pro progression rule.
+9. Run and publish the four-condition Flash experiment; apply the frozen progression rule and, if triggered, register and run Pro as a separate complete study.
 10. Run the pooled-resource study and preregister the selected persistent non-coding campaign; add software replication only if useful.

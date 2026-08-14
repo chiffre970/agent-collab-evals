@@ -4,9 +4,9 @@
 
 V0 is a modular experiment system for testing agent collaboration. It is not an early implementation of the full governed-work-network product.
 
-OpenCode is the first coding-agent runtime adapter. It supplies the agent loop, context management, tools and native multi-agent handoffs, but it is not a dependency of the core experiment domain. V0 uses the DeepSeek direct API: Flash is the engineering and smoke-test profile, while Pro is the intended confirmatory profile after a preregistered feasibility qualification. Every study freezes one exact provider endpoint, model identifier, returned-identity expectation and inference configuration for all conditions; switching between Flash and Pro creates a new study version. These choices remain manifest data rather than core-domain dependencies.
+OpenCode is the first coding-agent runtime adapter. It supplies the agent loop, context management, tools and native multi-agent handoffs, but it is not a dependency of the core experiment domain. V0 uses the DeepSeek direct API. The first registered four-condition study uses `deepseek-v4-flash`; a separately preregistered `deepseek-v4-pro` study is funded only under the recorded progression rule and never replaces Flash inside a study. Every study freezes one exact provider endpoint, requested and expected returned model identity, inference configuration, billing schedule and price-tier policy for all conditions. Switching model or provider creates a new study version whose results are not pooled with the earlier model. These choices remain manifest data rather than core-domain dependencies.
 
-V0 pins and instruments stock OpenCode rather than forking it, and implements the smallest collaboration service needed for the experiment directly behind `CollaborationBackend`. Hugging Face Agent Collabs remains a possible future backend adapter and replication target. The rationale and fork threshold are recorded in [ADR 0001](decisions/0001-agent-runtime-and-collaboration-substrate.md).
+V0 pins and instruments stock OpenCode rather than forking it, and implements the smallest collaboration service needed for the experiment directly behind `CollaborationBackend`. Hugging Face Agent Collabs is a candidate substrate to assess against the same contract if the custom backend misses its timebox, not an automatic fallback. It also remains a possible external replication target. The rationale and decision gate are recorded in [ADR 0001](decisions/0001-agent-runtime-and-collaboration-substrate.md).
 
 The initial study has four conditions:
 
@@ -38,9 +38,12 @@ StudyManifest
 ExperimentRunner
      +-- CampaignController ----- durable organisation + incoming jobs
      +-- ArtifactService -------- workspace snapshots + authorized publications
+     +-- SubmissionRegistry ----- owned candidates + public-eval admission
+     +-- CollaborationProfileBuilder -- post-run descriptive profile
      |
      +-- HarnessRuntime --------- OpenCode adapter
      +-- CollaborationBackend --- private/shared namespace adapter
+     +-- PublicationRegistry ---- durable publication authorization records
      +-- ComputeBackend --------- cloud GPU or fake adapter
      +-- ResearchBackend -------- off, frozen corpus or controlled web
      +-- StorageBackend --------- events, snapshots and artifacts
@@ -57,7 +60,7 @@ The composition root selects concrete adapters from the manifest, validates thei
 
 ### Study
 
-A study freezes the conditions, adapter and instrumentation versions, exact model and provider-cache profile, campaign definition, fleet size, peer activation policy, organisation envelope, per-actor allocations, scheduler, measurement protocol, analysis plan and complete randomized block schedule. Each block freezes one task seed and material digest shared by all four conditions. Each run and actor receives a distinct stochastic seed that may affect model behavior but never task materials. The schedule assigns conditions to predeclared execution positions before any outcome is observed; retries remain linked to the original assignment.
+A study freezes the platform source/build digest; every application-service, adapter and enforcement-service version and configuration; the observational instrumentation, collaboration-measurement and separate peer-tool integration profiles; the exact model, billing and provider-cache profile; the campaign definition; fleet size; peer activation policy; organisation envelope; per-actor allocations and deterministic slot schedule; measurement protocol; analysis plan; and complete randomized block schedule. The resolved configuration digest covers this entire transitive composition. Each block freezes one task seed and material digest shared by all four conditions. Each run and actor receives a distinct stochastic seed that may affect model behavior but never task materials. The schedule assigns conditions to predeclared execution positions before any outcome is observed; retries remain linked to the original assignment.
 
 ### Campaign
 
@@ -94,21 +97,21 @@ It does not decide how agents delegate, communicate, merge work or solve jobs.
 
 ### `SubmissionRegistry`
 
-Accepts immutable candidate artifacts, applies identical per-job or per-campaign limits and executes a predeclared neutral selector. It never combines candidates. Each campaign definition supplies its own default outcome and public ordering semantics; the registry contains no serving-specific or generative-task-specific preference.
+Accepts immutable candidate artifacts, applies identical per-job or per-campaign limits and executes a predeclared neutral selector. Before admission it asks `ArtifactService` to prove that the authenticated submitting actor owns an admitted ordinary `ArtifactRef`; a publication identifier, quarantined object or another actor's reference is rejected. It also atomically reserves the candidate slot and the public evaluator's worst-case GPU time from that actor's allocation. It never combines candidates. Each campaign definition supplies its own default outcome and public ordering semantics; the registry contains no serving-specific or generative-task-specific preference.
 
 An optimization campaign may auto-register its frozen reference artifact as the default and rank candidates by greatest valid public improvement. A generative campaign may instead define a normalized public criterion and a failure-floor outcome when no eligible candidate exists. The same campaign-specific default and selector apply to every condition, so `peer_isolated` is not disadvantaged by lacking a human or agent merger.
 
 ### `ArtifactService`
 
-Provides the only agent-facing path between workspaces and immutable artifact storage. From an authenticated session it can snapshot declared workspace paths into an actor-owned `ArtifactRef`, or materialize an artifact the actor owns or is authorized to read back into that actor's workspace. Paths are canonicalized, bounded and checked against symlink escape.
+Provides the only general-purpose agent-facing path for moving bytes between workspaces and immutable artifact storage; compute, evaluation and quarantine extraction use separately authorized internal paths. From an authenticated session it can snapshot declared workspace paths into an actor-owned `ArtifactRef`, or materialize an artifact the actor owns or is authorized to read back into that actor's workspace. Paths are canonicalized, bounded and checked against symlink escape.
 
-It also coordinates storage and collaboration without coupling their adapters. When an actor publishes an owned artifact, the service records the campaign, owner, artifact and permitted audience and places only an opaque `PublicationId` in the collaboration entry. A reader asks the service to materialize that publication; the service authenticates the session and checks campaign and audience before reading storage. Agents never receive a transferable storage capability, and a raw artifact reference or copied identifier never bypasses server-side authorization. `QuarantinedArtifact` is a separate, unusable type and cannot be snapshotted, published, submitted or staged for compute; only an approved isolated extractor may admit derived output as an ordinary artifact.
+It also coordinates storage, `PublicationRegistry` and collaboration without coupling their adapters. When an actor publishes an owned artifact, the service idempotently prepares a durable mapping from an opaque `PublicationId` to campaign, owner, artifact and permitted audience, writes the collaboration entry under the same request key, then binds the mapping to that entry. Only bound publications resolve; failed writes leave no usable identifier and recovery cannot create a duplicate entry. A reader asks the service to materialize a publication. The service authenticates the session, resolves the durable record, checks campaign and audience, and then performs a campaign-scoped trusted-service read from storage. That read path is inaccessible to agents and is accepted only with an authorization receipt bound to the artifact and purpose. Agents never receive a transferable storage capability, and a raw artifact reference or copied identifier never bypasses server-side authorization. `QuarantinedArtifact` is a separate, unusable type and cannot be snapshotted, published, submitted or staged for compute; only an approved isolated extractor may admit derived output as an ordinary artifact.
 
 ## Infrastructure ports
 
 ### `HarnessRuntime`
 
-Creates and resumes primary sessions, enables or denies native handoffs, delivers missions according to the frozen activation policy, streams observational events, snapshots session trees and stops work. The OpenCode adapter uses OpenCode's stock general-purpose subagent behavior in `native_multiagent`; the experiment layer adds no supervisor workflow. A separately pinned instrumentation profile fixes the observational plugin commit, configuration digest and event-schema version. Instrumentation is condition-blind and has no authority to modify prompts, tools, budgets or execution.
+Creates and resumes primary sessions, enables or denies native handoffs, delivers missions according to the frozen activation policy, streams observational events, snapshots session trees and stops work. The OpenCode adapter uses OpenCode's stock general-purpose subagent behavior in `native_multiagent`; the experiment layer adds no supervisor workflow. Observational collection uses the out-of-process SDK event stream wherever it is sufficient. Any in-process instrumentation plugin is separately pinned and must not register transform hooks, request/tool mutation hooks, tools or commands; this is verified from its allowed API surface and the effective runtime configuration, rather than assumed from OpenCode's plugin boundary. Peer-tool injection belongs to a distinct pinned integration profile that is identical in the two peer arms.
 
 The port exposes a capability manifest so a future Codex, Pi or other adapter can be qualified without pretending that all runtimes have identical semantics.
 
@@ -122,11 +125,15 @@ Provides publish, reply, list, fetch, lexical search, notifications and opaque a
 
 The two peer modes expose the same tool schema and persistence behavior. A raw artifact reference remains private. Only `ArtifactService` can create or resolve a `PublicationId`, and it authorizes every read against authenticated campaign membership and the stored audience. Actor-private scopes cannot create an organisation-visible publication. V0 has no recommendation, semantic matching, automatic deduplication, task allocation, reputation or privileged-action routing.
 
+### `PublicationRegistry`
+
+Persists the authorization state behind opaque artifact-publication identifiers independently of both collaboration entries and artifact bytes. Records contain campaign, owner, ordinary artifact, audience, bound collaboration entry, lifecycle status and audit metadata. Preparation is not authorization: an identifier resolves only after it is bound to the successfully written entry. Resolution, export and reset are campaign-scoped, and records survive campaign snapshot/resume. The registry is server-only and never exposes a storage reference or read capability to an agent.
+
 ### `ComputeBackend`
 
 Executes content-addressed jobs on the declared resource and returns immutable results plus measured usage. The first concrete adapter targets a fixed cloud GPU; local fake and replay adapters support tests. It never receives the experimental condition.
 
-Agents reach it only through the compute capability broker, which owns allowlists, fixed per-actor quotas, immutable input/output staging, exclusive device leases, timeouts and credential isolation. Agent experiments and evaluator measurements cannot overlap on the same GPU. A condition-blind, work-conserving serialized scheduler uses a frozen randomized actor order and the same fairness rule in both peer arms; unused capacity is not reserved as idle slots. The tool exposes only coarse state for the caller's own job (`accepted`, `complete` or `failed`), never queue contents, position or an estimated start time. An actor can still infer limited contention from its own completion time. That low-bandwidth timing signal exists in both peer arms, is recorded and is an explicit V0 limitation.
+Agents reach it only through the compute capability broker, which owns allowlists, fixed per-actor quotas, immutable input/output staging, exclusive device leases, timeouts and credential isolation. Agent experiments and public evaluator measurements run only in the submitting actor's fixed-duration slots under one frozen `DeterministicActorSchedule`, matched by actor ordinal across the peer conditions. GPU seconds for both count against that actor and the organisation envelope. Slots are non-transferable: unused time remains idle, work cannot borrow another actor's slot, and terminal status or results are released only at the slot's scheduled boundary. Admission therefore depends only on the caller's own allocation and schedule, not competing peer demand. Public-evaluation admission reserves its declared worst-case duration before the candidate is accepted. The tool exposes only coarse state for the caller's own job (`accepted`, `complete` or `failed`), never queue contents, another actor's demand or backend timing.
 
 Scored measurements follow a frozen protocol: restore the declared image and device state, run fixed warmups, execute the declared number and ordering of repetitions, and bracket candidate measurements with a reference canary. Hardware, software, clocks and power settings are recorded where observable. A canary excursion beyond the predeclared tolerance invalidates or retries the measurement according to a condition-blind rule.
 
@@ -140,11 +147,11 @@ Agents reach it only through the research capability broker, which enforces allo
 
 Stores append-only events, durable snapshots and content-addressed artifacts. A local adapter may use JSONL, SQLite and the filesystem; later deployments may use remote stores. Storage is infrastructure, not part of a campaign pack.
 
-The backend supports campaign-scoped export and reset. It does not interpret traces, decide validity or enforce budgets; its authorization layer enforces actor visibility. Agent-facing ingress and materialization go through `ArtifactService`; cross-actor reads occur only after that service authorizes an opaque publication identifier.
+The backend supports campaign-scoped export and reset. It does not interpret traces, decide validity or enforce budgets; its authorization layer enforces campaign and owner visibility. Agent-facing ingress and materialization go through `ArtifactService`. An internal service read is available only to a pinned trusted service with a purpose- and artifact-bound authorization receipt. `ArtifactService` uses it after authorizing a publication; `SubmissionRegistry` and brokers must instead prove authenticated ownership. Storage never treats a publication identifier as a read grant.
 
 ### `Evaluator`
 
-Validates and scores immutable submissions. Public evaluation may return bounded feedback during a job; hidden evaluation is callable only after submission closure. The first adapter evaluates model-serving artifacts on a held-out workload.
+Validates and scores immutable submissions. Public evaluation may return bounded feedback during a job, but it runs through the compute broker in the submitting actor's reserved slots and allocation. Hidden evaluation is callable only after submission closure, uses a separate evaluator-owned measurement schedule/account, and is reported separately from agent treatment spend. The first adapter evaluates model-serving artifacts on a held-out workload.
 
 Evaluation implementations receive campaign/variant data and resource specifications but not the experimental condition or collaboration trace.
 
@@ -152,13 +159,13 @@ Evaluation implementations receive campaign/variant data and resource specificat
 
 Terminates all model-provider credentials for a campaign. It conservatively reserves cost before each request, settles against provider usage and a versioned price table, and rejects work that would exceed the applicable limit. In peer conditions, admission must satisfy both the actor's fixed suballocation and the organisation envelope. Peer suballocations partition the envelope and are not transferable, so another actor's spending cannot cause a request to be admitted or rejected. Direct network access from harness sandboxes to model-provider endpoints is denied.
 
-The manifest freezes whether provider caching is disabled, actor-run-scoped or provider-managed and observed. Gateway-controlled caches use separate `(campaign, actor)` namespaces in both peer conditions; confirmatory runs do not deliberately prewarm a condition or share those caches across actors or campaign runs. A confirmatory peer comparison requires effective actor isolation: use a provider namespace when available, otherwise a frozen non-semantic per-actor cache-isolation prefix, or disable caching. Provider-managed observation without effective isolation is permitted for calibration only. For every response the gateway retains requested and returned model identifiers, any revision or system fingerprint, cached-token usage, provider request ID and provider receipt. The gateway, not OpenCode's reported cost field, is the enforcement and accounting authority.
+The manifest freezes whether provider caching is disabled, actor-run-scoped or provider-managed and observed. Gateway-controlled caches use separate `(campaign, actor)` namespaces in both peer conditions; confirmatory runs do not deliberately prewarm a condition or share those caches across actors or campaign runs. A confirmatory peer comparison requires effective actor isolation: use a provider namespace when available, otherwise a frozen non-semantic per-actor cache-isolation prefix, or disable caching. Provider-managed observation without effective isolation is permitted for calibration only. The billing policy also freezes the price-catalog digest, rate-schedule version and treatment of provider price tiers or windows. V0 completes a block in one effective tier; a catalog or tier change inside a block invokes the predeclared whole-block rule. For every response the gateway retains requested and returned model identifiers, any revision or system fingerprint, cached-token usage, provider request ID, provider timestamp, effective tier, unit rates and provider receipt. The gateway, not OpenCode's reported cost field, is the enforcement and accounting authority.
 
 An unexpected returned model identity or fingerprint change is handled by a predeclared validity rule. A persistent backend change requires a new `study_version`; a change within a randomized block normally invalidates and reruns the complete block. If the provider exposes no fingerprint, its absence is recorded and closely interleaved blocked runs reduce, but do not eliminate, the resulting threat.
 
 ## Peer information isolation
 
-`actor_private` is a system-wide information boundary, not merely a message-board filter. In `peer_isolated`, an agent cannot directly observe another actor's candidate artifacts or public feedback, compute or research results, queue position or job metadata, caches, collaboration entries, notifications, files or artifact references. Fixed API, GPU, research and submission allocations prevent peers from signalling by consuming another actor's allowance. The serialized compute broker reveals no queue metadata; its randomized fair order is frozen and matched across paired peer runs. Own-job completion time remains a residual contention signal and is logged for sensitivity analysis. System services may aggregate records only for neutral selection, accounting and post-run analysis after the agent-visible phase closes.
+`actor_private` is a system-wide information boundary, not merely a message-board filter. In `peer_isolated`, an agent cannot directly observe another actor's candidate artifacts or public feedback, compute or research results, job metadata, caches, collaboration entries, notifications, files or artifact references. Fixed API, GPU, research and submission allocations prevent peers from signalling by consuming another actor's allowance. The deterministic compute schedule is frozen and matched by actor ordinal across paired peer runs; unused slots idle and each actor sees its own terminal state only at its fixed release boundary. Public evaluation follows the same rule. System services may aggregate records only for neutral selection, accounting and post-run analysis after the agent-visible phase closes.
 
 In `peer_collab`, cross-actor information becomes visible only through an explicit publish or reference in the organisation-shared collaboration service. Candidate, evaluator, compute and research services do not silently broadcast results. Thus both peer arms use the same brokers and service behavior; the collaboration authorization scope remains the treatment surface.
 
@@ -173,12 +180,26 @@ In `peer_collab`, cross-actor information becomes visible only through an explic
 
 These sources support analysis, reconciliation and debugging. Missing or misleading telemetry must not expand an agent's authority or let it exceed a limit.
 
+### Collaboration-use profile
+
+After campaign closure, a read-only `CollaborationProfileBuilder` reports five descriptive dimensions for the two peer conditions beside the task outcome. `peer_isolated` supplies structural-zero controls; `solo` and `native_multiagent` are `not_applicable` unless a separate native-handoff mapping is registered.
+
+- **Reach:** shared publishers and peer retrievers out of `N`, plus directed actor-to-actor links actually realized.
+- **Exchange:** unique peer entries returned, replies to peer-authored entries and peer artifacts materialized.
+- **Integration:** the selected-artifact owner, distinct peer source actors in its recursively validated ancestry and cross-actor lineage edges.
+- **Functions:** outcome-blind human labels for division/help, unsolicited assistance, reuse, challenge/checking, deconfliction and specialization.
+- **Overhead:** collaboration tool calls and bytes, attributable context tokens and service latency where reliably measurable.
+
+The manifest freezes definitions, retry deduplication, denominators and the human-label codebook. A shared publisher authors organisation-shared content; a peer retriever receives or materializes another actor's content. A link requires content from one actor to be returned to another; a broadcast that nobody retrieves creates a publisher but no link. Artifact provenance is authorization-validated but remains a lower-bound proxy for semantic influence. If no eligible selected artifact exists, Integration is `not_applicable`. Human reviewers receive a redacted collaboration trace with hidden evaluation events and scores removed, then label each function `observed`, `not_observed` or `unclear` with event references.
+
+The five dimensions are never collapsed into a task score, used to select candidates, or used to subset or adjust the primary treatment estimate. The randomized outcome contrast estimates whether collaboration access helped; the profile describes how the treatment was used and guides later mechanism ablations. The builder is unavailable to agents and evaluators and cannot change campaign state.
+
 ### Enforced controls
 
 - The budget gateway controls provider credentials, admission and aggregate API-dollar cutoff.
 - Harness sandboxes enforce process, filesystem and network boundaries.
 - Compute and research capability brokers authenticate actor/run context, apply policy and enforce quotas.
-- Collaboration authorization enforces actor-private or organisation-shared visibility server-side.
+- Collaboration authorization and the durable publication registry enforce actor-private or organisation-shared visibility server-side.
 - Storage namespaces prevent cross-run reads and writes.
 - Submission and evaluator services enforce candidate limits and hidden-data separation.
 
@@ -206,7 +227,7 @@ The same `N` top-level sessions, activation schedule, workspaces, budgets, broke
 
 ## Isolation, failure and recovery
 
-- Each campaign has fresh harness, collaboration, storage, budget and capability scopes.
+- Each campaign has fresh harness, collaboration, publication-registry, storage, budget and capability scopes.
 - Provider and infrastructure credentials never enter agent context or workspaces.
 - Conditions cannot query one another's traces, artifacts, caches or broker state; isolated peers also cannot query those resources across actors.
 - Real email, procurement, deployment and other consequential actions are outside V0.
