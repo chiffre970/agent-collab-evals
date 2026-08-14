@@ -14,7 +14,7 @@ A campaign definition provides:
 - public validation feedback;
 - an independently bound hidden evaluator;
 - a common resource envelope;
-- fixed, non-transferable peer-actor allocations and a deterministic compute schedule;
+- fixed, non-transferable peer-actor allocations and a condition-blind serialized compute scheduler;
 - per-job or campaign-level outcome aggregation;
 - enough variants and repeated campaign runs for blocked comparison.
 
@@ -35,7 +35,7 @@ A confirmatory campaign must:
 
 A campaign does not need a forced mid-run change. Changes, interruptions and accumulated organisational memory are valuable later treatments, but requiring them now would confound the first test.
 
-For the peer comparison, `peer_isolated` and `peer_collab` must use the same `N`, activation timing, scheduling policy, session topology, stopping rules and per-actor resource allocations. The exact policy is selected during calibration and frozen in the study manifest. API, GPU, research and candidate allowances are equal and non-transferable across peers in V0, and GPU requests run only in predeclared actor slots. Visibility of peer entries and grant-bearing artifact references is the treatment; an extra head start, shared quota, demand-sensitive queue or different wake-up rule is not.
+Both peer conditions use the same registered `N`, timing, topology, stopping rules, fixed per-actor allowances and condition-blind serialized compute scheduler. The initial pilot starts with `N = 4`; later registered studies may scale it, but `N` cannot change after condition outcomes are inspected. Agents see only coarse state for their own compute jobs. Only visibility of peer entries and explicitly published artifacts differs. This isolates information sharing; pooled budgets and transferable capacity are reserved for a required follow-up.
 
 ## Research modes
 
@@ -44,7 +44,7 @@ Campaigns that need external evidence declare one of two bounded modes and use t
 - **Frozen research:** a versioned corpus or recorded search-and-fetch environment is replayed for reproducible confirmatory comparison.
 - **Controlled live research:** agents receive read-only search and fetch through the research broker, with source policy, request and byte quotas, private/local/metadata-network blocking, download controls and complete recording. This better represents real work, but results must acknowledge that the web can change between experimental blocks.
 
-Neither mode exposes raw network access, cloud credentials or unrelated host files. Recorded results, caches and request/byte allowances remain actor-scoped in both peer conditions so they cannot become an accidental peer channel. An agent may share a result in `peer_collab` only through an explicit collaboration publication and, for an artifact, a valid campaign-scoped grant.
+Neither mode exposes raw network access, cloud credentials or unrelated host files. Recorded results, caches and request/byte allowances remain actor-scoped in both peer conditions so they cannot become an accidental peer channel. An agent may share a result in `peer_collab` only through an explicit collaboration publication; artifact access is authorized server-side.
 
 ## Campaign 1: small-model cloud serving
 
@@ -74,9 +74,9 @@ Before condition comparison, sequential pilot runs choose a small serving **targ
 - hidden quality measurement is stable;
 - the task does not collapse to selecting one obvious configuration flag.
 
-Calibration also chooses aggregate API, GPU, research, retry and candidate limits that divide exactly into equal actor allocations for the peer conditions, plus a deterministic compute-slot duration and cadence that leave enough room for a valid single-agent attempt.
+Calibration chooses aggregate API, GPU, research, retry and candidate limits that divide equally among the study's frozen `N` peers, with enough per-actor compute time for a valid attempt.
 
-The agent model is specified separately from the serving target. The first study declares one low-cost direct-API `ModelProfile` before any condition runs. A common pass/fail check verifies basic shell/edit, native-handoff and peer-tool operation; it neither ranks candidate models nor uses condition outcome differences. The exact provider, model identifier, endpoint, runtime, inference settings and price catalog are frozen across all four conditions and every block. A failed capability check ends that study as infeasible; changing to another model creates a new study version. If the initial result is promising, a higher-capability model is evaluated by repeating the complete four-condition design in a later study.
+The agent model is separate from the serving target. DeepSeek Flash through the direct API is used for engineering and smoke tests. Before preregistration, DeepSeek Pro must pass one common task-feasibility check covering shell/edit, native handoffs and peer tools. The confirmatory study then freezes the exact Pro profile across all four conditions and blocks; any post-freeze change creates a new study version.
 
 ### Fixed inputs
 
@@ -87,7 +87,7 @@ The agent model is specified separately from the serving target. The first study
 - Public and hidden request-set digests.
 - Quality metric, tolerance and latency limits.
 - API-dollar, GPU-time, wall-time and submission caps.
-- Equal fixed peer-actor API, GPU, research and submission allocations plus deterministic compute slots.
+- Equal fixed peer-actor API, GPU, research and submission allocations plus the same serialized scheduler policy.
 - Adapter versions and capability-manifest digests.
 
 ### Agent-controlled surface
@@ -131,6 +131,8 @@ The primary metric for a candidate passing the hidden gates is sustained goodput
 
 The exact scalar score is frozen after calibration. Prefer a gate-plus-performance rule over a weighted blend that lets speed compensate for quality failure.
 
+An agent candidate counts as improving the task only when its preregistered lower measurement bound exceeds the reference under the frozen repetition, aggregation and resolution rules. No separate commercial uplift threshold applies.
+
 ### Variants
 
 Variants should change legitimate performance characteristics while retaining the same mission and evaluator shape, for example:
@@ -148,11 +150,11 @@ Do not reveal which variant dimension is stressed in the hidden workload beyond 
 2. Qualify stock runtime-native handoffs and run `native_multiagent` pilots.
 3. Qualify the identical peer-tool schema under actor-private `peer_isolated` and organisation-shared `peer_collab` scopes.
 4. Verify that no files, artifacts, caches or broker state form an accidental channel in `peer_isolated`.
-5. Materialize and hash the full randomized block schedule, then run its assigned slots across all four conditions.
-6. Replicate across additional serving variants.
-7. Only then vary organisation size, model profile or job-sequence length.
+5. Materialize and hash the full randomized block schedule, then run its assigned execution positions across all four conditions.
+6. Run the required pooled-resource follow-up and select the required persistent non-coding campaign.
+7. Replicate across additional variants or organisation sizes as justified by the result.
 
-## Close-domain replication: software delivery
+## Optional close-domain replication: software delivery
 
 ### Mission
 
@@ -178,7 +180,7 @@ Use repository issues or authored variants that are contamination-reviewed and n
 
 ## Required early non-coding generalization
 
-After the serving study and any close-domain replication, the research program must run at least one persistent, real-world-style business campaign. The first can be an economics publication desk or customer operations. These tasks introduce changing queues, durable expertise, knowledge reuse and mixed qualitative and objective outcomes that coding-shaped benchmarks do not capture.
+After V0, choose and preregister at least one persistent, real-world-style business campaign. Software delivery may run before or after it, but is not a prerequisite. The first business campaign can be an economics publication desk or customer operations; both test changing queues, durable expertise and knowledge reuse that a single coding-shaped mission cannot.
 
 ### Candidate A: economics publication desk
 
@@ -220,9 +222,9 @@ Score the percentage of available outcome value achieved against frozen policy, 
 
 These families should be added for a specific generalization question, not to make V0 look like a full benchmark suite.
 
-## Deferred treatments
+## Follow-up treatments
 
-The following are separate experiments because they change more than peer communication:
+Pooled or transferable peer budgets, submissions and compute scheduling are the required first follow-up because they test dynamic organization rather than information sharing alone. Other separate treatments include:
 
 - single-job versus multi-job durable campaigns;
 - changing priorities or mid-campaign incidents;
@@ -233,17 +235,16 @@ The following are separate experiments because they change more than peer commun
 - human-agent mixed teams;
 - privileged agents, approvals and consequential actions;
 - alternative peer visibility or candidate-selection policies.
-- pooled or transferable peer budgets, submissions and compute scheduling.
 
 ## Build order
 
-1. Define the domain ports and make fake adapters pass the durable two-job campaign lifecycle.
-2. Pin OpenCode as the first `HarnessRuntime` adapter and implement the provider-neutral model profile plus enforced organisation and actor dollar limits.
-3. Implement local storage with artifact grants, sandbox policy, deterministic actor-slotted cloud-GPU compute and disabled/frozen research adapters behind their ports and brokers.
-4. Implement the serving campaign definition and evaluator adapter end to end with `solo`.
-5. Enable stock runtime-native handoffs without custom orchestration.
-6. Implement the collaboration adapter with identical actor-private and organisation-shared peer-tool modes.
+1. Run the two-day stock-OpenCode SDK/plugin proof from ADR 0001. Stop for an explicit runtime decision if it fails.
+2. Define the minimal manifests and domain ports, then make fake adapters pass a durable two-job lifecycle.
+3. Implement the minimal collaboration contract, local storage and opaque server-authorized artifact publication; complete the ADR's five-day fake-campaign exit check or switch to the HF Agent Collabs adapter.
+4. Add the provider-neutral model profile, budget gateway, sandbox, immutable compute staging and disabled/frozen research adapters behind their ports and brokers.
+5. Implement the serving campaign and hidden evaluator end to end with `solo`.
+6. Qualify stock native handoffs and the matched actor-private/organisation-shared peer modes.
 7. Add trace export, human observation labels, frozen block/run manifests and randomized four-condition execution.
 8. Complete calibration and freeze the first confirmatory study.
 9. Run and publish the four-condition serving experiment.
-10. Decide from evidence whether to add a multi-job campaign, second task family or collaboration feature.
+10. Run the pooled-resource study and preregister the selected persistent non-coding campaign; add software replication only if useful.

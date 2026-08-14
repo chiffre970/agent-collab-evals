@@ -22,18 +22,16 @@ Every run uses the same pinned OpenCode release, model profile, base tools, task
 
 1. `solo`: one OpenCode primary agent; native subagents and peer communication are unavailable.
 2. `native_multiagent`: one OpenCode primary agent; the runtime's standard general-purpose subagents are available through its native task mechanism.
-3. `peer_isolated`: exactly `N` equivalent OpenCode primary agents; native subagents are unavailable and all peer-service state is actor-private, preventing peer communication.
+3. `peer_isolated`: exactly `N` equivalent OpenCode primary agents; native subagents are unavailable and all peer-service state is actor-private, preventing the explicit peer communication under test.
 4. `peer_collab`: exactly `N` equivalent OpenCode primary agents; native subagents are unavailable and the same peer-tool namespace is organisation-shared.
 
 The native condition is deliberately not a hand-built supervisor/worker workflow. It uses the strongest stable default behavior supplied by the pinned runtime. The model decides whether and when to hand work to subagents.
 
-The two peer conditions are identical in session topology, fleet size, activation schedule, base tools, peer-tool schema, private-workspace policy, candidate policy, aggregate resource envelope and fixed per-actor allocations. V0 eagerly activates all `N` peers behind the same start barrier and applies the same concurrency, wake/resume and deadline rules. Each peer receives equal, non-transferable API, GPU, research and submission allowances, plus the same deterministic compute-slot schedule in both conditions. Only collaboration visibility and the minimal factual instructions required to describe it differ.
+The two peer conditions are identical in session topology, activation schedule, tools, workspaces, candidate policy and resources. Each registered study freezes `N` across every arm and block, activates all peers behind the same start barrier, and gives each the same fixed, non-transferable API, GPU, research and submission allowances and the same condition-blind serialized compute scheduler. Only collaboration visibility and the minimal instructions needed to describe it differ.
 
-`peer_isolated` is an actor-level information boundary, not merely a private message board. Agents cannot discover one another or observe another actor's entries, artifacts, candidates, public feedback, compute or research jobs and results, queue metadata or caches. Fixed allowances prevent one actor from signalling by consuming another's capacity, while deterministic compute slots prevent demand-dependent queue timing. The neutral selector and post-run analysis may aggregate records only after the agent-visible phase has closed.
+`peer_isolated` is an actor-level information boundary, not merely a private message board. Agents cannot discover one another or directly observe another actor's entries, artifacts, candidates, public feedback, compute or research jobs and results, queue metadata or caches. Fixed allowances prevent one actor from consuming another's capacity; the compute tool reveals only coarse state for the caller's own job. Because the GPU scheduler is shared, own-job completion time remains a low-bandwidth contention signal in both peer arms; it is recorded as a V0 limitation. The neutral selector and post-run analysis may aggregate records only after the agent-visible phase has closed.
 
-The peer-collaboration condition is minimally elicited. Each agent receives the mission and factual instructions for using the collaboration tool, including that peers may see and respond to shared work. No roles, leader, task division, collaboration quota, recommended strategy or specialization is supplied.
-
-The initial organisation size is selected in calibration, beginning with `N = 4`. The motivating scaling study later compares `N` collaborating agents with one agent receiving the same aggregate dollar budget.
+The peer-collaboration condition is minimally elicited: agents learn that peers can see and respond to shared work, but receive no roles, leader, task division, quota, strategy or specialization. The initial pilot starts with `N = 4`; later preregistered studies may scale it. V0 estimates the value of peer information sharing under fixed allocations, not full dynamic organization such as reallocating shared money, compute or submission capacity. That is a required near-term follow-up.
 
 ## What is held constant
 
@@ -49,7 +47,7 @@ Within a study version, paired conditions have identical:
 - candidate submission cap and public feedback;
 - hidden evaluator and final selection rule.
 
-For the peer-pair estimand, only communication visibility and its minimal instructions differ. Comparisons with `solo` and `native_multiagent` also change session topology by design. Every effective configuration and instruction difference is recorded verbatim.
+For the peer-pair estimand, only communication visibility and its minimal instructions differ. Comparisons with `solo` and `native_multiagent` change topology and allocation semantics by design. In particular, peer versus native hierarchy is a bundled system comparison, not a clean causal estimate of topology alone. Every configuration and instruction difference is recorded verbatim.
 
 ## Outcome hierarchy
 
@@ -69,12 +67,12 @@ The confirmatory endpoint is the campaign's hidden score for its operationally s
 
 One primary scalar or lexicographic rule is frozen before confirmatory runs. Component metrics are also reported; an opaque weighted index is not introduced after results are seen.
 
-For the serving campaign, report every condition's hidden percentage improvement over the reference. Any value above zero is a task-level improvement. That comparison shows whether an organisation produced useful optimization; it does not by itself identify a collaboration benefit, which requires the primary `peer_collab - peer_isolated` contrast.
+For the serving campaign, report every condition's hidden percentage improvement over the reference. A task-level improvement requires the preregistered lower measurement bound to exceed zero under the frozen repetition, aggregation and resolution rules; there is no additional commercial threshold. This shows whether an organisation optimized the target, not whether communication caused the gain.
 
 The comparison hierarchy is:
 
 - **Primary:** `peer_collab - peer_isolated`, the causal effect of peer communication with fleet topology held fixed.
-- **Secondary:** `peer_collab - native_multiagent`, whether the proposed peer approach beats conventional hierarchical delegation.
+- **Secondary:** `peer_collab - native_multiagent`, whether the complete peer system beats the complete native hierarchical system. Because topology and resource-allocation semantics differ, this is not a topology-only causal estimand.
 
 `peer_isolated - solo` estimates the benefit of multiple independent attempts, and `native_multiagent - solo` estimates the benefit of native hierarchy. These are important secondary contrasts rather than the product-thesis estimands.
 
@@ -121,9 +119,9 @@ Cloud GPU usage is a separate, identically capped campaign resource. Report API 
 Calibration occurs before confirmatory comparison and may determine:
 
 - the separate small open-weight target model optimized by the first campaign;
-- `N`, the maximum live agents;
+- the `N` to freeze for a registered study, chosen without inspecting condition outcomes;
 - the API-dollar, wall-time and cloud-GPU caps;
-- peer-actor suballocations and deterministic compute-slot geometry, with aggregate limits chosen to partition exactly;
+- peer-actor suballocations and the condition-blind serialized scheduler policy;
 - OpenCode settings that make native subagents usable without assigned roles;
 - public-feedback granularity and candidate cap;
 - the hidden quality tolerance, primary score and evaluator resolution;
@@ -131,17 +129,17 @@ Calibration occurs before confirmatory comparison and may determine:
 
 Calibration runs are excluded from confirmatory estimates. After freezing, any change to the runtime, model profile, instructions, tool schema, prices, task materials, evaluator, selection rule, block assignment, actor allocation or budget creates a new study version.
 
-The agent model is predetermined for each study rather than chosen by comparing condition performance. V0 begins with a declared low-cost direct-API profile and uses that exact provider, model identifier, endpoint and inference configuration in every condition and block. A short common capability check is pass/fail: it verifies that the profile can use OpenCode's base tools, native subagent mechanism and collaboration tool, but it does not rank models or estimate the collaboration effect. If the profile fails, that study is reported as infeasible and any replacement is registered as a new study version. If the low-cost study is promising, a higher-capability model is tested as a separate, fully repeated four-condition study; results are never pooled across models as though they came from one experiment. Choosing whether to fund that later study is a program-level exploratory decision, not part of the first study's confirmatory claim, and every attempted model study is reported. The open-weight serving target is calibrated independently for optimization headroom, task difficulty and GPU cost.
+DeepSeek's direct API is used behind `ModelProfile`. Flash is for engineering and smoke tests. Before preregistration, Pro must pass the same task-feasibility qualification across base tools, native handoffs and peer tools; that check is pass/fail and does not estimate condition effects. The confirmatory study then freezes the exact Pro endpoint, requested and returned model identifiers, inference settings and price catalog across every arm and block. Any post-freeze model change creates a new study version. The small open-weight model being optimized is a separate serving target, chosen for headroom, difficulty and GPU cost.
 
 ## Randomization and replication
 
-Campaign variants are assigned in randomized complete blocks. A block contains the same variant or job sequence and resource envelope run once under all four conditions. Before execution, a versioned randomization algorithm assigns condition labels to predeclared execution slots and run seeds. The complete block schedule, including block, variant, slot, seed, assigned condition and execution order, is hashed into the study manifest before any outcome is observed. Each campaign receives a mechanically derived resolved-run manifest. Condition order is randomized to reduce provider, cloud and time-of-day effects.
+Campaign variants are assigned in randomized complete blocks. A block contains the same materialized task, variant and resource envelope run once under all four conditions. Before execution, a versioned algorithm assigns condition labels to predeclared execution positions and stochastic seeds while preserving one shared task seed and material digest for the block. The complete schedule is hashed into the study manifest before any outcome is observed. Each campaign receives a mechanically derived resolved-run manifest. Condition order is randomized to reduce provider, cloud and time-of-day effects.
 
 Use repeated stochastic runs rather than claiming deterministic replay. Preserve the full manifest, artifacts and available traces for every replicate.
 
-The confirmatory hypothesis is directional: any positive verified communication effect is useful initial evidence, rather than requiring an arbitrary commercial uplift threshold. After pilot variance and evaluator resolution are measured, freeze the number of complete blocks needed to distinguish zero from a positive effect of at least one reliably measurable score unit. Until then, pilot results are effect-size estimates with uncertainty, not hypothesis-confirming evidence.
+The confirmatory hypothesis is directional: any reliably positive communication effect is useful initial evidence, with no commercial uplift threshold. After pilot variance and evaluator resolution are measured, preregistration freezes alpha, the power target, a planning effect of one reliably resolvable score unit and enough complete blocks for the exact paired test. Pilots remain effect-size estimates with uncertainty.
 
-The primary analysis uses paired block-level `peer_collab - peer_isolated` differences, an exact paired sign-flip/permutation test where the block count permits it, and a randomization-based one-sided 95% lower confidence bound. The null is a non-positive communication effect. The native-hierarchy contrast is secondary and is not used to rescue a failed primary comparison. The study registration fixes the significance level, block count, bound construction and the mechanical handling of missing, defaulted and infrastructure-invalid runs.
+The primary analysis uses paired block-level `peer_collab - peer_isolated` differences, an exact paired sign-flip/randomization test and a one-sided randomization-based confidence bound at the preregistered alpha. The block count must be large enough for that exact test. The null is a non-positive communication effect. The bundled native-system contrast is secondary and cannot rescue a failed primary comparison. Preregistration also fixes the bound construction and handling of missing, defaulted and infrastructure-invalid runs.
 
 Primary reporting includes:
 
@@ -195,11 +193,13 @@ Only after the V0 comparison is working should the research program vary:
 - individual collaboration features such as search or matching;
 - task families with increasingly subjective evaluation.
 
+The first near-term follow-ups are required rather than optional: test pooled or transferable peer resources to measure dynamic organization, and run one persistent non-coding business campaign. Software delivery is a useful but optional close-domain replication.
+
 ## Main threats to validity
 
 - **Peer-treatment leakage:** `peer_isolated` and `peer_collab` must differ only in communication visibility and the instructions needed to expose it. Hidden shared caches, files or broker state would invalidate the communication estimand.
-- **Indirect peer channels:** candidate listings, public feedback, broker queues, timing, artifacts and research or provider caches can communicate even when the board is private. V0 uses actor-scoped caches and results, fixed non-transferable allowances, deterministic compute slots and capability-bearing artifact publication. Conformance tests must still attempt timing, quota-exhaustion and guessed-reference channels before confirmatory runs.
-- **Runtime-treatment coupling:** native and peer conditions necessarily expose different tools and topology. Minimize and publish instruction differences.
+- **Indirect peer channels:** candidate listings, public feedback, broker queues, timing, artifacts and research or provider caches can communicate even when the board is private. V0 uses actor-scoped caches and results, fixed non-transferable allowances, coarse compute status and server-authorized artifact publication. Shared-GPU completion time remains a residual low-bandwidth signal; measure it, inspect traces for exploitation and rerun with a stricter release policy if it carries task information. Conformance tests still attempt quota-exhaustion and guessed-reference channels before confirmatory runs.
+- **Bundled native comparison:** native and peer conditions differ in tools, topology and allocation semantics. Treat their contrast as a system comparison, not a topology-only causal effect.
 - **Weak native baseline:** customized or broken subagent behavior would make collab look artificially good. Use pinned stock general-purpose behavior and qualification tests.
 - **Provider-runtime mismatch:** some models may not use a runtime's tools well. Qualify before freezing and repeat later with other model profiles.
 - **Provider drift and caching:** mutable model aliases or cross-run prefix caches can change effective capability or price. Isolate caches, retain provider identity receipts and rerun complete affected blocks under the frozen rule.
@@ -212,6 +212,6 @@ Only after the V0 comparison is working should the research program vary:
 
 ## Decision rule
 
-The communication thesis receives confirmatory initial support if the preregistered paired estimate for `peer_collab - peer_isolated` is positive, its one-sided test rejects the non-positive null at the frozen significance level and its one-sided 95% lower confidence bound is above zero. There is no additional minimum percentage: any reliably measured improvement is a useful baseline result. A positive point estimate whose bound still includes zero is reported as suggestive, not confirmed. The proposed product approach receives stronger secondary support if `peer_collab` also outperforms `native_multiagent`, without unacceptable validity or reliability loss.
+The communication thesis receives confirmatory initial support if the preregistered paired estimate for `peer_collab - peer_isolated` is positive, its one-sided test rejects the non-positive null at alpha and its one-sided `(1 - alpha)` lower confidence bound exceeds zero. There is no additional minimum percentage. A positive point estimate whose bound includes zero is suggestive, not confirmed. The proposed product approach receives stronger secondary support if `peer_collab` also outperforms `native_multiagent`, without unacceptable validity or reliability loss.
 
 A null or negative result is informative. It may mean peer collaboration is not useful for this task, the minimal collaboration surface is insufficient, or coordination overhead consumes its benefits. The V0 study should distinguish those possibilities only through subsequent preregistered experiments, not post-hoc storytelling.
