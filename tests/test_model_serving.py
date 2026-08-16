@@ -33,6 +33,21 @@ class ModelServingCampaignTests(unittest.TestCase):
         self.assertTrue(self.campaign.manifest_digest.startswith("sha256:"))
         self.assertEqual(len(self.campaign.benchmark_buckets()), 3)
 
+    def test_stream_interval_candidate_is_a_valid_non_reference_artifact(self) -> None:
+        descriptor = self.campaign.validate_candidate(
+            self.campaign.root
+            / "candidates"
+            / "vllm-stream-interval-10.json"
+        )
+
+        self.assertEqual(
+            descriptor.candidate_id, "vllm-0.21.0-stream-interval-10"
+        )
+        self.assertNotEqual(
+            descriptor.manifest_digest,
+            self.campaign.validate_reference_candidate().manifest_digest,
+        )
+
     def test_benchmark_plan_expands_to_nine_argv_only_points(self) -> None:
         invocations = build_vllm_benchmark_invocations(
             self.campaign.benchmark_plan(),
@@ -62,7 +77,11 @@ class ModelServingCampaignTests(unittest.TestCase):
             served_model_name="target-model",
             result_directory=Path("results"),
             warmup_requests=2,
-            goodput_slos_ms={"ttft": 500, "tpot": 50},
+            goodput_slos_ms_by_bucket={
+                "short": {"ttft": 500, "tpot": 50},
+                "medium": {"ttft": 600, "tpot": 60},
+                "long": {"ttft": 700, "tpot": 70},
+            },
         )[0]
 
         index = invocation.argv.index("--goodput")
@@ -78,6 +97,14 @@ class ModelServingCampaignTests(unittest.TestCase):
         self.assertEqual(
             profile.digest, self.campaign.transitive_digests["measurement_profile"]
         )
+        scoring = self.campaign.scoring_profile()
+        self.assertEqual(
+            scoring.digest, self.campaign.transitive_digests["scoring_profile"]
+        )
+        self.assertEqual(
+            scoring.goodput_slos_ms_by_bucket["long"],
+            {"ttft": 1450, "tpot": 90},
+        )
         schedule = profile.schedule(self.campaign.benchmark_plan())
         self.assertEqual(len(schedule), 27)
         self.assertEqual(
@@ -88,6 +115,32 @@ class ModelServingCampaignTests(unittest.TestCase):
             (schedule[9].repetition, schedule[9].bucket_id, schedule[9].request_rate),
             (2, "short", 1),
         )
+
+    def test_hidden_quality_contract_fails_closed(self) -> None:
+        contract = self.campaign.hidden_contract()
+
+        self.assertEqual(
+            contract["quality_contract"]["teacher_forced_metric_role"],
+            "diagnostic_only",
+        )
+        self.assertEqual(
+            contract["quality_contract"]["candidate_implementation_policy"],
+            "unrestricted_within_campaign_policy",
+        )
+
+        changed = copy.deepcopy(contract)
+        changed["quality_contract"]["teacher_forced_metric_role"] = "sufficient"
+        with self.assertRaisesRegex(
+            ManifestValidationError, "unsupported hidden quality contract"
+        ):
+            ModelServingCampaign._validate_hidden_contract(changed)
+
+        numeric_boolean = copy.deepcopy(contract)
+        numeric_boolean["agent_visible"] = 0
+        with self.assertRaisesRegex(
+            ManifestValidationError, "unsupported hidden evaluator contract profile"
+        ):
+            ModelServingCampaign._validate_hidden_contract(numeric_boolean)
 
     def test_materialization_is_seeded_and_deterministic(self) -> None:
         first = self.campaign.materialize(1729)

@@ -48,7 +48,8 @@ agent workspaces or committed files.
 Put the OpenRouter API key after `OPENROUTER_API_KEY=` in `.env`. The dated
 model, endpoint, expected returned identity, provider route, privacy policy and
 preflight inference settings live in the versioned
-`config/model_profiles/deepseek-v4-flash-openrouter-development.json` profile.
+`config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json`
+profile.
 They are deliberately not environment variables: changing a behavior-changing
 input must create a reviewable profile change and digest. Validate that profile
 without a credential or network call with:
@@ -62,6 +63,20 @@ Then run the small streaming request with:
 ```bash
 npm run preflight:openrouter
 ```
+
+An alternate committed development profile can be checked or exercised
+explicitly without putting the model or provider in `.env`:
+
+```bash
+node scripts/preflight/openrouter.mjs --validate-profile \
+  --profile config/model_profiles/example-development.json
+npm run preflight:openrouter -- \
+  --profile config/model_profiles/example-development.json
+```
+
+The selector accepts only a JSON file directly below `config/model_profiles/`.
+A registered run does not use this CLI default: its immutable study manifest
+names one exact profile and disables provider fallbacks.
 
 The command streams the answer, verifies the response against a deterministic
 canary, and waits up to 15.5 seconds for OpenRouter's eventually consistent
@@ -154,6 +169,25 @@ Do not start repetition 2 until repetition 1 is inspected. Later repetitions
 fail closed if the resolved package set, base image, GPU model, memory, driver
 or power limit changes. Baseline calibration output is not confirmatory
 evidence.
+
+After the calibration scorer is committed, the prepared architecture-neutral
+sensitivity candidate can be measured with the same adapter:
+
+```bash
+.venv/bin/modal run -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --baseline \
+  --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
+  --repetition 1 --attempt 1
+```
+
+The candidate keeps the same target model, weights, engine, image and hardware;
+it changes only vLLM's supported stream interval from 1 to 10. The pinned
+[vLLM engine-argument documentation](https://docs.vllm.ai/en/v0.21.0/configuration/engine_args/#schedulerconfig)
+states that larger intervals reduce host streaming overhead and may increase
+throughput. The evaluator still measures actual TTFT and TPOT, so delayed first
+delivery is not hidden. Complete repetitions 2 and 3 only after inspecting the
+preceding receipt. This is a calibration sensitivity run, not a confirmatory
+comparison.
 
 This split is intentional. Modal distinguishes queueing/container
 initialization from function execution in its

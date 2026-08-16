@@ -11,10 +11,25 @@
     "cold_start",
     "api_schema",
     "correctness",
+    "downstream_generation_noninferiority",
     "quality_relative_to_reference",
     "stability",
     "prohibited_shortcuts"
   ],
+  "required_diagnostics": [
+    "teacher_forced_quality"
+  ],
+  "quality_contract": {
+    "decision_rule": "paired_reference_relative_noninferiority",
+    "authoritative_evidence": "observed_outputs_from_held_out_served_generation",
+    "teacher_forced_metric_role": "diagnostic_only",
+    "downstream_generation_evaluation": "required",
+    "decoding_profiles": "pinned_target_model_recommended",
+    "lossless_identity_metric_role": "optional_claim_diagnostic",
+    "candidate_implementation_policy": "unrestricted_within_campaign_policy",
+    "task_mix_status": "external_unmaterialized",
+    "threshold_status": "unset_until_quality_calibration"
+  },
   "primary_metric": "goodput_requests_per_second",
   "agent_visible": false
 }

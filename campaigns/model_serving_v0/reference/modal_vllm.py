@@ -194,6 +194,7 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
     expected = {
         "campaign_manifest_digest",
         "measurement_profile_digest",
+        "scoring_profile_digest",
         "repetition",
         "attempt",
         "point_timeout_seconds",
@@ -208,7 +209,11 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
     point_timeout = spec["point_timeout_seconds"]
     if not isinstance(point_timeout, int) or not 1 <= point_timeout <= 600:
         raise ValueError("invalid point timeout")
-    for key in ("campaign_manifest_digest", "measurement_profile_digest"):
+    for key in (
+        "campaign_manifest_digest",
+        "measurement_profile_digest",
+        "scoring_profile_digest",
+    ):
         value = spec[key]
         if not isinstance(value, str) or not value.startswith("sha256:"):
             raise ValueError(f"invalid {key}")
@@ -412,10 +417,10 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
     single_use_containers=True,
     timeout=FUNCTION_TIMEOUT_SECONDS,
 )
-def benchmark_reference_repetition(
+def benchmark_serving_repetition(
     candidate: dict[str, Any], benchmark_spec: dict[str, Any]
 ) -> dict[str, Any]:
-    """Run one isolated, post-warmup reference measurement repetition."""
+    """Run one isolated, post-warmup serving measurement repetition."""
 
     invocations = _validate_benchmark_spec(benchmark_spec)
     server = candidate["server"]
@@ -468,6 +473,7 @@ def benchmark_reference_repetition(
         "measurement_profile_digest": benchmark_spec[
             "measurement_profile_digest"
         ],
+        "scoring_profile_digest": benchmark_spec["scoring_profile_digest"],
         "repetition": benchmark_spec["repetition"],
         "attempt": benchmark_spec["attempt"],
         "started_at": started_at,
@@ -494,12 +500,18 @@ def benchmark_reference_repetition(
 def main(
     output_path: str = "tmp/calibration/model-serving-reference-smoke.json",
     baseline: bool = False,
+    candidate_path: str = "campaigns/model_serving_v0/reference/candidate.json",
     repetition: int = 1,
     attempt: int = 1,
     baseline_output_root: str = "tmp/calibration/model-serving-reference",
 ) -> None:
-    candidate_path = Path(__file__).with_name("candidate.json")
-    candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+    from agent_collab_evals.canonical import load_json
+
+    resolved_candidate_path = Path(candidate_path).resolve()
+    with resolved_candidate_path.open("r", encoding="utf-8") as source:
+        candidate = load_json(source)
+    if not isinstance(candidate, dict):
+        raise RuntimeError("candidate manifest must be an object")
     if candidate["build"]["image_ref"] != IMAGE_REF:
         raise RuntimeError("Modal image does not match candidate.json")
     if candidate["build"]["image_digest"] != IMAGE_DIGEST:
@@ -509,6 +521,7 @@ def main(
     if baseline:
         _run_baseline_repetition(
             candidate,
+            candidate_path=resolved_candidate_path,
             repetition=repetition,
             attempt=attempt,
             output_root=Path(baseline_output_root),
@@ -538,7 +551,12 @@ def main(
 
 
 def _run_baseline_repetition(
-    candidate: dict[str, Any], *, repetition: int, attempt: int, output_root: Path
+    candidate: dict[str, Any],
+    *,
+    candidate_path: Path,
+    repetition: int,
+    attempt: int,
+    output_root: Path,
 ) -> None:
     """Trusted local composition; this path performs a billable GPU run."""
 
@@ -551,12 +569,17 @@ def _run_baseline_repetition(
     )
     from agent_collab_evals.campaigns.serving_measurement import (
         parse_vllm_benchmark_result,
+        replay_vllm_goodput,
+    )
+    from agent_collab_evals.campaigns.serving_scoring import (
+        score_repetition,
     )
 
     campaign_path = Path(__file__).parents[1] / "campaign.toml"
     repository_root = Path(__file__).resolve().parents[3]
     campaign = ModelServingCampaign.load(campaign_path)
     profile = campaign.measurement_profile()
+    scoring = campaign.scoring_profile()
     if not 1 <= repetition <= profile.repetitions:
         raise ValueError(
             f"repetition must be between 1 and {profile.repetitions}"
@@ -569,17 +592,24 @@ def _run_baseline_repetition(
         text=True,
     ).strip()
     if status:
-        raise RuntimeError("formal baseline runs require a clean Git worktree")
+        raise RuntimeError("formal measurement runs require a clean Git worktree")
     git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
     ).strip()
     local_modal_version = importlib.metadata.version("modal")
     if local_modal_version != profile.modal_client_version:
         raise RuntimeError("local Modal client does not match the measurement profile")
-    descriptor = campaign.validate_reference_candidate()
+    descriptor = campaign.validate_candidate(candidate_path)
+    reference_descriptor = campaign.validate_reference_candidate()
+    score_role = (
+        "reference"
+        if descriptor.manifest_digest == reference_descriptor.manifest_digest
+        else "candidate"
+    )
     measurement_id = (
-        f"baseline-{descriptor.candidate_id}-"
-        f"{profile.digest.removeprefix('sha256:')[:12]}"
+        f"{score_role}-{descriptor.candidate_id}-"
+        f"{profile.digest.removeprefix('sha256:')[:8]}-"
+        f"{scoring.digest.removeprefix('sha256:')[:8]}"
     )
     store = LocalMeasurementBundleStore(output_root)
     try:
@@ -588,7 +618,7 @@ def _run_baseline_repetition(
         pass
     else:
         raise RuntimeError(
-            "this baseline repetition attempt is already committed; "
+            "this measurement repetition attempt is already committed; "
             "refusing another GPU allocation"
         )
     if attempt > 1:
@@ -652,10 +682,12 @@ def _run_baseline_repetition(
         served_model_name=str(candidate["server"]["served_model_name"]),
         result_directory=BENCHMARK_RESULT_ROOT,
         warmup_requests=profile.point_warmups,
+        goodput_slos_ms_by_bucket=scoring.goodput_slos_ms_by_bucket,
     )
     benchmark_spec = {
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
+        "scoring_profile_digest": scoring.digest,
         "repetition": repetition,
         "attempt": attempt,
         "point_timeout_seconds": profile.point_timeout_seconds,
@@ -671,13 +703,14 @@ def _run_baseline_repetition(
     }
     client_started = time.monotonic()
     try:
-        remote_result = benchmark_reference_repetition.remote(candidate, benchmark_spec)
+        remote_result = benchmark_serving_repetition.remote(candidate, benchmark_spec)
     except Exception as error:
         client_observed_ms = round((time.monotonic() - client_started) * 1000)
         failure = {
-            "schema_version": "model-serving-reference-repetition/v0alpha1",
+            "schema_version": "model-serving-measurement-repetition/v0alpha1",
             "campaign_manifest_digest": campaign.manifest_digest,
             "measurement_profile_digest": profile.digest,
+            "scoring_profile_digest": scoring.digest,
             "candidate_manifest_digest": descriptor.manifest_digest,
             "candidate_id": descriptor.candidate_id,
             "platform_build": {
@@ -698,6 +731,7 @@ def _run_baseline_repetition(
             "modal_timing_role": profile.modal_timing_role,
             "client_timing_role": profile.client_timing_role,
             "remote_receipt": None,
+            "performance_score": None,
             "points": [],
         }
         destination = store.save(
@@ -708,11 +742,12 @@ def _run_baseline_repetition(
             attempt=attempt,
         )
         raise RuntimeError(
-            f"reference baseline invocation failed; evidence: {destination}"
+            f"serving measurement invocation failed; evidence: {destination}"
         ) from error
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
     raw_results = remote_result.pop("raw_results")
-    points = []
+    points: list[dict[str, Any]] = []
+    goodput_replays = []
     parse_errors: list[str] = []
     plan = campaign.benchmark_plan()
     for invocation in invocations:
@@ -725,20 +760,51 @@ def _run_baseline_repetition(
             )
             continue
         try:
-            points.append(
-                parse_vllm_benchmark_result(
-                    raw,
-                    invocation=invocation,
-                    model_source=model_source,
-                    metric_percentiles=plan.metric_percentiles,
-                )
+            point = parse_vllm_benchmark_result(
+                raw,
+                invocation=invocation,
+                model_source=model_source,
+                metric_percentiles=plan.metric_percentiles,
             )
+            rule = scoring.bucket_rules[invocation.bucket_id]
+            replay = replay_vllm_goodput(
+                raw,
+                invocation=invocation,
+                model_source=model_source,
+                goodput_slos_ms={
+                    "ttft": rule.ttft_slo_ms,
+                    "tpot": rule.tpot_slo_ms,
+                },
+                legacy_classification_guard_us=(
+                    scoring.legacy_classification_guard_us
+                ),
+                aggregate_tolerance_us=scoring.legacy_aggregate_tolerance_us,
+            )
+            point_document = point.to_document()
+            point_document["goodput"] = replay.to_document()
+            points.append(point_document)
+            goodput_replays.append(replay)
         except Exception as error:
             parse_errors.append(
                 f"{invocation.bucket_id}/{invocation.request_rate}: "
                 f"{type(error).__name__}: {error}"
             )
     environment_errors: list[str] = []
+    expected_remote_identity = {
+        "candidate_id": descriptor.candidate_id,
+        "model_id": campaign.target_model_id,
+        "model_revision": campaign.target_model_revision,
+        "served_model_name": str(candidate["server"]["served_model_name"]),
+        "vllm_version": str(candidate["server"]["engine_version"]),
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "measurement_profile_digest": profile.digest,
+        "scoring_profile_digest": scoring.digest,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    for key, expected in expected_remote_identity.items():
+        if remote_result.get(key) != expected:
+            environment_errors.append(f"remote_receipt.{key} differs")
     current_environment = remote_result.get("environment", {})
     expected_environment = {
         "package_set_digest": profile.resolved_package_digest,
@@ -772,17 +838,34 @@ def _run_baseline_repetition(
         for key in identity_keys:
             if current_gpu.get(key) != reference_gpu_identity.get(key):
                 environment_errors.append(f"gpu.{key} changed")
+    performance_score = None
+    if len(goodput_replays) == len(invocations):
+        try:
+            performance_score = score_repetition(
+                scoring,
+                plan,
+                goodput_replays,
+                repetition=repetition,
+                role=score_role,
+            ).to_document()
+        except Exception as error:
+            parse_errors.append(
+                f"score: {type(error).__name__}: {error}"
+            )
     valid = (
         remote_result.get("ok") is True
         and not parse_errors
         and not environment_errors
         and len(points) == len(invocations)
-        and all(point.valid for point in points)
+        and all(point["valid"] for point in points)
+        and performance_score is not None
+        and performance_score["eligible"] is True
     )
     normalized = {
-        "schema_version": "model-serving-reference-repetition/v0alpha1",
+        "schema_version": "model-serving-measurement-repetition/v0alpha1",
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
+        "scoring_profile_digest": scoring.digest,
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
         "platform_build": {
@@ -799,7 +882,8 @@ def _run_baseline_repetition(
         "modal_timing_role": profile.modal_timing_role,
         "client_timing_role": profile.client_timing_role,
         "remote_receipt": remote_result,
-        "points": [point.to_document() for point in points],
+        "performance_score": performance_score,
+        "points": points,
     }
     destination = store.save(
         measurement_id,
@@ -819,4 +903,4 @@ def _run_baseline_repetition(
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
     if not valid:
-        raise RuntimeError(f"reference baseline repetition is invalid: {destination}")
+        raise RuntimeError(f"serving measurement repetition is invalid: {destination}")

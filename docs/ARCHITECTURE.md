@@ -4,7 +4,7 @@
 
 V0 is a modular experiment system for testing agent collaboration. It is not an early implementation of the full governed-work-network product.
 
-OpenCode is the first coding-agent runtime adapter. It supplies the agent loop, context management, tools and native multi-agent handoffs, but it is not a dependency of the core experiment domain. V0 uses the DeepSeek direct API. The first registered four-condition study uses `deepseek-v4-flash`; a separately preregistered `deepseek-v4-pro` study is funded only under the recorded progression rule and never replaces Flash inside a study. Every study freezes one exact provider endpoint, requested and expected returned model identity, inference configuration, billing schedule and price-tier policy for all conditions. Switching model or provider creates a new study version whose results are not pooled with the earlier model. These choices remain manifest data rather than core-domain dependencies.
+OpenCode is the first coding-agent runtime adapter. It supplies the agent loop, context management, tools and native multi-agent handoffs, but it is not a dependency of the core experiment domain. V0 uses a dated DeepSeek model through a provider-neutral model gateway. The first registered four-condition study uses `deepseek-v4-flash`; a separately preregistered `deepseek-v4-pro` study is funded only under the recorded progression rule and never replaces Flash inside a study. Model author/version, gateway transport and serving provider are distinct registered factors. A pre-outcome selection rule chooses one eligible provider route for a study, after which the study freezes its endpoint, requested and expected returned identity, inference configuration, billing schedule and price-tier policy across every condition and block with fallbacks disabled. Switching model, transport or provider creates a new study version whose result is not pooled with the earlier configuration. These choices remain manifest data rather than core-domain dependencies.
 
 V0 pins and instruments stock OpenCode rather than forking it, and implements the smallest collaboration service needed for the experiment directly behind `CollaborationBackend`. Hugging Face Agent Collabs is a candidate substrate to assess against the same contract if the custom backend misses its timebox, not an automatic fallback. It also remains a possible external replication target. The rationale and decision gate are recorded in [ADR 0001](decisions/0001-agent-runtime-and-collaboration-substrate.md).
 
@@ -154,6 +154,13 @@ The backend supports campaign-scoped export and reset. It does not interpret tra
 Validates and scores immutable submissions. Public evaluation may return bounded feedback during a job, but it runs through the compute broker in the submitting actor's reserved slots and allocation. Hidden evaluation is callable only after submission closure, uses a separate evaluator-owned measurement schedule/account, and is reported separately from agent treatment spend. The first adapter evaluates model-serving artifacts on a held-out workload.
 
 Evaluation implementations receive campaign/variant data and resource specifications but not the experimental condition or collaboration trace.
+
+The serving evaluator composes a measurement protocol with a separate scoring
+profile. The former owns resets, timing and evidence capture; the latter owns
+SLOs, eligibility, normalization and aggregation. Both are transitively pinned
+campaign data, so changing a score never requires changing Modal, vLLM or the
+core evaluator port. Scoring is based on observed API outcomes and remains
+blind to the candidate's internal architecture.
 
 ### `BudgetGateway`
 

@@ -12,7 +12,9 @@ The comparison is about outcome quality, not how much agents communicate. API co
 
 V0 uses a pinned release of [OpenCode](https://github.com/anomalyco/opencode) as the coding-agent runtime. It was selected as a mature, open-source Codex-like system with native subagents, a programmatic SDK and broad model-provider support—not because of any one provider integration. There is no separate multi-agent orchestrator.
 
-Agent inference uses the [DeepSeek direct API](https://api-docs.deepseek.com/quick_start/pricing/) behind a provider-neutral `ModelProfile`. Development and feasibility work starts with an initial $20 total API allowance, and the first registered four-condition study uses `deepseek-v4-flash`. A stronger model is not substituted after results are visible: if the Flash study reaches its preregistered promise trigger, a separately registered `deepseek-v4-pro` study may repeat the complete design. Every study pins its exact endpoint, requested and returned model identity, inference configuration, billing schedule and price-tier policy across conditions and randomized blocks. Flash and Pro results are reported separately, and every attempted registered study remains visible.
+Agent inference uses a dated DeepSeek model behind a provider-neutral `ModelProfile`. Model, transport and serving provider are registered study factors, not environment variables. Development currently uses `deepseek-v4-flash` through a pinned DeepInfra route on OpenRouter because that route passed the required identity, parameter, privacy and latency canary; this is a development choice rather than a permanent product dependency. Before a registered study, a frozen selection rule chooses the lowest projected-cost reputable route that passes the declared capability, privacy, reliability and latency thresholds. The selected route is then fixed across every condition and randomized block with fallbacks disabled. Changing the model, transport or provider creates a separate study version whose result is reported separately rather than pooled.
+
+Development and feasibility work starts with an initial $20 total API allowance. The first registered four-condition study uses `deepseek-v4-flash`. A stronger model is not substituted after results are visible: if the Flash study reaches its preregistered promise trigger, a separately registered `deepseek-v4-pro` study may repeat the complete design. Every attempted registered study remains visible.
 
 It compares four conditions:
 
@@ -53,11 +55,20 @@ The repository now contains the first scenario-shaped vertical slice:
 - a dependency-free domain core with narrow harness, event and snapshot ports;
 - a deterministic fake harness and atomic local campaign persistence;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
-- a pure nine-point public benchmark plan for vLLM 0.21.0; and
+- a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
   normalizer and atomic evaluator-private raw-result store;
-- a private Modal adapter that can run either an API canary or one isolated
-  nine-point stock-reference repetition on one L4.
+- a transitively pinned calibration scorer with bucket-specific TTFT/TPOT
+  goodput, equal-weight cross-bucket normalization and a conservative
+  three-repetition improvement bound; and
+- a private Modal vLLM adapter that can run either an API canary or one
+  isolated nine-point reference/candidate repetition on one L4.
+
+The serving evaluator design also incorporates the documented lesson from
+Hugging Face's Fast Gemma Challenge: teacher-forced perplexity alone is not
+sufficient evidence of useful generated-answer quality. This informs an
+architecture-neutral outcome score; it does not prohibit candidates from
+changing model or serving internals. See [the evaluator research note](docs/GEMMA_CHALLENGE_EVALUATOR_LESSONS.md).
 
 Run the local slice without model or GPU spend:
 
@@ -77,6 +88,8 @@ four-condition execution remain explicit later gates. See
 
 - [Local setup](docs/SETUP.md)
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
+- [Agent-inference provider calibration](docs/calibration/AGENT_INFERENCE_PROVIDER.md)
+- [Fast Gemma evaluator lessons](docs/GEMMA_CHALLENGE_EVALUATOR_LESSONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module contracts](docs/MODULE_CONTRACTS.md)
 - [Experimental design](docs/EXPERIMENTAL_DESIGN.md)

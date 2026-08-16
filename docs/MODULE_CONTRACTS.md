@@ -53,6 +53,7 @@ StudyManifest
   evaluator: AdapterRef + EvaluatorProfile
   enforcement: EnforcementProfile
   model: ModelProfile
+  provider_selection: ProviderSelectionRecord
   budget: BudgetEnvelope
   actor_allocation: ActorAllocationPolicy
   campaign: CampaignRef
@@ -121,6 +122,18 @@ ComponentRef
   build_artifact_digest: digest
   configuration_digest: digest
   capability_or_schema_version: string
+
+ProviderSelectionRecord
+  rule_version: string
+  candidate_snapshot_timestamp: timestamp
+  candidate_snapshot_digest: digest
+  qualification_workload_digest: digest
+  observation_window: duration
+  eligibility_profile_digest: digest
+  cost_projection_profile_digest: digest
+  tie_break: effective_cost_then_latency_then_provider_id
+  selected_model_profile_digest: digest
+  qualification_evidence_digest: digest
 ```
 
 The randomization algorithm assigns condition labels to already defined execution positions and stochastic seeds. `task_seed` generates one immutable material bundle for the whole block; its digest must be identical in all four resolved runs. Run and actor stochastic seeds control model/runtime randomness only and cannot alter missions, inputs, public workloads or evaluator data. The runner materializes and hashes every `BlockAssignment` before any outcome is observed. A resolved manifest cannot choose its condition, variant or seeds, and retries remain traceable to the original assignment.
@@ -131,15 +144,17 @@ Primary inference conditions on each block's task/materials, four execution posi
 
 A separately reported finite-sample exact Fisher test uses the same conditional assignments for the sharp null that every conditioned peer execution position has identical potential outcomes under `peer_collab` and `peer_isolated`. The sharp and weak nulls, and their claims, are never conflated.
 
-`StudyProgressionRule`, when present, freezes the evidence and budget gate for funding a separate higher-capability-model study. The Flash-to-Pro rule is registered before Flash outcomes are inspected, reports every attempted study and treats the Pro study as conditional model-transport evidence rather than pooling it with or retroactively replacing Flash.
+`StudyProgressionRule`, when present, freezes the evidence and budget gate for funding a separate higher-capability-model study. The Flash-to-Pro rule is registered before Flash outcomes are inspected, reports every attempted study and treats the Pro study as conditional model-profile evidence rather than pooling it with or retroactively replacing Flash.
 
 `AdapterRef` records implementation name, semantic version or commit, configuration digest and declared capability version. `ComponentRef` records component name, source version or commit, build artifact digest, configuration digest and capability/schema version for an application or enforcement service. `PlatformBuildRef` binds the shared domain and composition code. The resolved configuration digest covers the platform, every adapter, every component in `EnforcementProfile`, all profiles and policies, and the campaign definition transitively; pinning only the OpenCode and backend versions is insufficient.
 
-`ModelProfile` records provider, exact requested model identifier, expected returned identity or fingerprint when available, endpoint class, inference parameters, retry policy, `BillingPolicy` and `ProviderCachePolicy`. Cache policy is one of `disabled`, `actor_run_scoped` or `provider_managed_observed`. A confirmatory peer comparison requires effective actor isolation through a provider namespace, a frozen non-semantic per-actor isolation prefix, or disabled caching; `provider_managed_observed` without isolation is calibration-only.
+`ModelProfile` separately records model author and exact requested model identifier, gateway transport, serving provider and route, expected returned identity or fingerprint when available, endpoint class, inference parameters, retry/fallback policy, `BillingPolicy` and `ProviderCachePolicy`. Cache policy is one of `disabled`, `actor_run_scoped` or `provider_managed_observed`. A confirmatory peer comparison requires effective actor isolation through a provider namespace, a frozen non-semantic per-actor isolation prefix, or disabled caching; `provider_managed_observed` without isolation is calibration-only.
+
+Before a study is registered, `ProviderSelectionRecord` freezes the candidate-route snapshot and digest, qualification workload and time window, eligibility thresholds, cost projection method, deterministic tie-break and resulting selected route. V0's rule first excludes routes that cannot attest the exact model, support the full request/tool surface, enforce the registered data and cache policy, expose sufficient billing evidence, or meet the declared reliability and latency floors. It then selects the lowest projected dollar cost for the frozen representative request mix, breaking an effective-cost tie by lower measured latency and then a fixed provider identifier. The qualification observes no treatment outcomes. Dynamic price or latency routing and provider fallbacks are disabled after selection.
 
 `BillingPolicy` freezes currency, price-catalog source and digest, rate-schedule version, allowed price tiers or windows, provider timestamp source and the block rule. V0 uses `single_effective_tier_per_block`: all four positions in a block settle under one tier, and an unplanned catalog or tier transition triggers the registered whole-block invalidation/retry rule. A future study may instead preregister a balanced tier-by-position design. Every call records its provider timestamp, effective tier and cache-hit/cache-miss/output unit rates rather than inferring dollars from OpenCode telemetry.
 
-The first registered four-condition study uses the exact DeepSeek-direct `deepseek-v4-flash` profile after a common pass/fail feasibility qualification verifies base tools, native handoffs, peer tools and a valid campaign artifact without inspecting treatment differences. If its preregistered promise trigger is met, a separately registered `deepseek-v4-pro` study may repeat all four conditions. It is a model-transport/replication study, not an in-study substitution: attempts are all reported, results are not pooled across models, and changing a profile always creates a new study version. No domain port contains provider-specific types.
+The first registered four-condition study uses an exact `deepseek-v4-flash` profile after provider selection and a common pass/fail feasibility qualification verifies base tools, native handoffs, peer tools and a valid campaign artifact without inspecting treatment differences. If its preregistered promise trigger is met, a separately registered `deepseek-v4-pro` study may repeat all four conditions. This is model-profile replication evidence, not an in-study substitution: attempts are all reported, results are not pooled across models, and changing the model, transport, provider route or any other profile field always creates a new study version. A later provider replication holds the model and other factors fixed while changing only the provider profile. No domain port contains provider-specific types.
 
 `InstrumentationProfile` freezes the OpenCode and SDK versions, out-of-process event adapter, event-schema version, buffering/backpressure policy and reconciliation policy. If an in-process plugin is required, it also freezes its commit, configuration digest and an API/hook allowlist. The plugin must be condition-blind and must not register transform hooks, model-request or tool-execution mutation hooks, tools, commands or any other behavior that can change prompts, parameters, permissions, scheduling or budgets. This restriction is established by pinned code review and conformance against the effective runtime configuration; it is not an assumed property of OpenCode plugins.
 
@@ -150,6 +165,15 @@ The first registered four-condition study uses the exact DeepSeek-direct `deepse
 `organisation_size` is the sole source of truth for fleet size `N`. `PeerActivationPolicy` freezes the start barrier, job-delivery schedule, maximum concurrency, wake/resume behavior and deadline handling; its resolved session count must validate against `organisation_size`. V0 uses `eager_all`: exactly `N` peer sessions are created and receive every job. The first pilot sets `N = 4`; later studies may register other sizes. Within a study, `N` is identical across arms and blocks. The controller applies the same policy to `peer_isolated` and `peer_collab` without inspecting condition-specific content or runtime activity.
 
 `MeasurementProtocol` freezes resource reset, image and dependency digests, warmup, repetition count and order, reference canaries, environmental recording, contamination tolerances and condition-blind retry or invalidation rules.
+
+`ScoringProfile` is a separate campaign input. It freezes per-bucket latency
+SLOs, point selection, failure and attainment gates, cross-bucket
+normalization, repetition aggregation, reference evidence lineage, numerical
+resolution and the improvement-bound rule. The evaluator scores observed API
+outcomes and does not inspect or constrain a candidate's serving architecture
+beyond the campaign's ordinary artifact, resource and benchmark-integrity
+policy. A scoring-profile change creates a new campaign/study version without
+changing the compute adapter.
 
 `BudgetEnvelope` contains organisation-level maxima. `ActorAllocationPolicy` adds fixed actor-level maxima for the two peer conditions:
 

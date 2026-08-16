@@ -76,7 +76,7 @@ Before condition comparison, sequential pilot runs choose a small serving **targ
 
 Calibration chooses aggregate API, GPU, research, retry and candidate limits that divide equally among the study's frozen `N` peers, with enough per-actor compute time for a valid attempt.
 
-The agent model is separate from the serving target. After engineering and one common pass/fail task-feasibility check covering shell/edit, native handoffs and peer tools, the first registered four-condition study freezes the exact DeepSeek `deepseek-v4-flash` profile. A preregistered progression rule may fund a separate four-condition `deepseek-v4-pro` study if the Flash evidence is promising. Pro never replaces Flash within a study, the two model results are not pooled, and all attempted registered studies—including a decision not to progress—are reported. Each study also freezes its billing catalog, rate schedule and price-tier/block policy.
+The agent model is separate from the serving target. Before registration, a frozen selection rule chooses the cheapest reputable provider route that passes the declared exact-model, request/tool, privacy, billing-evidence, reliability and latency gates for a representative request mix. After engineering and one common pass/fail task-feasibility check covering shell/edit, native handoffs and peer tools, the first registered four-condition study freezes the exact DeepSeek `deepseek-v4-flash` model, transport and provider route. A preregistered progression rule may fund a separate four-condition `deepseek-v4-pro` study if the Flash evidence is promising. Pro never replaces Flash within a study, the two model results are not pooled, and all attempted registered studies—including a decision not to progress—are reported. Provider-only replications likewise receive separate study versions. Each study also freezes its billing catalog, rate schedule and price-tier/block policy.
 
 ### Fixed inputs
 
@@ -112,9 +112,29 @@ Every submitted candidate first receives public validation:
 1. artifact and dependency validation;
 2. cold-start and API-schema checks;
 3. deterministic correctness checks;
-4. output-quality tolerance on public prompts;
+4. output-quality tolerance on public generation prompts;
 5. repeated and concurrent-load stability on the public workload;
 6. prohibited-shortcut inspection.
+
+Teacher-forced perplexity or log-likelihood may be retained as a cheap
+diagnostic, but it is never the only quality gate. The authoritative hidden
+quality check scores downstream generation from the submitted server under
+frozen target-model decoding profiles and paired reference-relative scoring.
+It constrains outcomes, not architecture: agents may legitimately change
+derived weight representations, precision, kernels, engines, batching,
+serving paths and request routing within the campaign's ordinary target-model,
+dependency, hardware and API policy. No
+particular internal path must remain identical to the reference. An optional
+token-identity diagnostic can support a candidate's own lossless claim, but it
+does not define eligibility. This score design incorporates the failure
+observed in the [Fast Gemma Challenge](GEMMA_CHALLENGE_EVALUATOR_LESSONS.md),
+where perplexity alone overstated the quality of generated answers.
+
+`prohibited_shortcuts` is limited to benchmark-integrity failures such as
+obtaining hidden evaluation material, forging measurements or using privileged
+evaluator-only signals. It does not prohibit ordinary input-dependent routing
+or any other optimization whose actual held-out outputs satisfy the same
+quality and reliability score.
 
 Serving performance is scored on a warm, steady-state phase, while startup is
 kept as a separate gate and secondary outcome. Each repetition begins in a

@@ -1,6 +1,6 @@
 {
   "schema_version": "model-profile/v0alpha1",
-  "profile_id": "deepseek-v4-flash-openrouter-development",
+  "profile_id": "deepseek-v4-flash-openrouter-deepinfra-development",
   "status": "development",
   "transport": "openrouter",
   "endpoint": "https://openrouter.ai/api/v1",

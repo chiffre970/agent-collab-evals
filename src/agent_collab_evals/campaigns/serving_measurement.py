@@ -197,6 +197,40 @@ class VllmBenchmarkPointResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class GoodputReplay:
+    bucket_id: str
+    request_rate: int
+    expected_prompts: int
+    completed: int
+    failed: int
+    good_completed: int
+    joint_attainment_ppm: int
+    goodput_micro_rps: int
+    source: str
+    minimum_slo_margin_us: int
+    aggregate_reconstruction_error_us: int
+    raw_digest: str
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "bucket_id": self.bucket_id,
+            "request_rate": self.request_rate,
+            "expected_prompts": self.expected_prompts,
+            "completed": self.completed,
+            "failed": self.failed,
+            "good_completed": self.good_completed,
+            "joint_attainment_ppm": self.joint_attainment_ppm,
+            "goodput_micro_rps": self.goodput_micro_rps,
+            "source": self.source,
+            "minimum_slo_margin_us": self.minimum_slo_margin_us,
+            "aggregate_reconstruction_error_us": (
+                self.aggregate_reconstruction_error_us
+            ),
+            "raw_digest": self.raw_digest,
+        }
+
+
 def parse_vllm_benchmark_result(
     raw_bytes: bytes,
     *,
@@ -231,13 +265,19 @@ def parse_vllm_benchmark_result(
 
     input_lens = _integer_list(document, "input_lens", invocation.num_prompts)
     output_lens = _integer_list(document, "output_lens", invocation.num_prompts)
-    for key in ("ttfts", "itls", "generated_texts", "errors"):
+    for key in ("ttfts", "itls", "start_times", "generated_texts", "errors"):
         value = document.get(key)
         if not isinstance(value, list) or len(value) != invocation.num_prompts:
             raise MeasurementValidationError(
                 f"vLLM detailed field {key} must match num_prompts"
             )
 
+    ttfts = _decimal_list(document, "ttfts", invocation.num_prompts)
+    _decimal_list(document, "start_times", invocation.num_prompts)
+    _nested_decimal_list(document, "itls", invocation.num_prompts)
+    generated_texts = document["generated_texts"]
+    if any(not isinstance(value, str) for value in generated_texts):
+        raise MeasurementValidationError("vLLM generated_texts must be strings")
     total_input = _nonnegative_int(document, "total_input_tokens")
     total_output = _nonnegative_int(document, "total_output_tokens")
     errors = document["errors"]
@@ -250,6 +290,22 @@ def parse_vllm_benchmark_result(
         output_lens[index] for index in successful
     ):
         raise MeasurementValidationError("vLLM token totals do not match details")
+    successful_input_lengths = {input_lens[index] for index in successful}
+    if (
+        len(successful_input_lengths) != 1
+        or next(iter(successful_input_lengths)) < invocation.input_tokens
+        or any(
+            output_lens[index] != invocation.output_tokens or ttfts[index] <= 0
+            for index in successful
+        )
+    ):
+        raise MeasurementValidationError(
+            "vLLM successful request lengths or TTFT differ from fixed workload"
+        )
+    if any(output_lens[index] != 0 for index, error in enumerate(errors) if error):
+        raise MeasurementValidationError(
+            "vLLM failed requests must have zero output length"
+        )
 
     duration = _positive_decimal(document, "duration")
     request_throughput = _nonnegative_decimal(document, "request_throughput")
@@ -310,6 +366,194 @@ def parse_vllm_benchmark_result(
             total_token_throughput, Decimal("1000000")
         ),
         latency_us=latency_us,
+        raw_digest=digest_bytes(raw_bytes),
+    )
+
+
+def replay_vllm_goodput(
+    raw_bytes: bytes,
+    *,
+    invocation: BenchmarkInvocation,
+    model_source: str,
+    goodput_slos_ms: Mapping[str, int],
+    legacy_classification_guard_us: int,
+    aggregate_tolerance_us: int,
+) -> GoodputReplay:
+    """Replay TTFT/TPOT goodput from detailed vLLM 0.21 evidence.
+
+    New measurements must ask vLLM to calculate goodput directly while its
+    per-request latency is still in memory. Older calibration JSON omitted
+    latency, so this function can reconstruct it as ``ttft + sum(itls)`` only
+    when every request is safely outside a declared ambiguity guard.
+    """
+
+    if set(goodput_slos_ms) != {"ttft", "tpot"}:
+        raise MeasurementValidationError(
+            "V0 goodput replay requires exactly TTFT and TPOT SLOs"
+        )
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value < 1
+        for value in goodput_slos_ms.values()
+    ):
+        raise MeasurementValidationError(
+            "goodput SLOs must be positive integer milliseconds"
+        )
+    for name, value in {
+        "legacy classification guard": legacy_classification_guard_us,
+        "aggregate tolerance": aggregate_tolerance_us,
+    }.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise MeasurementValidationError(f"{name} must be positive microseconds")
+
+    document = _load_decimal_json(raw_bytes)
+    if not isinstance(document, dict):
+        raise MeasurementValidationError("vLLM result must be a JSON object")
+    if document.get("model_id") != model_source:
+        raise MeasurementValidationError("vLLM result model_id mismatch")
+    if (
+        document.get("backend") != "openai-chat"
+        or document.get("endpoint_type") != "openai-chat"
+    ):
+        raise MeasurementValidationError("vLLM result backend mismatch")
+    if document.get("num_prompts") != invocation.num_prompts:
+        raise MeasurementValidationError("vLLM result num_prompts mismatch")
+    if _decimal(document, "request_rate") != Decimal(invocation.request_rate):
+        raise MeasurementValidationError("vLLM result request_rate mismatch")
+
+    completed = _nonnegative_int(document, "completed")
+    failed = _nonnegative_int(document, "failed")
+    if completed + failed != invocation.num_prompts:
+        raise MeasurementValidationError(
+            "vLLM completed and failed counts do not match num_prompts"
+        )
+    errors = document.get("errors")
+    if (
+        not isinstance(errors, list)
+        or len(errors) != invocation.num_prompts
+        or any(not isinstance(error, str) for error in errors)
+    ):
+        raise MeasurementValidationError(
+            "vLLM errors must contain one string per prompt"
+        )
+    successful = tuple(index for index, error in enumerate(errors) if not error)
+    if len(successful) != completed:
+        raise MeasurementValidationError("vLLM error details do not match counts")
+
+    output_lens = _integer_list(document, "output_lens", invocation.num_prompts)
+    ttfts = _decimal_list(document, "ttfts", invocation.num_prompts)
+    itls = _nested_decimal_list(document, "itls", invocation.num_prompts)
+    duration = _positive_decimal(document, "duration")
+    ttft_limit = Decimal(goodput_slos_ms["ttft"]) / Decimal(1000)
+    tpot_limit = Decimal(goodput_slos_ms["tpot"]) / Decimal(1000)
+
+    reconstructed_good = 0
+    minimum_margin: Decimal | None = None
+    successful_ttfts: list[Decimal] = []
+    successful_tpots: list[Decimal] = []
+    successful_e2els: list[Decimal] = []
+    for index in successful:
+        ttft = ttfts[index]
+        output_len = output_lens[index]
+        decode_latency = sum(itls[index], Decimal(0))
+        tpot = (
+            decode_latency / Decimal(output_len - 1)
+            if output_len > 1
+            else Decimal(0)
+        )
+        e2el = ttft + decode_latency
+        successful_ttfts.append(ttft)
+        successful_tpots.append(tpot)
+        successful_e2els.append(e2el)
+        margins = (abs(ttft - ttft_limit), abs(tpot - tpot_limit))
+        request_margin = min(margins)
+        minimum_margin = (
+            request_margin
+            if minimum_margin is None
+            else min(minimum_margin, request_margin)
+        )
+        if ttft <= ttft_limit and tpot <= tpot_limit:
+            reconstructed_good += 1
+
+    if completed == 0 or minimum_margin is None:
+        raise MeasurementValidationError("goodput replay requires a completed request")
+
+    aggregate_errors = (
+        abs(
+            _mean(successful_ttfts) * Decimal(1000)
+            - _nonnegative_decimal(document, "mean_ttft_ms")
+        ),
+        abs(
+            _mean(successful_tpots) * Decimal(1000)
+            - _nonnegative_decimal(document, "mean_tpot_ms")
+        ),
+        abs(
+            _mean(successful_e2els) * Decimal(1000)
+            - _nonnegative_decimal(document, "mean_e2el_ms")
+        ),
+    )
+    maximum_aggregate_error = max(aggregate_errors)
+    maximum_aggregate_error_us = _milliseconds_to_microseconds(
+        maximum_aggregate_error
+    )
+    if maximum_aggregate_error > Decimal(aggregate_tolerance_us) / Decimal(1000):
+        raise MeasurementValidationError(
+            "saved vLLM details do not reconstruct aggregate latency"
+        )
+
+    direct_value = document.get("request_goodput")
+    if direct_value is None:
+        minimum_margin_us = _to_integer_units(
+            minimum_margin, Decimal("1000000")
+        )
+        if (
+            minimum_margin * Decimal(1000000)
+            <= Decimal(legacy_classification_guard_us)
+        ):
+            raise MeasurementValidationError(
+                "legacy goodput replay is ambiguous at an SLO boundary"
+            )
+        good_completed = reconstructed_good
+        source = "guarded_saved_detail_replay"
+    else:
+        request_goodput = _nonnegative_decimal(document, "request_goodput")
+        direct_count = request_goodput * duration
+        good_completed = int(
+            direct_count.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN)
+        )
+        if abs(direct_count - Decimal(good_completed)) > Decimal("0.000001"):
+            raise MeasurementValidationError(
+                "direct vLLM goodput does not resolve to a request count"
+            )
+        if not 0 <= good_completed <= completed:
+            raise MeasurementValidationError("direct vLLM goodput count is invalid")
+        minimum_margin_us = _to_integer_units(
+            minimum_margin, Decimal("1000000")
+        )
+        if (
+            good_completed != reconstructed_good
+            and minimum_margin_us > legacy_classification_guard_us
+        ):
+            raise MeasurementValidationError(
+                "direct and reconstructed vLLM goodput disagree"
+            )
+        source = "vllm_direct"
+
+    return GoodputReplay(
+        bucket_id=invocation.bucket_id,
+        request_rate=invocation.request_rate,
+        expected_prompts=invocation.num_prompts,
+        completed=completed,
+        failed=failed,
+        good_completed=good_completed,
+        joint_attainment_ppm=_to_integer_units(
+            Decimal(good_completed) / Decimal(completed), Decimal("1000000")
+        ),
+        goodput_micro_rps=_to_integer_units(
+            Decimal(good_completed) / duration, Decimal("1000000")
+        ),
+        source=source,
+        minimum_slo_margin_us=minimum_margin_us,
+        aggregate_reconstruction_error_us=maximum_aggregate_error_us,
         raw_digest=digest_bytes(raw_bytes),
     )
 
@@ -509,6 +753,59 @@ def _integer_list(
     return tuple(item)
 
 
+def _decimal_list(
+    value: Mapping[str, Any], key: str, expected_length: int
+) -> tuple[Decimal, ...]:
+    item = value.get(key)
+    if not isinstance(item, list) or len(item) != expected_length:
+        raise MeasurementValidationError(
+            f"{key} must contain one finite non-negative number per prompt"
+        )
+    result: list[Decimal] = []
+    for entry in item:
+        if isinstance(entry, bool) or not isinstance(entry, (int, Decimal)):
+            raise MeasurementValidationError(
+                f"{key} must contain one finite non-negative number per prompt"
+            )
+        number = Decimal(entry)
+        if not number.is_finite() or number < 0:
+            raise MeasurementValidationError(
+                f"{key} must contain one finite non-negative number per prompt"
+            )
+        result.append(number)
+    return tuple(result)
+
+
+def _nested_decimal_list(
+    value: Mapping[str, Any], key: str, expected_length: int
+) -> tuple[tuple[Decimal, ...], ...]:
+    item = value.get(key)
+    if not isinstance(item, list) or len(item) != expected_length:
+        raise MeasurementValidationError(
+            f"{key} must contain one number list per prompt"
+        )
+    result: list[tuple[Decimal, ...]] = []
+    for entries in item:
+        if not isinstance(entries, list):
+            raise MeasurementValidationError(
+                f"{key} must contain one number list per prompt"
+            )
+        row: list[Decimal] = []
+        for entry in entries:
+            if isinstance(entry, bool) or not isinstance(entry, (int, Decimal)):
+                raise MeasurementValidationError(
+                    f"{key} entries must be finite non-negative numbers"
+                )
+            number = Decimal(entry)
+            if not number.is_finite() or number < 0:
+                raise MeasurementValidationError(
+                    f"{key} entries must be finite non-negative numbers"
+                )
+            row.append(number)
+        result.append(tuple(row))
+    return tuple(result)
+
+
 def _decimal(value: Mapping[str, Any], key: str) -> Decimal:
     item = value.get(key)
     if isinstance(item, bool) or not isinstance(item, (int, Decimal)):
@@ -547,3 +844,9 @@ def _to_integer_units(value: Decimal, scale: Decimal) -> int:
 
 def _milliseconds_to_microseconds(value: Decimal) -> int:
     return _to_integer_units(value, Decimal("1000"))
+
+
+def _mean(values: list[Decimal]) -> Decimal:
+    if not values:
+        raise MeasurementValidationError("cannot average an empty measurement")
+    return sum(values, Decimal(0)) / Decimal(len(values))

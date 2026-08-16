@@ -1,0 +1,49 @@
+schema_version = "model-serving-scoring/v0alpha1"
+phase = "calibration_candidate_sensitivity"
+primary_metric = "goodput_requests_per_second"
+point_selection = "largest_offered_rate_per_bucket"
+bucket_aggregation = "equal_weight_mean_of_reference_ratios"
+repetition_aggregation = "median"
+candidate_repetitions = 3
+minimum_joint_attainment_ppm = 900000
+request_failure_policy = "zero_failures_at_every_point"
+candidate_goodput_source = "vllm_direct"
+improvement_bound = "candidate_min_over_reference_max"
+
+[legacy_replay]
+authority = "reference_calibration_only"
+latency_reconstruction = "ttft_plus_sum_itls"
+classification_guard_us = 100
+aggregate_tolerance_us = 100
+
+[reference]
+measurement_id = "baseline-stock-vllm-0.21.0-5b26369d44fa"
+measurement_profile_digest = "sha256:5b26369d44fa19450fed0300218181f8ef71e68e503afe0721f3654fc3777bb2"
+aggregation = "median_bucket_goodput"
+receipt_digests = [
+  "sha256:286c2beb396394395ba9021e9d785429799f7912571e93d3582fc82eafd9a505",
+  "sha256:96d8334b2fbf8b88ae8eb3f28973cdf3572b85afb998f706d9583baec759c18b",
+  "sha256:fe4e16c5db05aaf041740c0783055bf1cb7a48d18516dcbe3b06496ed963db58",
+]
+repetition_scalar_ppm = [1001586, 999392, 998983]
+
+[[buckets]]
+id = "short"
+selected_request_rate = 8
+ttft_slo_ms = 150
+tpot_slo_ms = 45
+reference_goodput_micro_rps = 3580009
+
+[[buckets]]
+id = "medium"
+selected_request_rate = 4
+ttft_slo_ms = 400
+tpot_slo_ms = 60
+reference_goodput_micro_rps = 1306945
+
+[[buckets]]
+id = "long"
+selected_request_rate = 2
+ttft_slo_ms = 1450
+tpot_slo_ms = 90
+reference_goodput_micro_rps = 582939

@@ -32,9 +32,10 @@ hidden_contract = "evaluator/hidden_contract.json"
 [evaluation]
 primary_metric = "goodput_requests_per_second"
 quality_gate = "reference_relative"
-slo_status = "unset_until_reference_calibration"
+slo_status = "calibrated_for_candidate_sensitivity"
 hidden_data_status = "external_unmaterialized"
 measurement_profile = "evaluator/measurement.toml"
+scoring_profile = "evaluator/scoring.toml"
 
 [development_limits]
 modal_usd_cap = "5.00"

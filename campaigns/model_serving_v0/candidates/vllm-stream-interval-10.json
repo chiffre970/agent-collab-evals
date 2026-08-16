@@ -1,0 +1,50 @@
+{
+  "schema_version": "model-serving-candidate/v0alpha1",
+  "candidate_id": "vllm-0.21.0-stream-interval-10",
+  "model": {
+    "id": "Qwen/Qwen3-4B",
+    "revision": "1cfa9a7208912126459214e8b04321603b3df60c"
+  },
+  "resource": {
+    "gpu_type": "L4",
+    "gpu_count": 1
+  },
+  "build": {
+    "image_ref": "nvidia/cuda:12.9.0-devel-ubuntu22.04",
+    "image_digest": "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092",
+    "dependency_lock": "vllm==0.21.0"
+  },
+  "server": {
+    "engine": "vllm",
+    "engine_version": "0.21.0",
+    "entrypoint": [
+      "vllm",
+      "serve",
+      "Qwen/Qwen3-4B",
+      "--revision",
+      "1cfa9a7208912126459214e8b04321603b3df60c",
+      "--served-model-name",
+      "target-model",
+      "--generation-config",
+      "vllm",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8000",
+      "--dtype",
+      "bfloat16",
+      "--max-model-len",
+      "8192",
+      "--gpu-memory-utilization",
+      "0.9",
+      "--stream-interval",
+      "10",
+      "--disable-log-stats"
+    ],
+    "port": 8000,
+    "health_path": "/health",
+    "chat_path": "/v1/chat/completions",
+    "served_model_name": "target-model",
+    "generation_config": "vllm"
+  }
+}

@@ -29,7 +29,7 @@ def build_vllm_benchmark_invocations(
     served_model_name: str,
     result_directory: Path,
     warmup_requests: int,
-    goodput_slos_ms: Mapping[str, int] | None = None,
+    goodput_slos_ms_by_bucket: Mapping[str, Mapping[str, int]] | None = None,
 ) -> tuple[BenchmarkInvocation, ...]:
     """Build argv arrays only; execution belongs to a compute adapter."""
 
@@ -47,17 +47,24 @@ def build_vllm_benchmark_invocations(
     ):
         raise ManifestValidationError("benchmark warmup requests must be positive")
 
-    slos = goodput_slos_ms or {}
-    if set(slos) - {"ttft", "tpot", "e2el"}:
-        raise ManifestValidationError("unsupported goodput metric")
-    if any(
-        not isinstance(value, int) or isinstance(value, bool) or value < 1
-        for value in slos.values()
-    ):
-        raise ManifestValidationError("goodput SLOs must be positive integer milliseconds")
+    slos_by_bucket = goodput_slos_ms_by_bucket or {}
+    plan_bucket_ids = {bucket.bucket_id for bucket in plan.buckets}
+    if slos_by_bucket and set(slos_by_bucket) != plan_bucket_ids:
+        raise ManifestValidationError("goodput SLO buckets must match the plan")
+    for slos in slos_by_bucket.values():
+        if set(slos) - {"ttft", "tpot", "e2el"}:
+            raise ManifestValidationError("unsupported goodput metric")
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 1
+            for value in slos.values()
+        ):
+            raise ManifestValidationError(
+                "goodput SLOs must be positive integer milliseconds"
+            )
 
     invocations: list[BenchmarkInvocation] = []
     for bucket in plan.buckets:
+        slos = slos_by_bucket.get(bucket.bucket_id, {})
         for request_rate in bucket.request_rates:
             filename = f"{bucket.bucket_id}-{request_rate}rps.json"
             argv = [

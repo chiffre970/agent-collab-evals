@@ -81,7 +81,7 @@ calibration date, the GPU component is approximately $0.511, excluding CPU,
 memory, volume and other charges. The workspace billing record, not this
 estimate, remains authoritative.
 
-### Provisional latency SLO derivation
+### Latency SLO derivation
 
 The draft policy uses TTFT and TPOT because they independently constrain
 prefill and decoding, matching the request-level goodput semantics in
@@ -95,7 +95,7 @@ For each bucket and metric, take the maximum P95 over every rate and formal
 repetition, multiply it by 1.10, then round upward to 50 ms for TTFT or 5 ms
 for TPOT. This rule yields:
 
-| Bucket | Worst P95 TTFT | Draft TTFT SLO | Worst P95 TPOT | Draft TPOT SLO | Minimum observed joint attainment |
+| Bucket | Worst P95 TTFT | Calibration TTFT SLO | Worst P95 TPOT | Calibration TPOT SLO | Minimum observed joint attainment |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | short | 131.460 ms | 150 ms | 39.729 ms | 45 ms | 96.875% |
 | medium | 329.309 ms | 400 ms | 50.320 ms | 60 ms | 95.833% |
@@ -106,13 +106,43 @@ The corresponding reference median goodput at the largest offered rate is
 requests/s for long. Their between-repetition CVs are 0.12%, 0.16% and 0.21%,
 respectively.
 
-These values are a draft for evaluator implementation, not a registered-study
-mutation. Before registration, the evaluator must replay the rule directly
-through pinned vLLM goodput calculation, freeze the exact cross-bucket scalar
-and improvement-bound rule, and verify at least one non-reference candidate so
-the score is sensitive to a legitimate serving improvement. Registered points
-should require zero request failures and at least 90% of requests to meet both
-bucket SLOs; failures cannot be hidden by dropping slow requests.
+These values feed a transitively pinned calibration scoring profile. They are
+not yet a registered-study policy. Every scored point requires zero request
+failures and at least 90% of requests to meet both bucket SLOs; failures cannot
+be hidden by dropping slow requests.
+
+### 2026-08-16: goodput replay and scalar freeze
+
+Pinned vLLM 0.21 computes request goodput from its in-memory per-request
+latency, TTFT and TPOT. Its saved detailed JSON includes TTFT and inter-token
+latencies but omits the exact per-request latency. For the existing reference
+evidence, the evaluator therefore reconstructs latency as `TTFT + sum(ITLs)`
+only under a 100 microsecond classification guard and a 100 microsecond
+aggregate-reconstruction tolerance. The closest reference request was about
+1.9 milliseconds from an SLO boundary, so all 672 requests were unambiguous.
+New candidate runs pass bucket SLOs to vLLM directly and require its in-memory
+`request_goodput`; guarded reconstruction is reference-calibration-only.
+
+The calibration scalar uses the largest offered rate in each workload bucket.
+Each bucket's goodput is divided by its three-run reference median, the three
+ratios receive equal weight, and three candidate repetition scalars are
+aggregated by their median. All nine points remain eligibility gates. The
+reported lower measurement bound is the candidate's minimum repetition scalar
+relative to the reference's maximum repetition scalar; this deliberately
+requires range separation rather than relying on a fragile small-sample normal
+approximation.
+
+Offline replay of all 27 raw files reproduced the pinned reference values:
+
+| Repetition | Short goodput | Medium goodput | Long goodput | Scalar (ppm) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 3.581279 | 1.309147 | 0.584524 | 1,001,586 |
+| 2 | 3.573482 | 1.306945 | 0.582939 | 999,392 |
+| 3 | 3.580009 | 1.304874 | 0.582084 | 998,983 |
+
+The remaining calibration requirement is a legitimate non-reference candidate
+run to verify score sensitivity before this formula is considered for a
+confirmatory study version.
 
 ### Lifecycle decisions
 

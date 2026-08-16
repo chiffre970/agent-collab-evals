@@ -41,12 +41,14 @@ def _parser() -> argparse.ArgumentParser:
 def _campaign_summary(campaign: ModelServingCampaign) -> dict[str, object]:
     candidate = campaign.validate_reference_candidate()
     buckets = campaign.benchmark_buckets()
+    scoring = campaign.scoring_profile()
     return {
         "campaign_id": campaign.raw["campaign_id"],
         "manifest_digest": campaign.manifest_digest,
         "target_model": campaign.target_model_id,
         "target_revision": campaign.target_model_revision,
         "reference_candidate": candidate.candidate_id,
+        "scoring_profile_digest": scoring.digest,
         "benchmark_bucket_count": len(buckets),
         "benchmark_point_count": sum(len(bucket.request_rates) for bucket in buckets),
     }

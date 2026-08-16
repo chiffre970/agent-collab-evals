@@ -18,8 +18,8 @@ smallest useful seams before adding the runtime and collaboration machinery.
   `1cfa9a7208912126459214e8b04321603b3df60c`, one L4, vLLM 0.21.0, the CUDA
   base image, API paths, served model name and generation-config policy.
 - The public workload expands into nine deterministic vLLM benchmark argv
-  arrays without invoking a shell. Optional goodput SLOs are explicit positive
-  integer milliseconds and remain unset until calibration.
+  arrays without invoking a shell. Bucket-specific goodput SLOs are explicit
+  positive integer milliseconds and are passed directly to pinned vLLM.
 - The transitively pinned calibration measurement profile separates warm
   steady-state scoring from startup, declares three fresh-container
   repetitions, fixed warmups and point order, whole-repetition retries,
@@ -28,19 +28,38 @@ smallest useful seams before adding the runtime and collaboration machinery.
   totals and derived throughput, rejects duplicate keys and non-finite values,
   and normalizes scored floats to integer units while retaining the exact raw
   bytes and their digests.
+- The transitively pinned calibration scoring profile requires zero request
+  failures and at least 90% joint TTFT/TPOT attainment at all nine points. It
+  scores the highest offered rate in each bucket, equally averages each
+  bucket's ratio to its reference median, takes the median of three candidate
+  repetitions and reports a conservative candidate-min/reference-max lower
+  measurement bound. New candidate evidence must contain vLLM's direct
+  in-memory goodput result.
+- The legacy stock baseline was replayed from all 27 detailed raw results with
+  a 0.1 ms ambiguity guard. All requests were safely classifiable and the
+  replay reproduced the three pinned reference scalar values exactly.
 - Local measurement bundles are committed atomically per repetition and
   attempt, are immutable after commit and detect changed or corrupted raw
   results on load.
 - The OpenRouter development preflight reads only its API credential from the
   environment. Model identity, endpoint, provider routing, fallback/privacy
   policy and inference settings live in a validated, digest-recorded committed
-  profile; registered studies will use separately frozen profiles.
-- The Modal reference adapter is private, requests one L4, mounts only the
+  profile. The default DeepInfra profile passed exact model/provider attestation,
+  ZDR routing and a live canary; alternate committed profiles are selected by
+  an explicit CLI path rather than an environment variable. Registered studies
+  will use separately frozen profiles and a recorded pre-outcome provider
+  selection rule.
+- The Modal vLLM measurement adapter is private, requests one L4, mounts only the
   Hugging Face secret it needs, disables retries, limits runtime to 1,800
   seconds and records non-secret model, runtime, GPU, canary and resolved
-  package-set metadata. Its baseline path runs one complete repetition in a
+  package-set metadata. Its full path runs one complete reference or declared
+  candidate repetition in a
   fresh single-use container, persists partial failure evidence and never uses
   provider timing as the serving score.
+- A legitimate candidate-sensitivity artifact is prepared using vLLM's
+  documented `stream_interval=10` setting. It holds model, engine, image and
+  hardware fixed, and can be run by explicit manifest path after the current
+  implementation is committed; no GPU allocation has yet been made for it.
 - Three clean-build formal stock-reference repetitions completed without
   retries: 672/672 requests and 27/27 raw artifacts validated under identical
   manifests, package set and GPU identity. The calibration ledger records
@@ -52,31 +71,34 @@ The following remain gates, not implied capabilities:
 
 1. The ADR 0001 stock-OpenCode feasibility spike and a real
    `HarnessRuntime` adapter.
-2. Provider-gateway dollar enforcement and condition-matched OpenCode model
-   routing.
+2. Provider-gateway dollar enforcement, formal provider-selection evidence and
+   condition-matched OpenCode model routing.
 3. Collaboration, publication authorization, artifact storage, submission,
    compute and research services.
 4. Evaluator-owned untrusted candidate launch, durable external evidence,
-   public result release, registered SLO/scalar policy, hidden gates and neutral
-   selection.
+   public result release, confirmatory registered score policy, hidden gates
+   and neutral selection.
 5. Four-condition scheduling, registered manifests, audit export and the
    preregistered statistical analysis.
 
 ## Next implementation gate
 
-The baseline executor has completed one engineering pilot and three valid
-formal repetitions, recorded in the
-[calibration ledger](calibration/MODEL_SERVING_V0.md). The request-level result
-is stable and the ledger proposes bucket-specific TTFT/TPOT SLOs, a 90% joint
-attainment rule, three candidate repetitions and unchanged hard lifecycle
-limits. Those conclusions have not been silently written into the source
-measurement profile.
+The baseline executor, offline replay and calibration scoring profile are now
+complete and recorded in the
+[calibration ledger](calibration/MODEL_SERVING_V0.md). The profile is pinned
+for candidate-sensitivity work, but is not presented as a preregistered
+confirmatory policy.
 
-The next evaluator gate is to implement offline/direct vLLM goodput replay,
-freeze the exact cross-bucket scalar and improvement bound in a new profile,
-and validate score sensitivity with at least one legitimate non-reference
-candidate. The raw evidence also needs a durable evaluator-owned backend before
-confirmatory execution; the ignored local store is not sufficient retention.
+The next evaluator gate is to run at least one legitimate non-reference
+candidate through direct vLLM goodput and verify that the score responds in the
+expected direction. In parallel, materialize cheap quality diagnostics and the
+architecture-neutral held-out generation interface required by the hidden
+quality contract. The full downstream
+generation suite and its paired non-inferiority thresholds are frozen only
+after Qwen-specific quality calibration, but before agents optimize against a
+confirmatory evaluator. The raw evidence also needs a durable evaluator-owned
+backend before confirmatory execution; the ignored local store is not
+sufficient retention.
 
 The OpenCode conformance spike can proceed independently of evaluator
 calibration. Both must pass before broader V0 implementation assumes OpenCode

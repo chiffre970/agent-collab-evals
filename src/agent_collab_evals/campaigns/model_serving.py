@@ -83,6 +83,9 @@ class ModelServingCampaign:
             "measurement_profile": cls._member(
                 root, str(raw["evaluation"]["measurement_profile"])
             ),
+            "scoring_profile": cls._member(
+                root, str(raw["evaluation"]["scoring_profile"])
+            ),
         }
         transitive = {
             name: digest_file(path) for name, path in declared_files.items()
@@ -95,7 +98,14 @@ class ModelServingCampaign:
         )
         campaign = cls(root, raw, transitive, manifest_digest)
         campaign.validate_reference_candidate()
-        campaign.measurement_profile()
+        campaign.hidden_contract()
+        measurement_profile = campaign.measurement_profile()
+        scoring_profile = campaign.scoring_profile()
+        scoring_profile.validate_against(
+            campaign.benchmark_plan(),
+            measurement_profile_digest=measurement_profile.digest,
+            measurement_repetitions=measurement_profile.repetitions,
+        )
         return campaign
 
     @property
@@ -122,12 +132,119 @@ class ModelServingCampaign:
             self.root, str(self.raw["evaluation"]["measurement_profile"])
         )
 
+    @property
+    def scoring_profile_path(self) -> Path:
+        return self._member(
+            self.root, str(self.raw["evaluation"]["scoring_profile"])
+        )
+
     def measurement_profile(self):
         """Load the evaluator profile lazily to keep campaign modules decoupled."""
 
         from .serving_measurement import MeasurementProfile
 
         return MeasurementProfile.load(self.measurement_profile_path)
+
+    def scoring_profile(self):
+        """Load the score policy without coupling it to a compute adapter."""
+
+        from .serving_scoring import ScoringProfile
+
+        return ScoringProfile.load(self.scoring_profile_path)
+
+    def hidden_contract(self) -> Mapping[str, Any]:
+        path = self._member(
+            self.root, str(self.raw["workload"]["hidden_contract"])
+        )
+        try:
+            with path.open("r", encoding="utf-8") as source:
+                contract = load_json(source)
+        except (json.JSONDecodeError, DuplicateKeyError) as error:
+            raise ManifestValidationError(
+                "hidden evaluator contract is not unambiguous JSON"
+            ) from error
+        self._validate_hidden_contract(contract)
+        return contract
+
+    @staticmethod
+    def _validate_hidden_contract(contract: Any) -> None:
+        if not isinstance(contract, dict):
+            raise ManifestValidationError(
+                "hidden evaluator contract must be a JSON object"
+            )
+        ModelServingCampaign._exact_keys(
+            contract,
+            {
+                "schema_version",
+                "materialization",
+                "required_digests",
+                "required_gates",
+                "required_diagnostics",
+                "quality_contract",
+                "primary_metric",
+                "agent_visible",
+            },
+            "hidden evaluator contract",
+        )
+        expected_scalars = {
+            "schema_version": "model-serving-hidden-input/v0alpha1",
+            "materialization": "external_after_submission_closure",
+            "primary_metric": "goodput_requests_per_second",
+        }
+        if (
+            any(contract.get(key) != value for key, value in expected_scalars.items())
+            or contract.get("agent_visible") is not False
+        ):
+            raise ManifestValidationError(
+                "unsupported hidden evaluator contract profile"
+            )
+        if contract.get("required_digests") != [
+            "correctness_requests",
+            "quality_requests",
+            "performance_profile",
+        ]:
+            raise ManifestValidationError(
+                "hidden evaluator contract has invalid required digests"
+            )
+        if contract.get("required_gates") != [
+            "artifact_integrity",
+            "cold_start",
+            "api_schema",
+            "correctness",
+            "downstream_generation_noninferiority",
+            "quality_relative_to_reference",
+            "stability",
+            "prohibited_shortcuts",
+        ]:
+            raise ManifestValidationError(
+                "hidden evaluator contract has invalid required gates"
+            )
+        if contract.get("required_diagnostics") != ["teacher_forced_quality"]:
+            raise ManifestValidationError(
+                "hidden evaluator contract has invalid required diagnostics"
+            )
+
+        quality = ModelServingCampaign._mapping(contract, "quality_contract")
+        expected_quality = {
+            "decision_rule": "paired_reference_relative_noninferiority",
+            "authoritative_evidence": (
+                "observed_outputs_from_held_out_served_generation"
+            ),
+            "teacher_forced_metric_role": "diagnostic_only",
+            "downstream_generation_evaluation": "required",
+            "decoding_profiles": "pinned_target_model_recommended",
+            "lossless_identity_metric_role": "optional_claim_diagnostic",
+            "candidate_implementation_policy": (
+                "unrestricted_within_campaign_policy"
+            ),
+            "task_mix_status": "external_unmaterialized",
+            "threshold_status": "unset_until_quality_calibration",
+        }
+        ModelServingCampaign._exact_keys(
+            quality, set(expected_quality), "hidden quality contract"
+        )
+        if quality != expected_quality:
+            raise ManifestValidationError("unsupported hidden quality contract")
 
     def materialize(self, task_seed: int) -> MaterializedJobs:
         if task_seed < 0:
@@ -148,6 +265,9 @@ class ModelServingCampaign:
             "measurement_profile_digest": self.transitive_digests[
                 "measurement_profile"
             ],
+            "scoring_profile_digest": self.transitive_digests[
+                "scoring_profile"
+            ],
         }
         material_digest = digest_value(material)
         job = Job(
@@ -167,6 +287,9 @@ class ModelServingCampaign:
                 ),
                 "measurement_profile": str(
                     self.raw["evaluation"]["measurement_profile"]
+                ),
+                "scoring_profile": str(
+                    self.raw["evaluation"]["scoring_profile"]
                 ),
             },
         )
@@ -491,13 +614,14 @@ class ModelServingCampaign:
                 "slo_status",
                 "hidden_data_status",
                 "measurement_profile",
+                "scoring_profile",
             },
             "evaluation",
         )
         expected_evaluation = {
             "primary_metric": "goodput_requests_per_second",
             "quality_gate": "reference_relative",
-            "slo_status": "unset_until_reference_calibration",
+            "slo_status": "calibrated_for_candidate_sensitivity",
             "hidden_data_status": "external_unmaterialized",
         }
         if any(evaluation.get(key) != value for key, value in expected_evaluation.items()):
@@ -506,6 +630,10 @@ class ModelServingCampaign:
             "measurement_profile"
         ]:
             raise ManifestValidationError("evaluation.measurement_profile is required")
+        if not isinstance(evaluation.get("scoring_profile"), str) or not evaluation[
+            "scoring_profile"
+        ]:
+            raise ManifestValidationError("evaluation.scoring_profile is required")
 
         limits = ModelServingCampaign._mapping(raw, "development_limits")
         ModelServingCampaign._exact_keys(

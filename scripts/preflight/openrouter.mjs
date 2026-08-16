@@ -6,11 +6,44 @@ import { setTimeout as delay } from "node:timers/promises";
 import { OpenRouter } from "@openrouter/sdk";
 
 const REQUIRED_KEY = "OPENROUTER_API_KEY";
-const PROFILE_PATH =
-  "config/model_profiles/deepseek-v4-flash-openrouter-development.json";
-const PROFILE_URL = new URL(`../../${PROFILE_PATH}`, import.meta.url);
+const DEFAULT_PROFILE_PATH =
+  "config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json";
+const PROFILE_PATH = /^config\/model_profiles\/[a-z0-9][a-z0-9._-]*\.json$/;
 const PREFLIGHT_PROMPT = "How many r's are in the word 'strawberry'? Answer briefly.";
-const VALID_ARGUMENTS = new Set(["--validate-profile"]);
+
+function parseArguments(args) {
+  let profilePath = DEFAULT_PROFILE_PATH;
+  let validateOnly = false;
+  let profileSeen = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--validate-profile") {
+      if (validateOnly) throw new Error("--validate-profile may be supplied once.");
+      validateOnly = true;
+      continue;
+    }
+    if (argument === "--profile") {
+      if (profileSeen) throw new Error("--profile may be supplied once.");
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--profile requires a committed model-profile path.");
+      }
+      profilePath = value;
+      profileSeen = true;
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${argument}`);
+  }
+
+  if (!PROFILE_PATH.test(profilePath)) {
+    throw new Error(
+      "--profile must name a JSON file directly under config/model_profiles/.",
+    );
+  }
+  return { profilePath, validateOnly };
+}
 
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim();
@@ -153,13 +186,14 @@ function validateProfile(profile) {
   assertNonEmptyString(profile.client.app_title, "model profile.client.app_title");
 }
 
-async function loadProfile() {
-  const bytes = await readFile(PROFILE_URL);
+async function loadProfile(profilePath) {
+  const profileUrl = new URL(`../../${profilePath}`, import.meta.url);
+  const bytes = await readFile(profileUrl);
   let profile;
   try {
     profile = JSON.parse(bytes.toString("utf8"));
   } catch (error) {
-    throw new Error(`Unable to parse ${PROFILE_PATH}: ${error.message}`);
+    throw new Error(`Unable to parse ${profilePath}: ${error.message}`);
   }
   validateProfile(profile);
   return {
@@ -182,20 +216,15 @@ async function getGenerationMetadata(openrouter, requestId) {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const unknownArguments = args.filter((arg) => !VALID_ARGUMENTS.has(arg));
-  if (unknownArguments.length) {
-    throw new Error(`Unknown argument(s): ${unknownArguments.join(", ")}`);
-  }
-
-  const { profile, digest: profileDigest } = await loadProfile();
-  if (args.includes("--validate-profile")) {
+  const { profilePath, validateOnly } = parseArguments(process.argv.slice(2));
+  const { profile, digest: profileDigest } = await loadProfile(profilePath);
+  if (validateOnly) {
     console.log(
       JSON.stringify(
         {
           ok: true,
           profileId: profile.profile_id,
-          profilePath: PROFILE_PATH,
+          profilePath,
           profileDigest,
           model: profile.requested_model,
           provider: profile.provider.expected,
@@ -311,7 +340,7 @@ async function main() {
     schemaVersion: 2,
     profile: {
       id: profile.profile_id,
-      path: PROFILE_PATH,
+      path: profilePath,
       digest: profileDigest,
       status: profile.status,
     },

@@ -134,7 +134,13 @@ Calibration occurs before confirmatory comparison and may determine:
 
 Calibration runs are excluded from confirmatory estimates. After freezing, any change to the platform or enforcement build, runtime, model/billing profile, instructions, tool schema, task materials, evaluator, selection rule, block assignment, actor allocation, slot schedule or budget creates a new study version.
 
-DeepSeek's direct API is used behind `ModelProfile`. After engineering and a common pass/fail feasibility qualification across base tools, native handoffs and peer tools, the first registered four-condition study freezes the exact `deepseek-v4-flash` endpoint, requested and expected returned identity, inference settings, cache policy and billing policy across every arm and block. Its preregistered `StudyProgressionRule` decides whether evidence is promising enough to fund a separate four-condition `deepseek-v4-pro` study. The Pro result is conditional model-transport/replication evidence: it is not pooled with Flash, does not replace a Flash null, and all attempted registered studies are reported. The small open-weight model being optimized is a separate serving target, chosen for headroom, difficulty and GPU cost.
+The agent model is accessed behind `ModelProfile`. Before registration, a frozen provider-selection rule chooses the lowest projected-cost reputable route from a predeclared candidate snapshot after applying exact-identity, request/tool compatibility, privacy/cache isolation, billing-evidence, reliability and latency gates. The representative request mix, observation window, thresholds and deterministic tie-break are set before route measurements; treatment outcomes are never used. Dynamic routing and fallbacks are then disabled. The current development route is DeepInfra through OpenRouter, but it has no privileged architectural status.
+
+After engineering and a common pass/fail feasibility qualification across base tools, native handoffs and peer tools, the first registered four-condition study freezes the exact `deepseek-v4-flash` model, transport, serving provider, requested and expected returned identity, inference settings, cache policy and billing policy across every arm and block. Its preregistered `StudyProgressionRule` decides whether evidence is promising enough to fund a separate four-condition `deepseek-v4-pro` study. The Pro result is conditional model-profile replication evidence: it is not pooled with Flash, does not replace a Flash null, and all attempted registered studies are reported. The small open-weight model being optimized is a separate serving target, chosen for headroom, difficulty and GPU cost.
+
+### Registered factors and replications
+
+The four-condition assignment is the treatment factor in the initial causal study. Model, serving provider, gateway transport, runtime, organisation size, resource envelope, campaign variant, target hardware and evaluator version are additional experimental factors that may be varied in separately registered studies. They are fixed nuisance configuration within any one four-condition study. V0 does not create a large factorial experiment: it establishes the collaboration contrast under one cheap qualified configuration, then changes one important factor at a time where practical. A factor change always produces a new manifest and separately reported result; pooling requires a later analysis plan that explicitly models that factor.
 
 ## Randomization and replication
 
@@ -182,11 +188,12 @@ The small-model serving campaign evaluates a packaged inference server on a held
 - artifact integrity and allowed dependency policy;
 - successful cold start;
 - response schema and deterministic correctness checks;
-- absence of prohibited test-specific shortcuts;
-- minimum output-quality tolerance relative to the frozen reference;
+- absence of hidden-data access, forged measurements or privileged evaluator-signal use;
+- teacher-forced likelihood or perplexity when used, as a diagnostic rather than a sufficient gate;
+- reference-relative downstream generation quality on held-out requests sent to the submitted server;
 - stability under repeated and concurrent load.
 
-Among candidates passing every gate, the primary score is sustained goodput on the held-out workload under fixed hardware and latency limits. Exact workload, latency percentile, quality metric and tolerance are campaign-version data frozen after calibration.
+This is an architecture-neutral outcome evaluation. Candidates may alter model internals, derived weight representations, precision, serving paths and ordinary input-dependent routing within the declared target-model and campaign policy; the evaluator does not require an implementation to preserve the reference's code path. A deterministic token-identity check is an optional diagnostic for a candidate that claims exact losslessness, while approximate techniques such as quantization are judged directly by the broader non-inferiority suite. The target model's decoding profiles are frozen explicitly: a generic greedy setting is not silently substituted when the model author recommends sampling. Among candidates passing every gate, the primary score is sustained goodput on the held-out workload under fixed hardware and latency limits. Exact workload, decoding profiles, latency percentile, quality metrics, tolerances and paired uncertainty rule are campaign-version data frozen after calibration. See [the Fast Gemma evaluator lessons](GEMMA_CHALLENGE_EVALUATOR_LESSONS.md).
 
 Hidden measurements run under an exclusive GPU lease. The study freezes the GPU SKU, image, driver and runtime, cold/reset and warm-up policy, load sequence, repetition count and aggregation rule. Candidate measurements are bracketed by a frozen reference canary; a canary excursion beyond tolerance triggers the same predeclared retry or invalidation rule in every condition.
 
@@ -198,7 +205,7 @@ Only after the V0 comparison is working should the research program vary:
 
 - organisation size and dollar cap to estimate scaling curves;
 - preregistered API-dollar, GPU-dollar and wall-time envelopes, scoring frozen candidate snapshots after closure to estimate quality-cost-time Pareto frontiers;
-- model/provider while holding the runtime fixed;
+- model, provider and transport as separate replication axes while holding the runtime and other factors fixed;
 - heterogeneous models at equal aggregate cost;
 - the number, cadence and dependency structure of jobs within durable campaigns;
 - explicit versus emergent specialization;

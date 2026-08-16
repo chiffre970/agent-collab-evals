@@ -15,6 +15,7 @@ Quantization is allowed only when it passes the quality gates. You may not
 change the model identity or revision, GPU type or count, evaluator, workload,
 required API paths, served model name, or hardware allocation.
 
-Optimize sustained goodput under the eventual frozen latency SLO. Calibration
-will determine that SLO from the stock reference; do not hard-code behavior for
-the visible correctness prompts or benchmark inputs.
+Optimize sustained goodput under the campaign's pinned scoring profile. The
+current profile is a calibration instrument for candidate-sensitivity testing,
+not a confirmatory-study registration. Do not hard-code behavior for the
+visible correctness prompts or benchmark inputs.
