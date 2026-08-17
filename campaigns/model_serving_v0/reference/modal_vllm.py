@@ -609,7 +609,7 @@ def _run_baseline_repetition(
     ).strip()
     if status:
         raise RuntimeError("formal measurement runs require a clean Git worktree")
-    git_commit = subprocess.check_output(
+    collector_git_commit = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
     ).strip()
     local_modal_version = importlib.metadata.version("modal")
@@ -731,7 +731,7 @@ def _run_baseline_repetition(
         "scoring_profile_digest": scoring.digest,
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
-        "git_commit": git_commit,
+        "git_commit": collector_git_commit,
         "modal_client_version": local_modal_version,
         "repetition": repetition,
         "attempt": attempt,
@@ -756,6 +756,18 @@ def _run_baseline_repetition(
         if set(dispatch_record) != expected_keys:
             raise RuntimeError("Modal dispatch record fields differ")
         for key, expected in dispatch_identity.items():
+            if key == "git_commit" and collect_only:
+                dispatch_git_commit = dispatch_record.get(key)
+                if (
+                    not isinstance(dispatch_git_commit, str)
+                    or len(dispatch_git_commit) != 40
+                    or any(
+                        character not in "0123456789abcdef"
+                        for character in dispatch_git_commit
+                    )
+                ):
+                    raise RuntimeError("Modal dispatch record has an invalid commit")
+                continue
             if dispatch_record.get(key) != expected:
                 raise RuntimeError(f"Modal dispatch record {key} differs")
         function_call_id = dispatch_record.get("function_call_id")
@@ -765,6 +777,7 @@ def _run_baseline_repetition(
             raise RuntimeError("Modal dispatch record has an invalid timestamp")
         function_call = modal.FunctionCall.from_id(function_call_id)
 
+    platform_git_commit = str(dispatch_record["git_commit"])
     function_call_id = str(dispatch_record["function_call_id"])
     print(
         json.dumps(
@@ -838,7 +851,8 @@ def _run_baseline_repetition(
             "candidate_manifest_digest": descriptor.manifest_digest,
             "candidate_id": descriptor.candidate_id,
             "platform_build": {
-                "git_commit": git_commit,
+                "git_commit": platform_git_commit,
+                "collector_git_commit": collector_git_commit,
                 "modal_client_version": local_modal_version,
             },
             "modal_function_call_id": function_call_id,
@@ -994,7 +1008,8 @@ def _run_baseline_repetition(
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
         "platform_build": {
-            "git_commit": git_commit,
+            "git_commit": platform_git_commit,
+            "collector_git_commit": collector_git_commit,
             "modal_client_version": local_modal_version,
         },
         "modal_function_call_id": function_call_id,
