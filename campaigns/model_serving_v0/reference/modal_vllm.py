@@ -504,6 +504,7 @@ def main(
     repetition: int = 1,
     attempt: int = 1,
     baseline_output_root: str = "tmp/calibration/model-serving-reference",
+    measurement_id: str = "",
     dispatch_only: bool = False,
     collect_only: bool = False,
     collect_timeout_seconds: int = 0,
@@ -528,6 +529,7 @@ def main(
             repetition=repetition,
             attempt=attempt,
             output_root=Path(baseline_output_root),
+            measurement_id_override=measurement_id,
             dispatch_only=dispatch_only,
             collect_only=collect_only,
             collect_timeout_seconds=collect_timeout_seconds,
@@ -565,6 +567,7 @@ def _run_baseline_repetition(
     repetition: int,
     attempt: int,
     output_root: Path,
+    measurement_id_override: str,
     dispatch_only: bool,
     collect_only: bool,
     collect_timeout_seconds: int,
@@ -622,11 +625,12 @@ def _run_baseline_repetition(
         if descriptor.manifest_digest == reference_descriptor.manifest_digest
         else "candidate"
     )
-    measurement_id = (
+    derived_measurement_id = (
         f"{score_role}-{descriptor.candidate_id}-"
         f"{profile.digest.removeprefix('sha256:')[:8]}-"
         f"{scoring.digest.removeprefix('sha256:')[:8]}"
     )
+    measurement_id = measurement_id_override or derived_measurement_id
     store = LocalMeasurementBundleStore(output_root)
     try:
         store.load(measurement_id, repetition, attempt=attempt)
@@ -814,7 +818,7 @@ def _run_baseline_repetition(
             )
         )
         return
-    except modal.exception.TimeoutError as error:
+    except (TimeoutError, modal.exception.TimeoutError) as error:
         if not isinstance(
             error,
             (

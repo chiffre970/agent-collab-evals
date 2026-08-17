@@ -177,6 +177,7 @@ sensitivity candidate can be measured with the same adapter:
 .venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --baseline \
   --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
+  --measurement-id candidate-stream-interval-10-sensitivity-v1 \
   --repetition 1 --attempt 1 \
   --dispatch-only
 ```
@@ -190,6 +191,7 @@ second GPU:
 .venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --baseline \
   --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
+  --measurement-id candidate-stream-interval-10-sensitivity-v1 \
   --repetition 1 --attempt 1 \
   --collect-only --collect-timeout-seconds 30
 ```
@@ -204,7 +206,10 @@ preceding receipt. This is a calibration sensitivity run, not a confirmatory
 comparison. Repeating either command for the same attempt resolves the durable
 dispatch record; it never knowingly creates a second function call. A terminal
 remote failure is committed as invalid evidence, while a collection timeout or
-client connection interruption leaves the call pending and retrievable.
+client connection interruption leaves the call pending and retrievable. The
+evaluator assigns one stable `--measurement-id` to a calibration series and
+uses it for every repetition and collection command; the ID is not supplied by
+the candidate or an agent.
 
 This split is intentional. Modal distinguishes queueing/container
 initialization from function execution in its
