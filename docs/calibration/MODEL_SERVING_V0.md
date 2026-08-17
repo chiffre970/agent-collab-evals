@@ -194,3 +194,34 @@ A non-GPU restricted-function probe passed in Modal app
 verification all succeeded. Candidate calibration restarts under a new
 evaluator-issued measurement-series ID so the two immutable invalid attempts
 are neither deleted nor overwritten.
+
+## 2026-08-17: valid non-reference sensitivity series
+
+The replacement series
+`candidate-stream-interval-10-sensitivity-v2` completed three sequential,
+first-attempt repetitions. The candidate differed from stock vLLM only by
+setting the documented stream interval to 10. Every repetition used the same
+pinned model, image, package set and Modal L4 identity; all 27 points were
+eligible, all 672 requests completed, and the collector reported no parse or
+environment errors.
+
+| Repetition | Modal app / function call | Startup | Warm phase | Function body | Scalar | Local receipt SHA-256 |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 1 | `ap-26lQtgVhr8wZ0J3xOHQs3n` / `fc-01M06JNYZGCXCWBXB1NKTZ389F` | 319.599 s | 491.964 s | 820.017 s | 1,002,037 ppm | `561a2647f6e6289269f460250d65bf66a555b0026ff8f2667952a71a0b4d9fdf` |
+| 2 | `ap-axRjzEjX4p0DvQ4YoboVlR` / `fc-01M06KH55D0KWPA5J82V4AKCEG` | 218.257 s | 429.977 s | 652.002 s | 1,000,787 ppm | `c5bdd68486e30cf85793f5416cff5e095288dc612a82061aa36ed9e9ee97bdfa` |
+| 3 | `ap-WOOHGgDNKpi0W9xgS3hiJl` / `fc-01M06M80C46PXD3W5RVCFCTGCR` | 212.255 s | 419.483 s | 635.431 s | 1,001,872 ppm | `36326ca2dc760fa175ebcc045ef693b669fedd78555778be00fcbe571bccb074` |
+
+The median candidate score is 1,001,872 ppm. All three candidate repetitions
+are above the reference median of 1,000,000 ppm, and the candidate median is
+286 ppm above the largest reference repetition. The deliberately conservative
+candidate-minimum/reference-maximum measurement bound is nevertheless -798
+ppm. Therefore this series establishes that a legitimate non-reference launch
+is scored through direct in-memory vLLM goodput and that the score moved in the
+expected direction; it does **not** establish that this small stream-interval
+change reliably improves performance beyond measurement variation.
+
+For every repetition, the restricted GPU function committed nine raw files,
+its remote receipt and a digest manifest to
+`agent-collab-evals-evaluator-evidence-v2`; the trusted collector verified
+those bytes and published an immutable normalized receipt in the same remote
+directory. The ignored local bundles are mirrors, not the evidence authority.

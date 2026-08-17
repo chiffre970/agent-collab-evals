@@ -59,8 +59,12 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - A legitimate candidate-sensitivity artifact is prepared using vLLM's
   documented `stream_interval=10` setting. It holds model, engine, image and
   hardware fixed. Initial calibration attempts exposed client-lifetime and
-  oversized-result transport failures; both invalid attempts remain preserved
-  and no candidate performance result has been admitted from them.
+  oversized-result transport failures; both invalid attempts remain preserved.
+  The corrected series then completed three valid repetitions with all 27
+  points eligible and a 1,001,872 ppm median score. This verifies the
+  non-reference path and expected score direction, but its conservative
+  candidate-min/reference-max bound is -798 ppm, so the stream tweak is not
+  claimed as a reliably faster implementation.
 - A digest-verified evaluator-private Qwen quality workload is materialized
   from MMLU, GSM8K, two BBH reasoning tasks and private structured transforms.
   Its 64 cases are balanced across thinking/non-thinking modes and objective
@@ -100,14 +104,13 @@ complete and recorded in the
 for candidate-sensitivity work, but is not presented as a preregistered
 confirmatory policy.
 
-The next evaluator gate is to run at least one legitimate non-reference
-candidate through direct vLLM goodput and verify that the score responds in the
-expected direction. The architecture-neutral held-out generation interface and
-private 64-case workload now exist; three paired reference/clean-control runs
-must still freeze the downstream non-inferiority margins before agents optimize
-against a confirmatory evaluator. Raw calibration evidence is durably mirrored
-to the evaluator-owned Modal Volume, while confirmatory retention and export
-remain a later platform-service gate.
+The direct-vLLM non-reference sensitivity gate is complete. The next evaluator
+gate is three paired reference/clean-control runs over the architecture-neutral
+held-out generation interface and private 64-case workload. Those runs must
+freeze the downstream non-inferiority margins before agents optimize against a
+confirmatory evaluator. Raw calibration evidence is durably mirrored to the
+evaluator-owned Modal Volume, while confirmatory retention and export remain a
+later platform-service gate.
 
 The OpenCode conformance spike can proceed independently of evaluator
 calibration. Both must pass before broader V0 implementation assumes OpenCode
