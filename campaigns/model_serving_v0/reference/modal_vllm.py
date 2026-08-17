@@ -1088,7 +1088,6 @@ def _run_baseline_repetition(
         LocalMeasurementBundleStore,
     )
     from agent_collab_evals.canonical import load_json
-    from agent_collab_evals.canonical import load_json
     from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
     from agent_collab_evals.campaigns.serving_benchmark import (
         build_vllm_benchmark_invocations,
@@ -1598,6 +1597,7 @@ def _run_quality_repetition(
     from agent_collab_evals.adapters.local_measurements import (
         LocalMeasurementBundleStore,
     )
+    from agent_collab_evals.canonical import load_json
     from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
     from agent_collab_evals.campaigns.serving_quality import (
         QualityProfile,
