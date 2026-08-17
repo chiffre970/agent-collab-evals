@@ -257,3 +257,49 @@ The evaluator-private quality workload is prepared separately:
 
 See [the quality calibration ledger](calibration/MODEL_SERVING_QUALITY_V0.md)
 for its source, profile and private workload commitments.
+
+After materialization, dispatch one reference quality repetition without
+keeping a terminal attached:
+
+```bash
+.venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --quality \
+  --candidate-path campaigns/model_serving_v0/reference/candidate.json \
+  --measurement-id qwen-quality-reference-v1 \
+  --quality-role reference \
+  --repetition 1 --attempt 1 \
+  --dispatch-only
+```
+
+Collect that exact call with:
+
+```bash
+.venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --quality \
+  --candidate-path campaigns/model_serving_v0/reference/candidate.json \
+  --measurement-id qwen-quality-reference-v1 \
+  --quality-role reference \
+  --repetition 1 --attempt 1 \
+  --collect-only --collect-timeout-seconds 30
+```
+
+The known-clean control uses the same workload and seeds but the stream-only
+candidate artifact:
+
+```bash
+.venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --quality \
+  --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
+  --measurement-id qwen-quality-clean-control-v1 \
+  --quality-role clean_control \
+  --repetition 1 --attempt 1 \
+  --dispatch-only
+```
+
+Use the same command with `--collect-only --collect-timeout-seconds 30` in
+place of `--dispatch-only` to collect it. Complete repetitions 2 and 3
+sequentially, changing only `--repetition`, after each preceding receipt is
+valid. Raw prompts, answers and responses stay under the evaluator-owned
+Volume and ignored `tmp/evaluator-private/` mirror; the normalized score keeps
+only answer extractions and content digests. These runs calibrate the quality
+gate and do not constitute a confirmatory experiment.

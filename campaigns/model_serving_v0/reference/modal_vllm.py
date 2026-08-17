@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import io
 import json
+import math
 import os
 import signal
 import subprocess
@@ -371,6 +372,181 @@ def _run_benchmark_points(
     return raw_results, point_receipts, None
 
 
+def _validate_quality_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    expected = {
+        "campaign_manifest_digest",
+        "quality_profile_digest",
+        "quality_workload_digest",
+        "repetition",
+        "attempt",
+        "evidence_root",
+        "request_timeout_seconds",
+        "requests",
+    }
+    if set(spec) != expected:
+        raise ValueError("quality spec fields differ")
+    for key in (
+        "campaign_manifest_digest",
+        "quality_profile_digest",
+        "quality_workload_digest",
+    ):
+        value = spec[key]
+        if (
+            not isinstance(value, str)
+            or len(value) != 71
+            or not value.startswith("sha256:")
+            or any(character not in _HEX for character in value[7:])
+        ):
+            raise ValueError(f"invalid {key}")
+    if not isinstance(spec["repetition"], int) or spec["repetition"] < 1:
+        raise ValueError("invalid quality repetition")
+    if not isinstance(spec["attempt"], int) or spec["attempt"] < 1:
+        raise ValueError("invalid quality attempt")
+    _validate_evidence_root(spec["evidence_root"])
+    timeout = spec["request_timeout_seconds"]
+    if not isinstance(timeout, int) or not 1 <= timeout <= 300:
+        raise ValueError("invalid quality request timeout")
+    requests = spec["requests"]
+    if not isinstance(requests, list) or not requests:
+        raise ValueError("quality requests are invalid")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    body_fields = {
+        "model",
+        "messages",
+        "seed",
+        "stream",
+        "temperature",
+        "top_p",
+        "top_k",
+        "min_p",
+        "max_tokens",
+        "chat_template_kwargs",
+    }
+    for value in requests:
+        if not isinstance(value, dict) or set(value) != {"case_id", "body"}:
+            raise ValueError("quality request fields differ")
+        case_id = value["case_id"]
+        body = value["body"]
+        if (
+            not isinstance(case_id, str)
+            or case_id in seen
+            or not case_id.replace("-", "").replace("_", "").isalnum()
+            or not isinstance(body, dict)
+            or set(body) != body_fields
+        ):
+            raise ValueError("quality request identity is invalid")
+        messages = body["messages"]
+        chat_template = body["chat_template_kwargs"]
+        if (
+            not isinstance(body["model"], str)
+            or not isinstance(messages, list)
+            or len(messages) != 1
+            or not isinstance(messages[0], dict)
+            or set(messages[0]) != {"role", "content"}
+            or messages[0]["role"] != "user"
+            or not isinstance(messages[0]["content"], str)
+            or not messages[0]["content"]
+            or not isinstance(body["seed"], int)
+            or isinstance(body["seed"], bool)
+            or not 0 <= body["seed"] <= 0x7FFFFFFF
+            or body["stream"] is not False
+            or not isinstance(body["max_tokens"], int)
+            or not 1 <= body["max_tokens"] <= 4096
+            or not isinstance(chat_template, dict)
+            or set(chat_template) != {"enable_thinking"}
+            or not isinstance(chat_template["enable_thinking"], bool)
+        ):
+            raise ValueError("quality request body is invalid")
+        for key in ("temperature", "top_p", "min_p"):
+            if (
+                not isinstance(body[key], (int, float))
+                or isinstance(body[key], bool)
+                or not math.isfinite(body[key])
+            ):
+                raise ValueError("quality sampling value is invalid")
+        if not 0 <= body["temperature"] <= 2:
+            raise ValueError("quality temperature is invalid")
+        if not 0 < body["top_p"] <= 1 or not 0 <= body["min_p"] <= 1:
+            raise ValueError("quality probability sampling value is invalid")
+        if (
+            not isinstance(body["top_k"], int)
+            or isinstance(body["top_k"], bool)
+            or not 0 <= body["top_k"] <= 10000
+        ):
+            raise ValueError("quality top_k is invalid")
+        seen.add(case_id)
+        result.append(value)
+    return tuple(result)
+
+
+def _validate_evidence_root(value: Any) -> None:
+    if not isinstance(value, str):
+        raise ValueError("invalid evidence root")
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(
+            not part.replace("-", "").replace("_", "").isalnum()
+            for part in path.parts
+        )
+    ):
+        raise ValueError("invalid evidence root")
+
+
+def _run_quality_requests(
+    requests: tuple[dict[str, Any], ...],
+    *,
+    server_port: int,
+    request_timeout_seconds: int,
+) -> tuple[dict[str, bytes], list[dict[str, Any]], str | None]:
+    raw_results: dict[str, bytes] = {}
+    receipts: list[dict[str, Any]] = []
+    for request_spec in requests:
+        case_id = request_spec["case_id"]
+        started_ns = time.perf_counter_ns()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server_port}/v1/chat/completions",
+            data=_stable_json_bytes(request_spec["body"]),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=request_timeout_seconds
+            ) as response:
+                raw = response.read()
+            payload = json.loads(raw)
+            content = payload["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError("quality response content is not text")
+        except Exception as error:
+            elapsed_us = (time.perf_counter_ns() - started_ns) // 1000
+            message = f"{type(error).__name__}: {str(error)[-2000:]}"
+            receipts.append(
+                {
+                    "case_id": case_id,
+                    "elapsed_us": elapsed_us,
+                    "status": "failed",
+                    "error": message,
+                }
+            )
+            return raw_results, receipts, message
+        elapsed_us = (time.perf_counter_ns() - started_ns) // 1000
+        raw_results[f"{case_id}.json"] = raw
+        receipts.append(
+            {
+                "case_id": case_id,
+                "elapsed_us": elapsed_us,
+                "status": "complete",
+                "error": None,
+            }
+        )
+    return raw_results, receipts, None
+
+
 @app.function(
     image=reference_image,
     secrets=[huggingface_secret],
@@ -515,6 +691,101 @@ def benchmark_serving_repetition(
     }
     evidence = _persist_remote_evidence(
         benchmark_spec["evidence_root"], remote_receipt, raw_results
+    )
+    return {**remote_receipt, "evidence": evidence}
+
+
+@app.function(
+    image=reference_image,
+    secrets=[huggingface_secret],
+    volumes={HF_CACHE_PATH: model_cache, EVIDENCE_MOUNT_PATH: evidence_volume},
+    gpu="L4",
+    max_containers=1,
+    min_containers=0,
+    retries=0,
+    restrict_modal_access=True,
+    single_use_containers=True,
+    timeout=FUNCTION_TIMEOUT_SECONDS,
+)
+def quality_serving_repetition(
+    candidate: dict[str, Any], quality_spec: dict[str, Any]
+) -> dict[str, Any]:
+    """Run evaluator-private generated-answer quality through the server."""
+
+    requests = _validate_quality_spec(quality_spec)
+    server = candidate["server"]
+    model = candidate["model"]
+    server_port = int(server["port"])
+    served_model_name = str(server["served_model_name"])
+    if any(value["body"]["model"] != served_model_name for value in requests):
+        raise ValueError("quality request changes the served model name")
+    server_command = tuple(str(part) for part in server["entrypoint"])
+    installed_vllm = importlib.metadata.version("vllm")
+    if installed_vllm != server["engine_version"]:
+        raise RuntimeError("installed vLLM does not match the candidate manifest")
+
+    repetition_started = time.monotonic()
+    started_at = datetime.now(timezone.utc).isoformat()
+    gpu_before = _gpu_metadata()
+    with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
+        process = subprocess.Popen(
+            server_command,
+            stdout=server_log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            startup_ms = _wait_until_ready(process, server_port)
+            canary_before = _chat_canary(server_port, served_model_name)
+            evaluation_started = time.monotonic()
+            raw_results, case_receipts, evaluation_error = _run_quality_requests(
+                requests,
+                server_port=server_port,
+                request_timeout_seconds=quality_spec["request_timeout_seconds"],
+            )
+            evaluated_ms = round((time.monotonic() - evaluation_started) * 1000)
+            try:
+                canary_after = _chat_canary(server_port, served_model_name)
+            except Exception as error:
+                canary_after = {"error": f"{type(error).__name__}: {error}"}
+                if evaluation_error is None:
+                    evaluation_error = "post-quality canary failed"
+        finally:
+            _stop_process(process)
+
+    remote_receipt = {
+        "ok": evaluation_error is None,
+        "error": evaluation_error,
+        "candidate_id": candidate["candidate_id"],
+        "model_id": model["id"],
+        "model_revision": model["revision"],
+        "served_model_name": served_model_name,
+        "vllm_version": installed_vllm,
+        "campaign_manifest_digest": quality_spec["campaign_manifest_digest"],
+        "quality_profile_digest": quality_spec["quality_profile_digest"],
+        "quality_workload_digest": quality_spec["quality_workload_digest"],
+        "repetition": quality_spec["repetition"],
+        "attempt": quality_spec["attempt"],
+        "started_at": started_at,
+        "timing": {
+            "primary_source": "served_generation_responses",
+            "lifecycle_source": "in_container_monotonic",
+            "startup_ms": startup_ms,
+            "evaluated_cases_ms": evaluated_ms,
+            "function_body_ms": round(
+                (time.monotonic() - repetition_started) * 1000
+            ),
+        },
+        "gpu_before": gpu_before,
+        "gpu_after": _gpu_metadata(),
+        "environment": _environment_receipt(),
+        "canary_before": canary_before,
+        "canary_after": canary_after,
+        "case_receipts": case_receipts,
+    }
+    evidence = _persist_remote_evidence(
+        quality_spec["evidence_root"], remote_receipt, raw_results
     )
     return {**remote_receipt, "evidence": evidence}
 
@@ -694,6 +965,7 @@ def _publish_normalized_evidence(
 def main(
     output_path: str = "tmp/calibration/model-serving-reference-smoke.json",
     baseline: bool = False,
+    quality: bool = False,
     candidate_path: str = "campaigns/model_serving_v0/reference/candidate.json",
     repetition: int = 1,
     attempt: int = 1,
@@ -703,6 +975,10 @@ def main(
     collect_only: bool = False,
     collect_timeout_seconds: int = 0,
     evidence_probe: bool = False,
+    quality_profile_path: str = "campaigns/model_serving_v0/evaluator/quality_calibration.toml",
+    quality_workload_path: str = "tmp/evaluator-private/model-serving-quality/workload.json",
+    quality_output_root: str = "tmp/evaluator-private/model-serving-quality/results",
+    quality_role: str = "",
 ) -> None:
     from agent_collab_evals.canonical import load_json
 
@@ -718,7 +994,14 @@ def main(
     if candidate["build"]["dependency_lock"] != DEPENDENCY_LOCK:
         raise RuntimeError("Modal dependency does not match candidate.json")
     if evidence_probe:
-        if baseline or dispatch_only or collect_only or collect_timeout_seconds:
+        if (
+            baseline
+            or quality
+            or dispatch_only
+            or collect_only
+            or collect_timeout_seconds
+            or quality_role
+        ):
             raise ValueError("--evidence-probe cannot be combined with measurement flags")
         content = f"evaluator-evidence-probe:{uuid.uuid4().hex}".encode("utf-8")
         result = probe_evidence_volume.remote(uuid.uuid4().hex, content)
@@ -728,6 +1011,24 @@ def main(
         ):
             raise RuntimeError("durable evaluator evidence probe differs")
         print(json.dumps({"ok": True, **result}, indent=2, sort_keys=True))
+        return
+    if baseline and quality:
+        raise ValueError("--baseline and --quality are mutually exclusive")
+    if quality:
+        _run_quality_repetition(
+            candidate,
+            candidate_path=resolved_candidate_path,
+            profile_path=Path(quality_profile_path),
+            workload_path=Path(quality_workload_path),
+            repetition=repetition,
+            attempt=attempt,
+            output_root=Path(quality_output_root),
+            measurement_id_override=measurement_id,
+            role_override=quality_role,
+            dispatch_only=dispatch_only,
+            collect_only=collect_only,
+            collect_timeout_seconds=collect_timeout_seconds,
+        )
         return
     if baseline:
         _run_baseline_repetition(
@@ -743,7 +1044,9 @@ def main(
         )
         return
     if dispatch_only or collect_only or collect_timeout_seconds:
-        raise ValueError("dispatch and collection options require --baseline")
+        raise ValueError("dispatch and collection options require --baseline or --quality")
+    if quality_role:
+        raise ValueError("--quality-role requires --quality")
     result = smoke_reference.remote(candidate)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     destination = Path(output_path).resolve()
@@ -784,6 +1087,7 @@ def _run_baseline_repetition(
     from agent_collab_evals.adapters.local_measurements import (
         LocalMeasurementBundleStore,
     )
+    from agent_collab_evals.canonical import load_json
     from agent_collab_evals.canonical import load_json
     from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
     from agent_collab_evals.campaigns.serving_benchmark import (
@@ -1274,6 +1578,433 @@ def _run_baseline_repetition(
     print(json.dumps(summary, indent=2, sort_keys=True))
     if not valid:
         raise RuntimeError(f"serving measurement repetition is invalid: {destination}")
+
+
+def _run_quality_repetition(
+    candidate: dict[str, Any],
+    *,
+    candidate_path: Path,
+    profile_path: Path,
+    workload_path: Path,
+    repetition: int,
+    attempt: int,
+    output_root: Path,
+    measurement_id_override: str,
+    role_override: str,
+    dispatch_only: bool,
+    collect_only: bool,
+    collect_timeout_seconds: int,
+) -> None:
+    from agent_collab_evals.adapters.local_measurements import (
+        LocalMeasurementBundleStore,
+    )
+    from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+    from agent_collab_evals.campaigns.serving_quality import (
+        QualityProfile,
+        build_quality_requests,
+        load_quality_workload,
+        score_quality_outputs,
+    )
+
+    campaign_path = Path(__file__).parents[1] / "campaign.toml"
+    repository_root = Path(__file__).resolve().parents[3]
+    campaign = ModelServingCampaign.load(campaign_path)
+    environment_profile = campaign.measurement_profile()
+    profile = QualityProfile.load(profile_path)
+    workload = load_quality_workload(workload_path, profile)
+    if (
+        profile.target_model != campaign.target_model_id
+        or profile.target_revision != campaign.target_model_revision
+    ):
+        raise RuntimeError("quality profile changes the target model")
+    if not 1 <= repetition <= profile.repetitions:
+        raise ValueError(f"repetition must be between 1 and {profile.repetitions}")
+    if not 1 <= attempt <= environment_profile.max_attempts:
+        raise ValueError(
+            f"attempt must be between 1 and {environment_profile.max_attempts}"
+        )
+    if dispatch_only and collect_only:
+        raise ValueError("--dispatch-only and --collect-only are mutually exclusive")
+    if not 0 <= collect_timeout_seconds <= 300:
+        raise ValueError("collect timeout must be between 0 and 300 seconds")
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+        cwd=repository_root,
+        text=True,
+    ).strip()
+    if status:
+        raise RuntimeError("formal quality runs require a clean Git worktree")
+    collector_git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+    ).strip()
+    local_modal_version = importlib.metadata.version("modal")
+    if local_modal_version != environment_profile.modal_client_version:
+        raise RuntimeError("local Modal client does not match the measurement profile")
+    descriptor = campaign.validate_candidate(candidate_path)
+    reference_descriptor = campaign.validate_reference_candidate()
+    automatic_role = (
+        "reference"
+        if descriptor.manifest_digest == reference_descriptor.manifest_digest
+        else "candidate"
+    )
+    role = role_override or automatic_role
+    if role not in {"reference", "candidate", "clean_control"}:
+        raise ValueError("quality role is invalid")
+    if role == "reference" and automatic_role != "reference":
+        raise ValueError("a non-reference artifact cannot use the reference role")
+    if role == "clean_control" and automatic_role == "reference":
+        raise ValueError("the reference artifact cannot use the clean-control role")
+    derived_measurement_id = (
+        f"quality-{role}-{descriptor.candidate_id}-"
+        f"{profile.digest.removeprefix('sha256:')[:8]}-"
+        f"{workload.digest.removeprefix('sha256:')[:8]}"
+    )
+    measurement_id = measurement_id_override or derived_measurement_id
+    store = LocalMeasurementBundleStore(output_root)
+    try:
+        store.load(measurement_id, repetition, attempt=attempt)
+    except KeyError:
+        pass
+    else:
+        raise RuntimeError(
+            "this quality repetition attempt is already committed; refusing another GPU allocation"
+        )
+    if attempt > 1:
+        try:
+            previous_attempt = store.load(
+                measurement_id, repetition, attempt=attempt - 1
+            )
+        except KeyError as error:
+            raise RuntimeError(
+                "a retry requires the preceding attempt's committed evidence"
+            ) from error
+        if previous_attempt.receipt["normalized"].get("valid") is True:
+            raise RuntimeError("a valid quality repetition cannot be retried")
+    for previous_repetition in range(1, repetition):
+        if not any(
+            _stored_attempt_is_valid(store, measurement_id, previous_repetition, value)
+            for value in range(1, environment_profile.max_attempts + 1)
+        ):
+            raise RuntimeError(
+                f"quality repetition {previous_repetition} has no valid committed attempt"
+            )
+
+    requests = build_quality_requests(
+        profile, workload, served_model_name=str(candidate["server"]["served_model_name"])
+    )
+    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_root = (
+        f"model-serving-quality/{evidence_namespace}/"
+        f"repetition-{repetition:04d}-attempt-{attempt:02d}"
+    )
+    quality_spec = {
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": profile.digest,
+        "quality_workload_digest": workload.digest,
+        "repetition": repetition,
+        "attempt": attempt,
+        "evidence_root": evidence_root,
+        "request_timeout_seconds": 180,
+        "requests": list(requests),
+    }
+    dispatch_path = (
+        output_root
+        / ".dispatch"
+        / measurement_id
+        / f"repetition-{repetition:04d}-attempt-{attempt:02d}.json"
+    )
+    dispatch_identity = {
+        "schema_version": "model-serving-quality-modal-dispatch/v0alpha1",
+        "measurement_id": measurement_id,
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": profile.digest,
+        "quality_workload_digest": workload.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "role": role,
+        "evidence_root": evidence_root,
+        "git_commit": collector_git_commit,
+        "modal_client_version": local_modal_version,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    try:
+        with dispatch_path.open("r", encoding="utf-8") as source:
+            dispatch_record = load_json(source)
+    except FileNotFoundError:
+        if collect_only:
+            raise RuntimeError("no durable Modal quality dispatch exists")
+        function_call = quality_serving_repetition.spawn(candidate, quality_spec)
+        dispatch_record = {
+            **dispatch_identity,
+            "function_call_id": function_call.object_id,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_json_atomic(dispatch_path, dispatch_record, prefix=".dispatch-")
+    else:
+        if not isinstance(dispatch_record, dict):
+            raise RuntimeError("Modal quality dispatch record must be an object")
+        expected_keys = {*dispatch_identity, "function_call_id", "dispatched_at"}
+        if set(dispatch_record) != expected_keys:
+            raise RuntimeError("Modal quality dispatch record fields differ")
+        for key, expected in dispatch_identity.items():
+            if key == "git_commit" and collect_only:
+                dispatch_git_commit = dispatch_record.get(key)
+                if (
+                    not isinstance(dispatch_git_commit, str)
+                    or len(dispatch_git_commit) != 40
+                    or any(character not in _HEX for character in dispatch_git_commit)
+                ):
+                    raise RuntimeError(
+                        "Modal quality dispatch record has an invalid commit"
+                    )
+                continue
+            if dispatch_record.get(key) != expected:
+                raise RuntimeError(f"Modal quality dispatch record {key} differs")
+        function_call_id = dispatch_record.get("function_call_id")
+        if not isinstance(function_call_id, str) or not function_call_id:
+            raise RuntimeError("Modal quality dispatch has an invalid call ID")
+        if not isinstance(dispatch_record.get("dispatched_at"), str):
+            raise RuntimeError("Modal quality dispatch has an invalid timestamp")
+        function_call = modal.FunctionCall.from_id(function_call_id)
+    function_call_id = str(dispatch_record["function_call_id"])
+    platform_git_commit = str(dispatch_record["git_commit"])
+    print(
+        json.dumps(
+            {
+                "status": "dispatched",
+                "function_call_id": function_call_id,
+                "dispatch_record": str(dispatch_path.resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if dispatch_only:
+        return
+
+    client_started = time.monotonic()
+    try:
+        collection_timeout = (
+            collect_timeout_seconds
+            if collect_timeout_seconds or collect_only
+            else None
+        )
+        remote_result = function_call.get(timeout=collection_timeout)
+    except modal.exception.ConnectionError:
+        print(json.dumps({"status": "collection_interrupted", "function_call_id": function_call_id}))
+        return
+    except (TimeoutError, modal.exception.TimeoutError) as error:
+        if not isinstance(
+            error,
+            (modal.exception.FunctionTimeoutError, modal.exception.OutputExpiredError),
+        ):
+            print(json.dumps({"status": "pending", "function_call_id": function_call_id}))
+            return
+        remote_error: Exception | None = error
+    except Exception as error:
+        remote_error = error
+    else:
+        remote_error = None
+    client_observed_ms = round((time.monotonic() - client_started) * 1000)
+    if remote_error is not None:
+        failure = _quality_failure_document(
+            campaign=campaign,
+            profile=profile,
+            workload=workload,
+            descriptor=descriptor,
+            role=role,
+            platform_git_commit=platform_git_commit,
+            collector_git_commit=collector_git_commit,
+            modal_client_version=local_modal_version,
+            function_call_id=function_call_id,
+            repetition=repetition,
+            attempt=attempt,
+            client_observed_ms=client_observed_ms,
+            error=remote_error,
+        )
+        destination = store.save(measurement_id, repetition, failure, {}, attempt=attempt)
+        raise RuntimeError(f"quality invocation failed; evidence: {destination}") from remote_error
+
+    raw_results, durable_evidence = _collect_remote_evidence(
+        remote_result, expected_root=evidence_root
+    )
+    expected_remote_identity = {
+        "candidate_id": descriptor.candidate_id,
+        "model_id": campaign.target_model_id,
+        "model_revision": campaign.target_model_revision,
+        "served_model_name": str(candidate["server"]["served_model_name"]),
+        "vllm_version": str(candidate["server"]["engine_version"]),
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": profile.digest,
+        "quality_workload_digest": workload.digest,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    validation_errors: list[str] = []
+    for key, expected in expected_remote_identity.items():
+        if remote_result.get(key) != expected:
+            validation_errors.append(f"remote_receipt.{key} differs")
+    current_environment = remote_result.get("environment", {})
+    expected_environment = {
+        "package_set_digest": environment_profile.resolved_package_digest,
+        "base_image_digest": environment_profile.base_image_digest,
+    }
+    for key, expected in expected_environment.items():
+        if current_environment.get(key) != expected:
+            validation_errors.append(f"environment.{key} differs")
+    current_gpu = remote_result.get("gpu_before", {})
+    gpu_after = remote_result.get("gpu_after", {})
+    expected_gpu = {
+        "name": f"NVIDIA {environment_profile.gpu_type}",
+        "memory_mib": str(environment_profile.gpu_memory_mib),
+        "driver_version": environment_profile.gpu_driver_version,
+        "power_limit_watts": environment_profile.gpu_power_limit_watts,
+    }
+    for key, expected in expected_gpu.items():
+        if current_gpu.get(key) != expected:
+            validation_errors.append(f"gpu.{key} differs")
+        if gpu_after.get(key) != expected:
+            validation_errors.append(f"gpu_after.{key} differs")
+        if gpu_after.get(key) != current_gpu.get(key):
+            validation_errors.append(f"gpu.{key} changed within repetition")
+
+    outputs: dict[str, str] = {}
+    expected_files = {f"{case.case_id}.json" for case in workload.cases}
+    if set(raw_results) != expected_files:
+        validation_errors.append("quality raw result set differs")
+    for case in workload.cases:
+        raw = raw_results.get(f"{case.case_id}.json")
+        if raw is None:
+            continue
+        try:
+            payload = json.loads(raw)
+            if payload.get("model") != str(candidate["server"]["served_model_name"]):
+                raise ValueError("returned model differs")
+            content = payload["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError("response content is not text")
+            outputs[case.case_id] = content
+        except Exception as error:
+            validation_errors.append(f"{case.case_id}: {type(error).__name__}: {error}")
+    quality_score = None
+    if len(outputs) == len(workload.cases):
+        try:
+            quality_score = score_quality_outputs(
+                profile, workload, outputs, repetition=repetition, role=role
+            )
+        except Exception as error:
+            validation_errors.append(f"score: {type(error).__name__}: {error}")
+    valid = (
+        remote_result.get("ok") is True
+        and not validation_errors
+        and quality_score is not None
+    )
+    normalized = {
+        "schema_version": "model-serving-quality-repetition/v0alpha1",
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": profile.digest,
+        "quality_workload_digest": workload.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "role": role,
+        "platform_build": {
+            "git_commit": platform_git_commit,
+            "collector_git_commit": collector_git_commit,
+            "modal_client_version": local_modal_version,
+        },
+        "modal_function_call_id": function_call_id,
+        "durable_evidence": durable_evidence,
+        "repetition": repetition,
+        "attempt": attempt,
+        "valid": valid,
+        "validation_errors": validation_errors,
+        "client_observed_ms": client_observed_ms,
+        "remote_receipt": remote_result,
+        "quality_score": quality_score,
+    }
+    normalized_evidence_digest = _publish_normalized_evidence(
+        durable_evidence, normalized
+    )
+    normalized["durable_evidence"] = {
+        **durable_evidence,
+        "normalized_digest": normalized_evidence_digest,
+    }
+    destination = store.save(
+        measurement_id, repetition, normalized, raw_results, attempt=attempt
+    )
+    print(
+        json.dumps(
+            {
+                "valid": valid,
+                "repetition": repetition,
+                "attempt": attempt,
+                "score_ppm": (
+                    quality_score["score_ppm"] if quality_score else None
+                ),
+                "bundle": str(destination.resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if not valid:
+        raise RuntimeError(f"quality repetition is invalid: {destination}")
+
+
+def _stored_attempt_is_valid(
+    store: Any, measurement_id: str, repetition: int, attempt: int
+) -> bool:
+    try:
+        bundle = store.load(measurement_id, repetition, attempt=attempt)
+    except KeyError:
+        return False
+    return bundle.receipt["normalized"].get("valid") is True
+
+
+def _quality_failure_document(
+    *,
+    campaign: Any,
+    profile: Any,
+    workload: Any,
+    descriptor: Any,
+    role: str,
+    platform_git_commit: str,
+    collector_git_commit: str,
+    modal_client_version: str,
+    function_call_id: str,
+    repetition: int,
+    attempt: int,
+    client_observed_ms: int,
+    error: Exception,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "model-serving-quality-repetition/v0alpha1",
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": profile.digest,
+        "quality_workload_digest": workload.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "role": role,
+        "platform_build": {
+            "git_commit": platform_git_commit,
+            "collector_git_commit": collector_git_commit,
+            "modal_client_version": modal_client_version,
+        },
+        "modal_function_call_id": function_call_id,
+        "repetition": repetition,
+        "attempt": attempt,
+        "valid": False,
+        "validation_errors": [],
+        "client_observed_ms": client_observed_ms,
+        "failure": {
+            "stage": "remote_invocation",
+            "type": type(error).__name__,
+            "message": str(error)[-8000:],
+        },
+        "remote_receipt": None,
+        "quality_score": None,
+    }
 
 
 def _write_json_atomic(destination: Path, value: dict[str, Any], *, prefix: str) -> None:

@@ -74,3 +74,11 @@ The margins must be frozen before optimization agents receive an evaluator.
 The suite is deliberately broader than a perplexity check but is not claimed
 to be a general model leaderboard. Its role is to detect degradation caused by
 serving changes on the target model and decoding modes promised by the mission.
+
+The executable runner is the `--quality` mode of
+`campaigns/model_serving_v0/reference/modal_vllm.py`. It uses the same pinned
+image, model revision, Modal L4 profile, durable dispatch records and
+evaluator-owned evidence Volume as the performance runner. Reference and
+clean-control series have distinct stable measurement IDs, and repetitions
+must be dispatched and inspected sequentially. Exact commands live in
+`docs/SETUP.md`.
