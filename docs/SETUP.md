@@ -174,10 +174,24 @@ After the calibration scorer is committed, the prepared architecture-neutral
 sensitivity candidate can be measured with the same adapter:
 
 ```bash
-.venv/bin/modal run -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+.venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --baseline \
   --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
-  --repetition 1 --attempt 1
+  --repetition 1 --attempt 1 \
+  --dispatch-only
+```
+
+The dispatch command atomically records the Modal function-call identifier and
+returns immediately. This decouples a long GPU measurement from the lifetime
+of the local terminal. Poll and collect the same call without allocating a
+second GPU:
+
+```bash
+.venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --baseline \
+  --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
+  --repetition 1 --attempt 1 \
+  --collect-only --collect-timeout-seconds 30
 ```
 
 The candidate keeps the same target model, weights, engine, image and hardware;
@@ -187,7 +201,10 @@ states that larger intervals reduce host streaming overhead and may increase
 throughput. The evaluator still measures actual TTFT and TPOT, so delayed first
 delivery is not hidden. Complete repetitions 2 and 3 only after inspecting the
 preceding receipt. This is a calibration sensitivity run, not a confirmatory
-comparison.
+comparison. Repeating either command for the same attempt resolves the durable
+dispatch record; it never knowingly creates a second function call. A terminal
+remote failure is committed as invalid evidence, while a collection timeout or
+client connection interruption leaves the call pending and retrievable.
 
 This split is intentional. Modal distinguishes queueing/container
 initialization from function execution in its

@@ -504,6 +504,9 @@ def main(
     repetition: int = 1,
     attempt: int = 1,
     baseline_output_root: str = "tmp/calibration/model-serving-reference",
+    dispatch_only: bool = False,
+    collect_only: bool = False,
+    collect_timeout_seconds: int = 0,
 ) -> None:
     from agent_collab_evals.canonical import load_json
 
@@ -525,8 +528,13 @@ def main(
             repetition=repetition,
             attempt=attempt,
             output_root=Path(baseline_output_root),
+            dispatch_only=dispatch_only,
+            collect_only=collect_only,
+            collect_timeout_seconds=collect_timeout_seconds,
         )
         return
+    if dispatch_only or collect_only or collect_timeout_seconds:
+        raise ValueError("dispatch and collection options require --baseline")
     result = smoke_reference.remote(candidate)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     destination = Path(output_path).resolve()
@@ -557,6 +565,9 @@ def _run_baseline_repetition(
     repetition: int,
     attempt: int,
     output_root: Path,
+    dispatch_only: bool,
+    collect_only: bool,
+    collect_timeout_seconds: int,
 ) -> None:
     """Trusted local composition; this path performs a billable GPU run."""
 
@@ -586,6 +597,10 @@ def _run_baseline_repetition(
         )
     if not 1 <= attempt <= profile.max_attempts:
         raise ValueError(f"attempt must be between 1 and {profile.max_attempts}")
+    if dispatch_only and collect_only:
+        raise ValueError("--dispatch-only and --collect-only are mutually exclusive")
+    if not 0 <= collect_timeout_seconds <= 300:
+        raise ValueError("collect timeout must be between 0 and 300 seconds")
     status = subprocess.check_output(
         ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
         cwd=repository_root,
@@ -701,10 +716,118 @@ def _run_baseline_repetition(
             for invocation in invocations
         ],
     }
+    dispatch_path = (
+        output_root
+        / ".dispatch"
+        / measurement_id
+        / f"repetition-{repetition:04d}-attempt-{attempt:02d}.json"
+    )
+    dispatch_identity = {
+        "schema_version": "model-serving-modal-dispatch/v0alpha1",
+        "measurement_id": measurement_id,
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "measurement_profile_digest": profile.digest,
+        "scoring_profile_digest": scoring.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "git_commit": git_commit,
+        "modal_client_version": local_modal_version,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    try:
+        with dispatch_path.open("r", encoding="utf-8") as source:
+            dispatch_record = load_json(source)
+    except FileNotFoundError:
+        if collect_only:
+            raise RuntimeError("no durable Modal dispatch exists for this attempt")
+        function_call = benchmark_serving_repetition.spawn(candidate, benchmark_spec)
+        dispatch_record = {
+            **dispatch_identity,
+            "function_call_id": function_call.object_id,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_json_atomic(dispatch_path, dispatch_record, prefix=".dispatch-")
+    else:
+        if not isinstance(dispatch_record, dict):
+            raise RuntimeError("Modal dispatch record must be an object")
+        expected_keys = {*dispatch_identity, "function_call_id", "dispatched_at"}
+        if set(dispatch_record) != expected_keys:
+            raise RuntimeError("Modal dispatch record fields differ")
+        for key, expected in dispatch_identity.items():
+            if dispatch_record.get(key) != expected:
+                raise RuntimeError(f"Modal dispatch record {key} differs")
+        function_call_id = dispatch_record.get("function_call_id")
+        if not isinstance(function_call_id, str) or not function_call_id:
+            raise RuntimeError("Modal dispatch record has an invalid call ID")
+        if not isinstance(dispatch_record.get("dispatched_at"), str):
+            raise RuntimeError("Modal dispatch record has an invalid timestamp")
+        function_call = modal.FunctionCall.from_id(function_call_id)
+
+    function_call_id = str(dispatch_record["function_call_id"])
+    print(
+        json.dumps(
+            {
+                "status": "dispatched",
+                "function_call_id": function_call_id,
+                "dispatch_record": str(dispatch_path.resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if dispatch_only:
+        return
+
     client_started = time.monotonic()
     try:
-        remote_result = benchmark_serving_repetition.remote(candidate, benchmark_spec)
+        collection_timeout = (
+            collect_timeout_seconds
+            if collect_timeout_seconds or collect_only
+            else None
+        )
+        remote_result = function_call.get(timeout=collection_timeout)
+    except modal.exception.ConnectionError:
+        print(
+            json.dumps(
+                {
+                    "status": "collection_interrupted",
+                    "function_call_id": function_call_id,
+                    "dispatch_record": str(dispatch_path.resolve()),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    except modal.exception.TimeoutError as error:
+        if not isinstance(
+            error,
+            (
+                modal.exception.FunctionTimeoutError,
+                modal.exception.OutputExpiredError,
+            ),
+        ):
+            print(
+                json.dumps(
+                    {
+                        "status": "pending",
+                        "function_call_id": function_call_id,
+                        "dispatch_record": str(dispatch_path.resolve()),
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
+        remote_error: Exception | None = error
     except Exception as error:
+        remote_error = error
+    else:
+        remote_error = None
+
+    if remote_error is not None:
+        error = remote_error
         client_observed_ms = round((time.monotonic() - client_started) * 1000)
         failure = {
             "schema_version": "model-serving-measurement-repetition/v0alpha1",
@@ -717,6 +840,7 @@ def _run_baseline_repetition(
                 "git_commit": git_commit,
                 "modal_client_version": local_modal_version,
             },
+            "modal_function_call_id": function_call_id,
             "repetition": repetition,
             "attempt": attempt,
             "valid": False,
@@ -872,6 +996,7 @@ def _run_baseline_repetition(
             "git_commit": git_commit,
             "modal_client_version": local_modal_version,
         },
+        "modal_function_call_id": function_call_id,
         "repetition": repetition,
         "attempt": attempt,
         "valid": valid,
@@ -904,3 +1029,26 @@ def _run_baseline_repetition(
     print(json.dumps(summary, indent=2, sort_keys=True))
     if not valid:
         raise RuntimeError(f"serving measurement repetition is invalid: {destination}")
+
+
+def _write_json_atomic(destination: Path, value: dict[str, Any], *, prefix: str) -> None:
+    """Commit local control evidence before relying on a remote side effect."""
+
+    destination = destination.resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=prefix,
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as target:
+            target.write(rendered)
+            target.flush()
+            os.fsync(target.fileno())
+        os.replace(temporary, destination)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
