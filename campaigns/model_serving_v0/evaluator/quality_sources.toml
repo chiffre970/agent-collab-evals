@@ -1,0 +1,33 @@
+schema_version = "model-serving-quality-sources/v0alpha1"
+
+[[sources]]
+id = "mmlu"
+format = "openai_mmlu_csv"
+filename = "mmlu.csv"
+url = "https://openaipublic.blob.core.windows.net/simple-evals/mmlu.csv"
+revision = "openai-simple-evals-652c89d0ca9df547706735883097e9537d40dc47"
+sha256 = "15b6785d49e0012602e089558a7a0dfb916baf97e9295aa25b48062f13c6afbb"
+
+[[sources]]
+id = "gsm8k"
+format = "gsm8k_jsonl"
+filename = "gsm8k-test.jsonl"
+url = "https://raw.githubusercontent.com/openai/grade-school-math/3101c7d5072418e28b9008a6636bde82a006892c/grade_school_math/data/test.jsonl"
+revision = "3101c7d5072418e28b9008a6636bde82a006892c"
+sha256 = "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14"
+
+[[sources]]
+id = "bbh_date_understanding"
+format = "bbh_json"
+filename = "bbh-date-understanding.json"
+url = "https://raw.githubusercontent.com/suzgunmirac/BIG-Bench-Hard/9ee07bd481feebf959a6b59d61ea57bdcf30964d/bbh/date_understanding.json"
+revision = "9ee07bd481feebf959a6b59d61ea57bdcf30964d"
+sha256 = "0148d4ac5fca05b2f82373e5fef7208e15363b9c6079493034d77b3dab496bf5"
+
+[[sources]]
+id = "bbh_logical_deduction"
+format = "bbh_json"
+filename = "bbh-logical-deduction.json"
+url = "https://raw.githubusercontent.com/suzgunmirac/BIG-Bench-Hard/9ee07bd481feebf959a6b59d61ea57bdcf30964d/bbh/logical_deduction_five_objects.json"
+revision = "9ee07bd481feebf959a6b59d61ea57bdcf30964d"
+sha256 = "d2df31394b903b7f0e085d42a69572a092987856eac076799017d70ef266fa8f"

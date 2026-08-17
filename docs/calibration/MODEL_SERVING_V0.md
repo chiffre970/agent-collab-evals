@@ -158,6 +158,39 @@ confirmatory study version.
    primary-metric noise is small enough that a modest real improvement should
    be distinguishable, while one run would provide no protection against an
    anomalous allocation.
-4. Do not treat the local ignored store as the final evidence system. A durable
-   evaluator-owned evidence adapter and retention policy remain required before
-   confirmatory execution.
+4. Do not treat the local ignored store as the final evidence system. The
+   evaluator-owned Modal Volume supplies durable calibration evidence; a frozen
+   retention/export policy remains required before confirmatory execution.
+
+## 2026-08-17: sensitivity transport failures and durable evidence correction
+
+The first two attempts at candidate repetition 1 are invalid infrastructure
+evidence and are retained locally:
+
+1. Synchronous attempt 1 (`ap-zAf8iANYc30qcwylSg3Yew`, commit `217d137`)
+   was canceled when the local Modal client disconnected after 468.929 seconds.
+   It produced no remote receipt or raw files.
+2. Detached attempt 2 (`ap-dkxrVzYYhSzCPzmDc00PVk`, remote function call
+   `fc-01M06HCYY8XFGHX2Z1X55QF9HW`, dispatch commit `278e911`) completed the
+   benchmark but failed while packaging its result. The nine raw JSON files
+   exceeded Modal's inline result size, causing a blob upload; restricted Modal
+   API access correctly rejected that upload with HTTP 401. A separate local
+   collector bug also misclassified a nonterminal SDK poll timeout as terminal.
+
+No score from either attempt is admitted. They revealed that raw evaluator
+evidence cannot depend on a long-lived local client or the function-result
+transport.
+
+The corrected design uses detached `FunctionCall` dispatch, durable call-ID
+records and an evaluator-owned Modal v2 Volume. The restricted GPU function
+writes raw files plus a digest manifest to the mounted Volume and invokes
+filesystem `sync`; it returns only a small receipt. The trusted collector reads
+each Volume object by name, verifies every digest, performs normalization and
+publishes the normalized receipt once. The local atomic bundle remains a
+convenience mirror rather than the sole evidence copy.
+
+A non-GPU restricted-function probe passed in Modal app
+`ap-8tDBUJu3ItYsSJoA0v0fn6`: write, v2 Volume sync, trusted readback and digest
+verification all succeeded. Candidate calibration restarts under a new
+evaluator-issued measurement-series ID so the two immutable invalid attempts
+are neither deleted nor overwritten.

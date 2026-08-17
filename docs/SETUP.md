@@ -226,3 +226,34 @@ Verify the local installation with:
 .venv/bin/modal --version
 git status --ignored --short
 ```
+
+### Durable evaluator evidence
+
+Formal calibration calls write raw benchmark files and their remote receipt to
+the evaluator-owned Modal Volume
+`agent-collab-evals-evaluator-evidence-v2` before returning a small result.
+The GPU function has restricted Modal API access and commits through the v2
+Volume mount. The trusted local collector downloads every file, verifies its
+digest, publishes the normalized receipt once and keeps the existing ignored
+local bundle only as a convenience mirror.
+
+Verify this path without allocating a GPU:
+
+```bash
+.venv/bin/modal run -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
+  --evidence-probe
+```
+
+The probe must prove restricted write/sync and trusted readback before a
+billable measurement. A large raw result is never returned through Modal's
+function-result channel.
+
+The evaluator-private quality workload is prepared separately:
+
+```bash
+.venv/bin/python scripts/calibration/fetch_quality_sources.py
+.venv/bin/python scripts/calibration/materialize_quality_workload.py
+```
+
+See [the quality calibration ledger](calibration/MODEL_SERVING_QUALITY_V0.md)
+for its source, profile and private workload commitments.

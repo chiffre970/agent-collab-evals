@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import io
 import json
 import os
 import signal
@@ -12,8 +13,9 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import modal
@@ -31,6 +33,9 @@ SERVER_LOG_PATH = "/tmp/reference-vllm.log"
 STARTUP_TIMEOUT_SECONDS = 600
 FUNCTION_TIMEOUT_SECONDS = 1800
 BENCHMARK_RESULT_ROOT = Path("/tmp/reference-benchmark")
+EVIDENCE_VOLUME_NAME = "agent-collab-evals-evaluator-evidence-v2"
+EVIDENCE_MOUNT_PATH = Path("/evaluator-evidence")
+_HEX = set("0123456789abcdef")
 
 app = modal.App(APP_NAME)
 reference_image = (
@@ -51,6 +56,9 @@ model_cache = modal.Volume.from_name(
 )
 vllm_cache = modal.Volume.from_name(
     "agent-collab-evals-vllm-cache", create_if_missing=True
+)
+evidence_volume = modal.Volume.from_name(
+    EVIDENCE_VOLUME_NAME, create_if_missing=True, version=2
 )
 huggingface_secret = modal.Secret.from_name(
     "huggingface-secret", required_keys=["HF_TOKEN"]
@@ -197,6 +205,7 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
         "scoring_profile_digest",
         "repetition",
         "attempt",
+        "evidence_root",
         "point_timeout_seconds",
         "invocations",
     }
@@ -206,6 +215,17 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
         raise ValueError("invalid benchmark repetition")
     if not isinstance(spec["attempt"], int) or spec["attempt"] < 1:
         raise ValueError("invalid benchmark attempt")
+    evidence_root = spec["evidence_root"]
+    if not isinstance(evidence_root, str):
+        raise ValueError("invalid evidence root")
+    evidence_path = PurePosixPath(evidence_root)
+    if (
+        evidence_path.is_absolute()
+        or not evidence_path.parts
+        or any(part in {"", ".", ".."} for part in evidence_path.parts)
+        or any(not part.replace("-", "").replace("_", "").isalnum() for part in evidence_path.parts)
+    ):
+        raise ValueError("invalid evidence root")
     point_timeout = spec["point_timeout_seconds"]
     if not isinstance(point_timeout, int) or not 1 <= point_timeout <= 600:
         raise ValueError("invalid point timeout")
@@ -408,7 +428,7 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
 @app.function(
     image=reference_image,
     secrets=[huggingface_secret],
-    volumes={HF_CACHE_PATH: model_cache},
+    volumes={HF_CACHE_PATH: model_cache, EVIDENCE_MOUNT_PATH: evidence_volume},
     gpu="L4",
     max_containers=1,
     min_containers=0,
@@ -461,7 +481,7 @@ def benchmark_serving_repetition(
             _stop_process(process)
 
     gpu_after = _gpu_metadata()
-    return {
+    remote_receipt = {
         "ok": benchmark_error is None,
         "error": benchmark_error,
         "candidate_id": candidate["candidate_id"],
@@ -492,8 +512,182 @@ def benchmark_serving_repetition(
         "canary_before": canary_before,
         "canary_after": canary_after,
         "point_receipts": point_receipts,
-        "raw_results": raw_results,
     }
+    evidence = _persist_remote_evidence(
+        benchmark_spec["evidence_root"], remote_receipt, raw_results
+    )
+    return {**remote_receipt, "evidence": evidence}
+
+
+@app.function(
+    image=modal.Image.debian_slim(),
+    volumes={EVIDENCE_MOUNT_PATH: evidence_volume},
+    retries=0,
+    restrict_modal_access=True,
+    single_use_containers=True,
+    timeout=120,
+)
+def probe_evidence_volume(probe_id: str, content: bytes) -> dict[str, str]:
+    """Prove that a restricted evaluator can durably commit without API access."""
+
+    if len(probe_id) != 32 or any(character not in _HEX for character in probe_id):
+        raise ValueError("invalid evidence probe ID")
+    path = EVIDENCE_MOUNT_PATH / "preflight" / probe_id / "probe.bin"
+    path.parent.mkdir(parents=True)
+    _write_remote_file(path, content)
+    subprocess.run(
+        ["sync", str(EVIDENCE_MOUNT_PATH)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    return {
+        "path": f"preflight/{probe_id}/probe.bin",
+        "digest": f"sha256:{hashlib.sha256(content).hexdigest()}",
+    }
+
+
+def _persist_remote_evidence(
+    evidence_root: str,
+    remote_receipt: dict[str, Any],
+    raw_results: dict[str, bytes],
+) -> dict[str, Any]:
+    """Commit raw evidence to the evaluator Volume before returning metadata."""
+
+    destination = EVIDENCE_MOUNT_PATH.joinpath(*PurePosixPath(evidence_root).parts)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        raise RuntimeError("evaluator evidence destination already exists")
+    staging = destination.parent / f".{destination.name}.staging-{uuid.uuid4().hex}"
+    raw_root = staging / "raw"
+    raw_root.mkdir(parents=True)
+    try:
+        raw_digests: dict[str, str] = {}
+        for filename, content in sorted(raw_results.items()):
+            if Path(filename).name != filename or not filename.endswith(".json"):
+                raise RuntimeError("invalid raw evidence filename")
+            raw_digests[filename] = f"sha256:{hashlib.sha256(content).hexdigest()}"
+            _write_remote_file(raw_root / filename, content)
+        receipt_bytes = _stable_json_bytes(remote_receipt)
+        receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
+        _write_remote_file(staging / "remote-receipt.json", receipt_bytes)
+        manifest = {
+            "schema_version": "modal-evaluator-evidence/v0alpha1",
+            "volume_name": EVIDENCE_VOLUME_NAME,
+            "root": evidence_root,
+            "remote_receipt_digest": receipt_digest,
+            "raw_digests": raw_digests,
+        }
+        _write_remote_file(staging / "manifest.json", _stable_json_bytes(manifest))
+        os.replace(staging, destination)
+        subprocess.run(
+            ["sync", str(EVIDENCE_MOUNT_PATH)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+    except BaseException:
+        if staging.exists():
+            import shutil
+
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return manifest
+
+
+def _write_remote_file(path: Path, content: bytes) -> None:
+    with path.open("xb") as target:
+        target.write(content)
+        target.flush()
+        os.fsync(target.fileno())
+
+
+def _stable_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8") + b"\n"
+
+
+def _collect_remote_evidence(
+    remote_result: dict[str, Any], *, expected_root: str
+) -> tuple[dict[str, bytes], dict[str, Any]]:
+    evidence = remote_result.pop("evidence", None)
+    expected_keys = {
+        "schema_version",
+        "volume_name",
+        "root",
+        "remote_receipt_digest",
+        "raw_digests",
+    }
+    if not isinstance(evidence, dict) or set(evidence) != expected_keys:
+        raise RuntimeError("remote evidence manifest fields differ")
+    if (
+        evidence["schema_version"] != "modal-evaluator-evidence/v0alpha1"
+        or evidence["volume_name"] != EVIDENCE_VOLUME_NAME
+        or evidence["root"] != expected_root
+        or not isinstance(evidence["raw_digests"], dict)
+    ):
+        raise RuntimeError("remote evidence manifest identity differs")
+    stored_manifest_bytes = _read_evidence_file(f"{expected_root}/manifest.json")
+    try:
+        stored_manifest = json.loads(stored_manifest_bytes)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("stored evidence manifest is invalid") from error
+    if stored_manifest != evidence:
+        raise RuntimeError("stored and returned evidence manifests differ")
+    receipt_bytes = _read_evidence_file(f"{expected_root}/remote-receipt.json")
+    receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
+    if receipt_digest != evidence["remote_receipt_digest"]:
+        raise RuntimeError("stored remote receipt digest differs")
+    if receipt_bytes != _stable_json_bytes(remote_result):
+        raise RuntimeError("stored and returned remote receipts differ")
+    raw_results: dict[str, bytes] = {}
+    for filename, expected_digest in sorted(evidence["raw_digests"].items()):
+        if (
+            not isinstance(filename, str)
+            or Path(filename).name != filename
+            or not filename.endswith(".json")
+            or not isinstance(expected_digest, str)
+        ):
+            raise RuntimeError("stored raw evidence identity is invalid")
+        content = _read_evidence_file(f"{expected_root}/raw/{filename}")
+        observed_digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+        if observed_digest != expected_digest:
+            raise RuntimeError("stored raw evidence digest differs")
+        raw_results[filename] = content
+    return raw_results, evidence
+
+
+def _read_evidence_file(path: str) -> bytes:
+    return b"".join(evidence_volume.read_file(path))
+
+
+def _publish_normalized_evidence(
+    evidence: dict[str, Any], normalized: dict[str, Any]
+) -> str:
+    content = _stable_json_bytes(normalized)
+    digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+    destination = f"{evidence['root']}/normalized.json"
+    try:
+        existing = _read_evidence_file(destination)
+    except FileNotFoundError:
+        with evidence_volume.batch_upload(force=False) as batch:
+            batch.put_file(io.BytesIO(content), destination)
+    else:
+        if existing != content:
+            raise RuntimeError(
+                "durable normalized evidence already exists with different content"
+            )
+    return digest
 
 
 @app.local_entrypoint()
@@ -508,6 +702,7 @@ def main(
     dispatch_only: bool = False,
     collect_only: bool = False,
     collect_timeout_seconds: int = 0,
+    evidence_probe: bool = False,
 ) -> None:
     from agent_collab_evals.canonical import load_json
 
@@ -522,6 +717,18 @@ def main(
         raise RuntimeError("Modal image digest does not match candidate.json")
     if candidate["build"]["dependency_lock"] != DEPENDENCY_LOCK:
         raise RuntimeError("Modal dependency does not match candidate.json")
+    if evidence_probe:
+        if baseline or dispatch_only or collect_only or collect_timeout_seconds:
+            raise ValueError("--evidence-probe cannot be combined with measurement flags")
+        content = f"evaluator-evidence-probe:{uuid.uuid4().hex}".encode("utf-8")
+        result = probe_evidence_volume.remote(uuid.uuid4().hex, content)
+        stored = _read_evidence_file(result["path"])
+        if stored != content or result["digest"] != (
+            f"sha256:{hashlib.sha256(stored).hexdigest()}"
+        ):
+            raise RuntimeError("durable evaluator evidence probe differs")
+        print(json.dumps({"ok": True, **result}, indent=2, sort_keys=True))
+        return
     if baseline:
         _run_baseline_repetition(
             candidate,
@@ -704,12 +911,18 @@ def _run_baseline_repetition(
         warmup_requests=profile.point_warmups,
         goodput_slos_ms_by_bucket=scoring.goodput_slos_ms_by_bucket,
     )
+    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_root = (
+        f"model-serving/{evidence_namespace}/"
+        f"repetition-{repetition:04d}-attempt-{attempt:02d}"
+    )
     benchmark_spec = {
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
         "scoring_profile_digest": scoring.digest,
         "repetition": repetition,
         "attempt": attempt,
+        "evidence_root": evidence_root,
         "point_timeout_seconds": profile.point_timeout_seconds,
         "invocations": [
             {
@@ -735,6 +948,7 @@ def _run_baseline_repetition(
         "scoring_profile_digest": scoring.digest,
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
+        "evidence_root": evidence_root,
         "git_commit": collector_git_commit,
         "modal_client_version": local_modal_version,
         "repetition": repetition,
@@ -888,7 +1102,10 @@ def _run_baseline_repetition(
             f"serving measurement invocation failed; evidence: {destination}"
         ) from error
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
-    raw_results = remote_result.pop("raw_results")
+    raw_results, durable_evidence = _collect_remote_evidence(
+        remote_result,
+        expected_root=evidence_root,
+    )
     points: list[dict[str, Any]] = []
     goodput_replays = []
     parse_errors: list[str] = []
@@ -1017,6 +1234,7 @@ def _run_baseline_repetition(
             "modal_client_version": local_modal_version,
         },
         "modal_function_call_id": function_call_id,
+        "durable_evidence": durable_evidence,
         "repetition": repetition,
         "attempt": attempt,
         "valid": valid,
@@ -1029,6 +1247,13 @@ def _run_baseline_repetition(
         "remote_receipt": remote_result,
         "performance_score": performance_score,
         "points": points,
+    }
+    normalized_evidence_digest = _publish_normalized_evidence(
+        durable_evidence, normalized
+    )
+    normalized["durable_evidence"] = {
+        **durable_evidence,
+        "normalized_digest": normalized_evidence_digest,
     }
     destination = store.save(
         measurement_id,

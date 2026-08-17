@@ -58,8 +58,18 @@ smallest useful seams before adding the runtime and collaboration machinery.
   provider timing as the serving score.
 - A legitimate candidate-sensitivity artifact is prepared using vLLM's
   documented `stream_interval=10` setting. It holds model, engine, image and
-  hardware fixed, and can be run by explicit manifest path after the current
-  implementation is committed; no GPU allocation has yet been made for it.
+  hardware fixed. Initial calibration attempts exposed client-lifetime and
+  oversized-result transport failures; both invalid attempts remain preserved
+  and no candidate performance result has been admitted from them.
+- A digest-verified evaluator-private Qwen quality workload is materialized
+  from MMLU, GSM8K, two BBH reasoning tasks and private structured transforms.
+  Its 64 cases are balanced across thinking/non-thinking modes and objective
+  scorers; the selection seed and answers remain outside the repository.
+- Raw serving evidence now targets an evaluator-owned Modal v2 Volume. A
+  restricted non-GPU function successfully wrote and synced a probe which the
+  trusted client read back by digest. Detached dispatch records make long calls
+  reconnectable, and large raw bundles no longer depend on Modal's function
+  result channel.
 - Three clean-build formal stock-reference repetitions completed without
   retries: 672/672 requests and 27/27 raw artifacts validated under identical
   manifests, package set and GPU identity. The calibration ledger records
@@ -75,9 +85,10 @@ The following remain gates, not implied capabilities:
    condition-matched OpenCode model routing.
 3. Collaboration, publication authorization, artifact storage, submission,
    compute and research services.
-4. Evaluator-owned untrusted candidate launch, durable external evidence,
-   public result release, confirmatory registered score policy, hidden gates
-   and neutral selection.
+4. Evaluator-owned untrusted candidate launch, public result release,
+   confirmatory registered score policy, calibrated hidden gates and neutral
+   selection. The calibration Volume path is durable but is not yet the
+   complete confirmatory evidence service or retention policy.
 5. Four-condition scheduling, registered manifests, audit export and the
    preregistered statistical analysis.
 
@@ -91,14 +102,12 @@ confirmatory policy.
 
 The next evaluator gate is to run at least one legitimate non-reference
 candidate through direct vLLM goodput and verify that the score responds in the
-expected direction. In parallel, materialize cheap quality diagnostics and the
-architecture-neutral held-out generation interface required by the hidden
-quality contract. The full downstream
-generation suite and its paired non-inferiority thresholds are frozen only
-after Qwen-specific quality calibration, but before agents optimize against a
-confirmatory evaluator. The raw evidence also needs a durable evaluator-owned
-backend before confirmatory execution; the ignored local store is not
-sufficient retention.
+expected direction. The architecture-neutral held-out generation interface and
+private 64-case workload now exist; three paired reference/clean-control runs
+must still freeze the downstream non-inferiority margins before agents optimize
+against a confirmatory evaluator. Raw calibration evidence is durably mirrored
+to the evaluator-owned Modal Volume, while confirmatory retention and export
+remain a later platform-service gate.
 
 The OpenCode conformance spike can proceed independently of evaluator
 calibration. Both must pass before broader V0 implementation assumes OpenCode
