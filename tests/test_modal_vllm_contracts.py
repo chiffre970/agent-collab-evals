@@ -23,7 +23,8 @@ def _quality_spec() -> dict[str, object]:
         "repetition": 1,
         "attempt": 1,
         "evidence_root": "model-serving-quality/abc/repetition-0001-attempt-01",
-        "request_timeout_seconds": 180,
+        "max_concurrency": 8,
+        "request_timeout_seconds": 300,
         "requests": [
             {
                 "case_id": "mmlu-abc123",
@@ -84,6 +85,11 @@ class ModalVllmContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "sampling|temperature|top_k"):
                     MODAL_VLLM._validate_quality_spec(changed)
 
+        changed = copy.deepcopy(_quality_spec())
+        changed["max_concurrency"] = 0
+        with self.assertRaisesRegex(ValueError, "concurrency"):
+            MODAL_VLLM._validate_quality_spec(changed)
+
     def test_durable_evidence_is_reloaded_and_digest_verified(self) -> None:
         root = "model-serving/abc/repetition-0001-attempt-01"
         raw = b'{"result":"ok"}'
@@ -107,17 +113,17 @@ class ModalVllmContractTests(unittest.TestCase):
         original_volume = MODAL_VLLM.evidence_volume
         MODAL_VLLM.evidence_volume = _ReadOnlyVolume(files)
         try:
-            remote = {**receipt, "evidence": copy.deepcopy(evidence)}
-            loaded, observed = MODAL_VLLM._collect_remote_evidence(
-                remote, expected_root=root
+            pointer = MODAL_VLLM._evidence_pointer(evidence)
+            loaded_receipt, loaded, observed = MODAL_VLLM._collect_remote_evidence(
+                pointer, expected_root=root
             )
+            self.assertEqual(loaded_receipt, receipt)
             self.assertEqual(loaded, {"point.json": raw})
             self.assertEqual(observed, evidence)
 
             files[f"{root}/raw/point.json"] = b"tampered"
-            remote = {**receipt, "evidence": copy.deepcopy(evidence)}
             with self.assertRaisesRegex(RuntimeError, "digest differs"):
-                MODAL_VLLM._collect_remote_evidence(remote, expected_root=root)
+                MODAL_VLLM._collect_remote_evidence(pointer, expected_root=root)
         finally:
             MODAL_VLLM.evidence_volume = original_volume
 

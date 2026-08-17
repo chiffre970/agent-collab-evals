@@ -1,5 +1,5 @@
 schema_version = "model-serving-quality-profile/v0alpha1"
-phase = "qwen_quality_calibration"
+phase = "qwen_quality_calibration_v2"
 target_model = "Qwen/Qwen3-4B"
 target_revision = "1cfa9a7208912126459214e8b04321603b3df60c"
 workload_schema = "model-serving-quality-workload/v0alpha1"
@@ -13,6 +13,10 @@ cases_per_family = 16
 seed_bytes = 32
 seed_visibility = "evaluator_private"
 source_policy = "content_digest_verified"
+
+[execution]
+max_concurrency = 8
+request_timeout_seconds = 300
 
 [decoding.non_thinking]
 enable_thinking = false
@@ -28,7 +32,7 @@ temperature_milli = 600
 top_p_milli = 950
 top_k = 20
 min_p_milli = 0
-max_tokens = 2048
+max_tokens = 4096
 
 [[families]]
 id = "mmlu"

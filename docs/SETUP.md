@@ -265,7 +265,7 @@ keeping a terminal attached:
 .venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --quality \
   --candidate-path campaigns/model_serving_v0/reference/candidate.json \
-  --measurement-id qwen-quality-reference-v1 \
+  --measurement-id qwen-quality-reference-v2 \
   --quality-role reference \
   --repetition 1 --attempt 1 \
   --dispatch-only
@@ -277,7 +277,7 @@ Collect that exact call with:
 .venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --quality \
   --candidate-path campaigns/model_serving_v0/reference/candidate.json \
-  --measurement-id qwen-quality-reference-v1 \
+  --measurement-id qwen-quality-reference-v2 \
   --quality-role reference \
   --repetition 1 --attempt 1 \
   --collect-only --collect-timeout-seconds 30
@@ -290,7 +290,7 @@ candidate artifact:
 .venv/bin/modal run --detach -e dev campaigns/model_serving_v0/reference/modal_vllm.py \
   --quality \
   --candidate-path campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json \
-  --measurement-id qwen-quality-clean-control-v1 \
+  --measurement-id qwen-quality-clean-control-v2 \
   --quality-role clean_control \
   --repetition 1 --attempt 1 \
   --dispatch-only

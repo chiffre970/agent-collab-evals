@@ -68,7 +68,11 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - A digest-verified evaluator-private Qwen quality workload is materialized
   from MMLU, GSM8K, two BBH reasoning tasks and private structured transforms.
   Its 64 cases are balanced across thinking/non-thinking modes and objective
-  scorers; the selection seed and answers remain outside the repository.
+  scorers; the selection seed and answers remain outside the repository. A
+  first diagnostic run exposed literal-placeholder prompting, truncation and
+  oversized metadata transport rather than a model-quality result. The
+  versioned V2 profile corrects those defects, pins eight-way request batching
+  and reconstructs full receipts from a small durable-evidence pointer.
 - Raw serving evidence now targets an evaluator-owned Modal v2 Volume. A
   restricted non-GPU function successfully wrote and synced a probe which the
   trusted client read back by digest. Detached dispatch records make long calls

@@ -71,6 +71,8 @@ class QualityProfile:
     repetitions: int
     cases_per_family: int
     seed_bytes: int
+    max_concurrency: int
+    request_timeout_seconds: int
     decoding: Mapping[str, DecodingProfile]
     families: Mapping[str, QualityFamily]
 
@@ -84,6 +86,7 @@ class QualityProfile:
             raise QualityValidationError("quality profile is not valid TOML") from error
         _validate_quality_profile(raw)
         materialization = _mapping(raw, "materialization")
+        execution = _mapping(raw, "execution")
         decoding_raw = _mapping(raw, "decoding")
         decoding: dict[str, DecodingProfile] = {}
         for mode in ("non_thinking", "thinking"):
@@ -113,6 +116,10 @@ class QualityProfile:
             repetitions=_positive_int(raw, "repetitions"),
             cases_per_family=_positive_int(materialization, "cases_per_family"),
             seed_bytes=_positive_int(materialization, "seed_bytes"),
+            max_concurrency=_positive_int(execution, "max_concurrency"),
+            request_timeout_seconds=_positive_int(
+                execution, "request_timeout_seconds"
+            ),
             decoding=decoding,
             families=families,
         )
@@ -438,7 +445,8 @@ def _materialize_mmlu(
         prompt = (
             f"{row['Question']}\n\n"
             f"A. {row['A']}\nB. {row['B']}\nC. {row['C']}\nD. {row['D']}\n\n"
-            "Give the best answer. End with exactly <answer>LETTER</answer>."
+            "Give the best answer. End with one line in the form "
+            "<answer>X</answer>, replacing X with the single option letter."
         )
         result.append(
             _case(seed, "mmlu", "non_thinking", "choice", prompt, row["Answer"], source["id"], index)
@@ -466,8 +474,9 @@ def _materialize_gsm8k(
         if match is None:
             raise QualityValidationError("GSM8K answer has no final value")
         prompt = (
-            f"Solve this problem carefully:\n\n{row['question']}\n\n"
-            "End with exactly <answer>NUMBER</answer>."
+            f"Solve this problem carefully and concisely:\n\n{row['question']}\n\n"
+            "End with one line in the form <answer>X</answer>, replacing X "
+            "with only the numeric answer and no units."
         )
         result.append(
             _case(seed, "gsm8k", "thinking", "numeric", prompt, match.group(1), source["id"], index)
@@ -504,7 +513,8 @@ def _materialize_bbh(
             target = str(row["target"]).strip().strip("()")
             prompt = (
                 f"{row['input']}\n\n"
-                "Reason through the problem. End with exactly <answer>LETTER</answer>."
+                "Reason through the problem concisely. End with one line in the "
+                "form <answer>X</answer>, replacing X with the single option letter."
             )
             result.append(
                 _case(seed, "bbh_reasoning", "thinking", "choice", prompt, target, str(source["id"]), index)
@@ -544,7 +554,8 @@ def _materialize_structured(
             )
             + f"\n\nSelect IDs whose category is {category} and score is at least {threshold}. "
             "Sort IDs lexicographically and join them with commas; use NONE if empty. "
-            "End with exactly <answer>VALUE</answer>."
+            "End with one line in the form <answer>X</answer>, replacing X with "
+            "only that comma-joined value."
         )
         result.append(
             _case(seed, "structured_transform", "non_thinking", "exact", prompt, expected, "evaluator_generated", index)
@@ -653,6 +664,7 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         "authoritative_evidence",
         "teacher_forced_role",
         "materialization",
+        "execution",
         "decoding",
         "families",
         "decision",
@@ -661,7 +673,7 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality profile fields differ")
     expected_literals = {
         "schema_version": QUALITY_PROFILE_SCHEMA,
-        "phase": "qwen_quality_calibration",
+        "phase": "qwen_quality_calibration_v2",
         "target_model": "Qwen/Qwen3-4B",
         "target_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
         "workload_schema": QUALITY_WORKLOAD_SCHEMA,
@@ -689,12 +701,20 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         or materialization.get("source_policy") != "content_digest_verified"
     ):
         raise QualityValidationError("quality materialization contract differs")
+    execution = _mapping(raw, "execution")
+    if set(execution) != {"max_concurrency", "request_timeout_seconds"}:
+        raise QualityValidationError("quality execution fields differ")
+    if (
+        _positive_int(execution, "max_concurrency") != 8
+        or _positive_int(execution, "request_timeout_seconds") != 300
+    ):
+        raise QualityValidationError("quality execution contract differs")
     decoding = _mapping(raw, "decoding")
     if set(decoding) != {"non_thinking", "thinking"}:
         raise QualityValidationError("quality decoding modes differ")
     expected_decoding = {
         "non_thinking": (False, 700, 800, 20, 0, 512),
-        "thinking": (True, 600, 950, 20, 0, 2048),
+        "thinking": (True, 600, 950, 20, 0, 4096),
     }
     for mode, expected in expected_decoding.items():
         value = _mapping(decoding, mode)

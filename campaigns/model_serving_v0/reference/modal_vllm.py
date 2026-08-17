@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -380,6 +381,7 @@ def _validate_quality_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         "repetition",
         "attempt",
         "evidence_root",
+        "max_concurrency",
         "request_timeout_seconds",
         "requests",
     }
@@ -406,6 +408,13 @@ def _validate_quality_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     timeout = spec["request_timeout_seconds"]
     if not isinstance(timeout, int) or not 1 <= timeout <= 300:
         raise ValueError("invalid quality request timeout")
+    concurrency = spec["max_concurrency"]
+    if (
+        not isinstance(concurrency, int)
+        or isinstance(concurrency, bool)
+        or not 1 <= concurrency <= 32
+    ):
+        raise ValueError("invalid quality request concurrency")
     requests = spec["requests"]
     if not isinstance(requests, list) or not requests:
         raise ValueError("quality requests are invalid")
@@ -501,50 +510,85 @@ def _run_quality_requests(
     *,
     server_port: int,
     request_timeout_seconds: int,
+    max_concurrency: int,
 ) -> tuple[dict[str, bytes], list[dict[str, Any]], str | None]:
+    outcomes: dict[str, tuple[bytes | None, dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+        futures = {
+            executor.submit(
+                _run_quality_request,
+                request_spec,
+                server_port=server_port,
+                request_timeout_seconds=request_timeout_seconds,
+            ): request_spec["case_id"]
+            for request_spec in requests
+        }
+        for future in as_completed(futures):
+            case_id = futures[future]
+            try:
+                outcomes[case_id] = future.result()
+            except Exception as error:
+                outcomes[case_id] = (
+                    None,
+                    {
+                        "case_id": case_id,
+                        "elapsed_us": None,
+                        "status": "failed",
+                        "error": f"{type(error).__name__}: {str(error)[-2000:]}",
+                    },
+                )
+
     raw_results: dict[str, bytes] = {}
     receipts: list[dict[str, Any]] = []
+    errors: list[str] = []
     for request_spec in requests:
         case_id = request_spec["case_id"]
-        started_ns = time.perf_counter_ns()
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{server_port}/v1/chat/completions",
-            data=_stable_json_bytes(request_spec["body"]),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(
-                request, timeout=request_timeout_seconds
-            ) as response:
-                raw = response.read()
-            payload = json.loads(raw)
-            content = payload["choices"][0]["message"]["content"]
-            if not isinstance(content, str):
-                raise ValueError("quality response content is not text")
-        except Exception as error:
-            elapsed_us = (time.perf_counter_ns() - started_ns) // 1000
-            message = f"{type(error).__name__}: {str(error)[-2000:]}"
-            receipts.append(
-                {
-                    "case_id": case_id,
-                    "elapsed_us": elapsed_us,
-                    "status": "failed",
-                    "error": message,
-                }
-            )
-            return raw_results, receipts, message
+        raw, receipt = outcomes[case_id]
+        receipts.append(receipt)
+        if raw is None:
+            errors.append(f"{case_id}: {receipt['error']}")
+        else:
+            raw_results[f"{case_id}.json"] = raw
+    return raw_results, receipts, errors[0] if errors else None
+
+
+def _run_quality_request(
+    request_spec: dict[str, Any],
+    *,
+    server_port: int,
+    request_timeout_seconds: int,
+) -> tuple[bytes | None, dict[str, Any]]:
+    case_id = request_spec["case_id"]
+    started_ns = time.perf_counter_ns()
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{server_port}/v1/chat/completions",
+        data=_stable_json_bytes(request_spec["body"]),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=request_timeout_seconds
+        ) as response:
+            raw = response.read()
+        payload = json.loads(raw)
+        content = payload["choices"][0]["message"]["content"]
+        if not isinstance(content, str):
+            raise ValueError("quality response content is not text")
+    except Exception as error:
         elapsed_us = (time.perf_counter_ns() - started_ns) // 1000
-        raw_results[f"{case_id}.json"] = raw
-        receipts.append(
-            {
-                "case_id": case_id,
-                "elapsed_us": elapsed_us,
-                "status": "complete",
-                "error": None,
-            }
-        )
-    return raw_results, receipts, None
+        return None, {
+            "case_id": case_id,
+            "elapsed_us": elapsed_us,
+            "status": "failed",
+            "error": f"{type(error).__name__}: {str(error)[-2000:]}",
+        }
+    return raw, {
+        "case_id": case_id,
+        "elapsed_us": (time.perf_counter_ns() - started_ns) // 1000,
+        "status": "complete",
+        "error": None,
+    }
 
 
 @app.function(
@@ -692,7 +736,7 @@ def benchmark_serving_repetition(
     evidence = _persist_remote_evidence(
         benchmark_spec["evidence_root"], remote_receipt, raw_results
     )
-    return {**remote_receipt, "evidence": evidence}
+    return _evidence_pointer(evidence)
 
 
 @app.function(
@@ -743,6 +787,7 @@ def quality_serving_repetition(
                 requests,
                 server_port=server_port,
                 request_timeout_seconds=quality_spec["request_timeout_seconds"],
+                max_concurrency=quality_spec["max_concurrency"],
             )
             evaluated_ms = round((time.monotonic() - evaluation_started) * 1000)
             try:
@@ -777,6 +822,10 @@ def quality_serving_repetition(
                 (time.monotonic() - repetition_started) * 1000
             ),
         },
+        "execution": {
+            "max_concurrency": quality_spec["max_concurrency"],
+            "request_timeout_seconds": quality_spec["request_timeout_seconds"],
+        },
         "gpu_before": gpu_before,
         "gpu_after": _gpu_metadata(),
         "environment": _environment_receipt(),
@@ -787,7 +836,7 @@ def quality_serving_repetition(
     evidence = _persist_remote_evidence(
         quality_spec["evidence_root"], remote_receipt, raw_results
     )
-    return {**remote_receipt, "evidence": evidence}
+    return _evidence_pointer(evidence)
 
 
 @app.function(
@@ -888,10 +937,36 @@ def _stable_json_bytes(value: Any) -> bytes:
     ).encode("utf-8") + b"\n"
 
 
+def _evidence_pointer(evidence: dict[str, Any]) -> dict[str, str]:
+    return {
+        "schema_version": "modal-evaluator-evidence-pointer/v0alpha1",
+        "root": str(evidence["root"]),
+        "remote_receipt_digest": str(evidence["remote_receipt_digest"]),
+    }
+
+
 def _collect_remote_evidence(
-    remote_result: dict[str, Any], *, expected_root: str
-) -> tuple[dict[str, bytes], dict[str, Any]]:
-    evidence = remote_result.pop("evidence", None)
+    pointer: dict[str, Any], *, expected_root: str
+) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
+    if not isinstance(pointer, dict) or set(pointer) != {
+        "schema_version",
+        "root",
+        "remote_receipt_digest",
+    }:
+        raise RuntimeError("remote evidence pointer fields differ")
+    if (
+        pointer["schema_version"]
+        != "modal-evaluator-evidence-pointer/v0alpha1"
+        or pointer["root"] != expected_root
+        or not isinstance(pointer["remote_receipt_digest"], str)
+        or len(pointer["remote_receipt_digest"]) != 71
+        or not pointer["remote_receipt_digest"].startswith("sha256:")
+        or any(
+            character not in _HEX
+            for character in pointer["remote_receipt_digest"][7:]
+        )
+    ):
+        raise RuntimeError("remote evidence pointer identity differs")
     expected_keys = {
         "schema_version",
         "volume_name",
@@ -899,28 +974,32 @@ def _collect_remote_evidence(
         "remote_receipt_digest",
         "raw_digests",
     }
+    stored_manifest_bytes = _read_evidence_file(f"{expected_root}/manifest.json")
+    try:
+        evidence = json.loads(stored_manifest_bytes)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("stored evidence manifest is invalid") from error
     if not isinstance(evidence, dict) or set(evidence) != expected_keys:
-        raise RuntimeError("remote evidence manifest fields differ")
+        raise RuntimeError("stored evidence manifest fields differ")
     if (
         evidence["schema_version"] != "modal-evaluator-evidence/v0alpha1"
         or evidence["volume_name"] != EVIDENCE_VOLUME_NAME
         or evidence["root"] != expected_root
+        or evidence["remote_receipt_digest"]
+        != pointer["remote_receipt_digest"]
         or not isinstance(evidence["raw_digests"], dict)
     ):
-        raise RuntimeError("remote evidence manifest identity differs")
-    stored_manifest_bytes = _read_evidence_file(f"{expected_root}/manifest.json")
-    try:
-        stored_manifest = json.loads(stored_manifest_bytes)
-    except json.JSONDecodeError as error:
-        raise RuntimeError("stored evidence manifest is invalid") from error
-    if stored_manifest != evidence:
-        raise RuntimeError("stored and returned evidence manifests differ")
+        raise RuntimeError("stored evidence manifest identity differs")
     receipt_bytes = _read_evidence_file(f"{expected_root}/remote-receipt.json")
     receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
     if receipt_digest != evidence["remote_receipt_digest"]:
         raise RuntimeError("stored remote receipt digest differs")
-    if receipt_bytes != _stable_json_bytes(remote_result):
-        raise RuntimeError("stored and returned remote receipts differ")
+    try:
+        remote_receipt = json.loads(receipt_bytes)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("stored remote receipt is invalid") from error
+    if not isinstance(remote_receipt, dict):
+        raise RuntimeError("stored remote receipt must be an object")
     raw_results: dict[str, bytes] = {}
     for filename, expected_digest in sorted(evidence["raw_digests"].items()):
         if (
@@ -935,7 +1014,7 @@ def _collect_remote_evidence(
         if observed_digest != expected_digest:
             raise RuntimeError("stored raw evidence digest differs")
         raw_results[filename] = content
-    return raw_results, evidence
+    return remote_receipt, raw_results, evidence
 
 
 def _read_evidence_file(path: str) -> bytes:
@@ -976,7 +1055,7 @@ def main(
     collect_timeout_seconds: int = 0,
     evidence_probe: bool = False,
     quality_profile_path: str = "campaigns/model_serving_v0/evaluator/quality_calibration.toml",
-    quality_workload_path: str = "tmp/evaluator-private/model-serving-quality/workload.json",
+    quality_workload_path: str = "tmp/evaluator-private/model-serving-quality/workload-v2.json",
     quality_output_root: str = "tmp/evaluator-private/model-serving-quality/results",
     quality_role: str = "",
 ) -> None:
@@ -1405,7 +1484,7 @@ def _run_baseline_repetition(
             f"serving measurement invocation failed; evidence: {destination}"
         ) from error
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
-    raw_results, durable_evidence = _collect_remote_evidence(
+    remote_result, raw_results, durable_evidence = _collect_remote_evidence(
         remote_result,
         expected_root=evidence_root,
     )
@@ -1704,7 +1783,8 @@ def _run_quality_repetition(
         "repetition": repetition,
         "attempt": attempt,
         "evidence_root": evidence_root,
-        "request_timeout_seconds": 180,
+        "max_concurrency": profile.max_concurrency,
+        "request_timeout_seconds": profile.request_timeout_seconds,
         "requests": list(requests),
     }
     dispatch_path = (
@@ -1826,7 +1906,7 @@ def _run_quality_repetition(
         destination = store.save(measurement_id, repetition, failure, {}, attempt=attempt)
         raise RuntimeError(f"quality invocation failed; evidence: {destination}") from remote_error
 
-    raw_results, durable_evidence = _collect_remote_evidence(
+    remote_result, raw_results, durable_evidence = _collect_remote_evidence(
         remote_result, expected_root=evidence_root
     )
     expected_remote_identity = {
@@ -1845,6 +1925,12 @@ def _run_quality_repetition(
     for key, expected in expected_remote_identity.items():
         if remote_result.get(key) != expected:
             validation_errors.append(f"remote_receipt.{key} differs")
+    expected_execution = {
+        "max_concurrency": profile.max_concurrency,
+        "request_timeout_seconds": profile.request_timeout_seconds,
+    }
+    if remote_result.get("execution") != expected_execution:
+        validation_errors.append("remote_receipt.execution differs")
     current_environment = remote_result.get("environment", {})
     expected_environment = {
         "package_set_digest": environment_profile.resolved_package_digest,

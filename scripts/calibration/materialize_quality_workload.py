@@ -43,7 +43,7 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("tmp/evaluator-private/model-serving-quality/workload.json"),
+        default=Path("tmp/evaluator-private/model-serving-quality/workload-v2.json"),
     )
     arguments = parser.parse_args()
 

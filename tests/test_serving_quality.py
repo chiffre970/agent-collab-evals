@@ -27,6 +27,8 @@ PROFILE_PATH = Path(
 class ServingQualityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = QualityProfile.load(PROFILE_PATH)
+        self.assertEqual(self.profile.max_concurrency, 8)
+        self.assertEqual(self.profile.request_timeout_seconds, 300)
 
     def _sources(self, root: Path) -> Path:
         mmlu = root / "mmlu.csv"
@@ -120,6 +122,10 @@ class ServingQualityTests(unittest.TestCase):
             self.assertNotEqual(first["cases"], different["cases"])
             self.assertEqual(first["case_count"], 64)
             self.assertNotIn(seed.hex(), json.dumps(first))
+            self.assertTrue(
+                all("replacing X" in value["prompt"] for value in first["cases"])
+            )
+            self.assertNotIn("<answer>LETTER</answer>", json.dumps(first))
 
             path = write_private_workload(root / "workload.json", first)
             loaded = load_quality_workload(path, self.profile)
