@@ -27,6 +27,10 @@ from ..collaboration import (
 from ..session_identity import SessionIdentityRegistry
 
 
+class _AuditedAuthorizationError(PermissionError):
+    """Marks a denial whose audit event must commit before propagating."""
+
+
 class SqliteCollaborationBackend:
     """Implements the actor-private/shared twin modes without coordination policy."""
 
@@ -107,7 +111,10 @@ class SqliteCollaborationBackend:
                         "idempotency key reused with different collaboration content"
                     )
                 return self._entry_by_id(
-                    connection, scope.scope_id, str(existing["entry_id"])
+                    connection,
+                    scope.scope_id,
+                    str(existing["entry_id"]),
+                    visibility,
                 )
 
             thread_root: str | None = None
@@ -117,18 +124,22 @@ class SqliteCollaborationBackend:
                 )
                 thread_root = parent.thread_root
             sequence = self._next_sequence(connection, "entries", scope.scope_id)
+            actor_sequence = self._next_actor_sequence(
+                connection, scope.scope_id, context.actor_id
+            )
             entry_id = f"entry-{secrets.token_hex(16)}"
             thread_root = thread_root or entry_id
             connection.execute(
                 """
                 INSERT INTO entries(
-                    scope_id, sequence, entry_id, actor_id, body, reply_to,
+                    scope_id, sequence, actor_sequence, entry_id, actor_id, body, reply_to,
                     thread_root, publication_ids, idempotency_key, request_digest
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scope.scope_id,
                     sequence,
+                    actor_sequence,
                     entry_id,
                     context.actor_id,
                     body,
@@ -150,7 +161,9 @@ class SqliteCollaborationBackend:
                     "publication_ids": list(publication_ids),
                 },
             )
-            return self._entry_by_id(connection, scope.scope_id, entry_id)
+            return self._entry_by_id(
+                connection, scope.scope_id, entry_id, visibility
+            )
 
     def list_recent(
         self,
@@ -199,7 +212,9 @@ class SqliteCollaborationBackend:
                 """,
                 (scope.scope_id, entry.thread_root, *parameters),
             ).fetchall()
-            result = tuple(self._row_to_entry(row) for row in rows)
+            result = tuple(
+                self._row_to_entry(row, visibility) for row in rows
+            )
             self._append_read_audit(
                 connection, scope.scope_id, context.actor_id, "thread", result
             )
@@ -241,14 +256,30 @@ class SqliteCollaborationBackend:
                 )
                 for row in selected
             )
-            next_cursor = self._next_cursor(
-                connection,
-                scope,
-                context,
-                operation,
-                "",
-                selected,
-                len(rows) > limit,
+            if len(rows) > limit:
+                watermark = int(selected[-1]["sequence"])
+            else:
+                sequence_column = self._sequence_column(visibility)
+                actor_clause = (
+                    "AND actor_id = ?"
+                    if visibility is CollaborationVisibility.ACTOR_PRIVATE
+                    else ""
+                )
+                actor_parameters: tuple[object, ...] = (
+                    (context.actor_id,)
+                    if visibility is CollaborationVisibility.ACTOR_PRIVATE
+                    else ()
+                )
+                watermark_row = connection.execute(
+                    f"""
+                    SELECT COALESCE(MAX({sequence_column}), 0) AS value
+                    FROM entries WHERE scope_id = ? {actor_clause}
+                    """,
+                    (scope.scope_id, *actor_parameters),
+                ).fetchone()
+                watermark = int(watermark_row["value"])
+            next_cursor = self._encode_cursor(
+                connection, scope, context, operation, "", watermark
             )
             self._append_audit(
                 connection,
@@ -317,6 +348,7 @@ class SqliteCollaborationBackend:
                 query_binding,
             )
             clause, parameters = self._visibility_clause(context, visibility)
+            sequence_column = self._sequence_column(visibility)
             search_clause = ""
             search_parameters: tuple[object, ...] = ()
             if search_query is not None:
@@ -330,8 +362,8 @@ class SqliteCollaborationBackend:
             rows = connection.execute(
                 f"""
                 SELECT * FROM entries
-                WHERE scope_id = ? AND sequence > ? {clause} {search_clause}
-                ORDER BY sequence ASC LIMIT ?
+                WHERE scope_id = ? AND {sequence_column} > ? {clause} {search_clause}
+                ORDER BY {sequence_column} ASC LIMIT ?
                 """,
                 (
                     scope.scope_id,
@@ -342,7 +374,9 @@ class SqliteCollaborationBackend:
                 ),
             ).fetchall()
             selected = rows[:limit]
-            items = tuple(self._row_to_entry(row) for row in selected)
+            items = tuple(
+                self._row_to_entry(row, visibility) for row in selected
+            )
             next_cursor = self._next_cursor(
                 connection,
                 scope,
@@ -351,6 +385,7 @@ class SqliteCollaborationBackend:
                 query_binding,
                 selected,
                 len(rows) > limit,
+                sequence_column,
             )
             self._append_read_audit(
                 connection, scope.scope_id, context.actor_id, operation, items
@@ -365,9 +400,27 @@ class SqliteCollaborationBackend:
     ) -> CollaborationVisibility:
         stored = self._stored_scope(connection, scope.scope_id)
         if stored != scope:
-            raise PermissionError("collaboration scope does not match storage")
+            self._append_audit(
+                connection,
+                stored.scope_id,
+                "authorization.denied",
+                context.actor_id,
+                {"reason": "scope_mismatch"},
+            )
+            raise _AuditedAuthorizationError(
+                "collaboration scope does not match storage"
+            )
         if context.campaign_run_id != scope.campaign_run_id:
-            raise PermissionError("session belongs to a different campaign")
+            self._append_audit(
+                connection,
+                stored.scope_id,
+                "authorization.denied",
+                context.actor_id,
+                {"reason": "cross_campaign_session"},
+            )
+            raise _AuditedAuthorizationError(
+                "session belongs to a different campaign"
+            )
         return stored.visibility
 
     @staticmethod
@@ -394,17 +447,33 @@ class SqliteCollaborationBackend:
             (scope_id, entry_id, *parameters),
         ).fetchone()
         if row is None:
-            raise KeyError("collaboration entry is not visible")
-        return self._row_to_entry(row)
+            self._append_audit(
+                connection,
+                scope_id,
+                "authorization.denied",
+                context.actor_id,
+                {"reason": "entry_not_visible", "entry_id": entry_id},
+            )
+            raise _AuditedAuthorizationError(
+                "collaboration entry is not visible"
+            )
+        return self._row_to_entry(row, visibility)
 
     @staticmethod
-    def _row_to_entry(row: sqlite3.Row) -> CollaborationEntry:
+    def _row_to_entry(
+        row: sqlite3.Row,
+        visibility: CollaborationVisibility | None = None,
+    ) -> CollaborationEntry:
         publication_ids = parse_json(str(row["publication_ids"]))
         if not isinstance(publication_ids, list):
             raise RuntimeError("stored publication identifiers are invalid")
         return CollaborationEntry(
             entry_id=str(row["entry_id"]),
-            sequence=int(row["sequence"]),
+            sequence=int(
+                row["actor_sequence"]
+                if visibility is CollaborationVisibility.ACTOR_PRIVATE
+                else row["sequence"]
+            ),
             actor_id=str(row["actor_id"]),
             body=str(row["body"]),
             reply_to=str(row["reply_to"]) if row["reply_to"] is not None else None,
@@ -413,7 +482,11 @@ class SqliteCollaborationBackend:
         )
 
     def _entry_by_id(
-        self, connection: sqlite3.Connection, scope_id: str, entry_id: str
+        self,
+        connection: sqlite3.Connection,
+        scope_id: str,
+        entry_id: str,
+        visibility: CollaborationVisibility,
     ) -> CollaborationEntry:
         row = connection.execute(
             "SELECT * FROM entries WHERE scope_id = ? AND entry_id = ?",
@@ -421,7 +494,7 @@ class SqliteCollaborationBackend:
         ).fetchone()
         if row is None:
             raise RuntimeError("stored collaboration entry disappeared")
-        return self._row_to_entry(row)
+        return self._row_to_entry(row, visibility)
 
     def _cursor_after(
         self,
@@ -449,7 +522,16 @@ class SqliteCollaborationBackend:
                 raise ValueError
             payload = parse_json(payload_bytes.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError("invalid collaboration cursor") from error
+            self._append_audit(
+                connection,
+                scope.scope_id,
+                "authorization.denied",
+                context.actor_id,
+                {"reason": "invalid_cursor", "operation": operation},
+            )
+            raise _AuditedAuthorizationError(
+                "invalid collaboration cursor"
+            ) from error
         expected_payload = {
             "scope_id": scope.scope_id,
             "actor_id": context.actor_id,
@@ -459,7 +541,16 @@ class SqliteCollaborationBackend:
         if not isinstance(payload, dict) or any(
             payload.get(key) != value for key, value in expected_payload.items()
         ):
-            raise PermissionError("collaboration cursor belongs to another view")
+            self._append_audit(
+                connection,
+                scope.scope_id,
+                "authorization.denied",
+                context.actor_id,
+                {"reason": "cursor_view_mismatch", "operation": operation},
+            )
+            raise _AuditedAuthorizationError(
+                "collaboration cursor belongs to another view"
+            )
         after = payload.get("after")
         if type(after) is not int or after < 0:
             raise ValueError("invalid collaboration cursor position")
@@ -474,17 +565,36 @@ class SqliteCollaborationBackend:
         query_binding: str,
         rows: Iterable[sqlite3.Row],
         has_more: bool,
+        sequence_column: str = "sequence",
     ) -> str | None:
         rows = tuple(rows)
         if not has_more or not rows:
             return None
+        return self._encode_cursor(
+            connection,
+            scope,
+            context,
+            operation,
+            query_binding,
+            int(rows[-1][sequence_column]),
+        )
+
+    def _encode_cursor(
+        self,
+        connection: sqlite3.Connection,
+        scope: CollaborationScope,
+        context: SessionContext,
+        operation: str,
+        query_binding: str,
+        after: int,
+    ) -> str:
         payload = canonical_json_bytes(
             {
                 "scope_id": scope.scope_id,
                 "actor_id": context.actor_id,
                 "operation": operation,
                 "query_binding": query_binding,
-                "after": int(rows[-1]["sequence"]),
+                "after": after,
             }
         )
         signature = hmac.digest(self._cursor_key(connection), payload, "sha256")
@@ -523,6 +633,27 @@ class SqliteCollaborationBackend:
             (scope_id,),
         ).fetchone()
         return int(row["value"])
+
+    @staticmethod
+    def _next_actor_sequence(
+        connection: sqlite3.Connection, scope_id: str, actor_id: str
+    ) -> int:
+        row = connection.execute(
+            """
+            SELECT COALESCE(MAX(actor_sequence), 0) + 1 AS value
+            FROM entries WHERE scope_id = ? AND actor_id = ?
+            """,
+            (scope_id, actor_id),
+        ).fetchone()
+        return int(row["value"])
+
+    @staticmethod
+    def _sequence_column(visibility: CollaborationVisibility) -> str:
+        if visibility is CollaborationVisibility.ACTOR_PRIVATE:
+            return "actor_sequence"
+        if visibility is CollaborationVisibility.ORGANISATION_SHARED:
+            return "sequence"
+        raise PermissionError("collaboration tool is unavailable")
 
     def _append_audit(
         self,
@@ -599,6 +730,7 @@ class SqliteCollaborationBackend:
                 CREATE TABLE IF NOT EXISTS entries(
                     scope_id TEXT NOT NULL REFERENCES scopes(scope_id) ON DELETE CASCADE,
                     sequence INTEGER NOT NULL,
+                    actor_sequence INTEGER NOT NULL,
                     entry_id TEXT NOT NULL UNIQUE,
                     actor_id TEXT NOT NULL,
                     body TEXT NOT NULL,
@@ -622,6 +754,41 @@ class SqliteCollaborationBackend:
                     details TEXT NOT NULL,
                     PRIMARY KEY(scope_id, sequence)
                 );
+                """
+            )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(entries)")
+            }
+            if "actor_sequence" not in columns:
+                connection.execute(
+                    "ALTER TABLE entries ADD COLUMN actor_sequence INTEGER"
+                )
+            counters: dict[tuple[str, str], int] = {}
+            for row in connection.execute(
+                """
+                SELECT scope_id, actor_id, sequence, actor_sequence
+                FROM entries ORDER BY scope_id, actor_id, sequence
+                """
+            ):
+                key = (str(row["scope_id"]), str(row["actor_id"]))
+                counters[key] = counters.get(key, 0) + 1
+                if row["actor_sequence"] is None:
+                    connection.execute(
+                        """
+                        UPDATE entries SET actor_sequence = ?
+                        WHERE scope_id = ? AND sequence = ?
+                        """,
+                        (counters[key], key[0], int(row["sequence"])),
+                    )
+                elif int(row["actor_sequence"]) != counters[key]:
+                    raise RuntimeError(
+                        "stored actor-local entry sequence is inconsistent"
+                    )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS entries_actor_sequence
+                ON entries(scope_id, actor_id, actor_sequence)
                 """
             )
             connection.execute(
@@ -652,7 +819,10 @@ class SqliteCollaborationBackend:
         def __exit__(self, exception_type, exception, traceback) -> None:
             assert self._connection is not None
             try:
-                if exception_type is None:
+                if exception_type is None or (
+                    exception_type is not None
+                    and issubclass(exception_type, _AuditedAuthorizationError)
+                ):
                     self._connection.commit()
                 else:
                     self._connection.rollback()

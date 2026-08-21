@@ -22,6 +22,30 @@ class ArtifactRecord:
     size_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactStoragePolicy:
+    max_artifact_bytes: int
+    max_actor_bytes: int
+    max_campaign_bytes: int
+
+    def __post_init__(self) -> None:
+        values = (
+            self.max_artifact_bytes,
+            self.max_actor_bytes,
+            self.max_campaign_bytes,
+        )
+        if any(type(value) is not int or value < 1 for value in values):
+            raise ValueError("artifact storage limits must be positive integers")
+        if not (
+            self.max_artifact_bytes
+            <= self.max_actor_bytes
+            <= self.max_campaign_bytes
+        ):
+            raise ValueError(
+                "artifact storage limits must increase from artifact to campaign"
+            )
+
+
 class PublicationAudience(str, Enum):
     ACTOR_PRIVATE = "actor_private"
     ORGANISATION_SHARED = "organisation_shared"

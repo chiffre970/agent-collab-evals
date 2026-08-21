@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,7 @@ from agent_collab_evals.artifact_service import ArtifactService
 from agent_collab_evals.artifacts import (
     ArtifactReadAuthorization,
     ArtifactRef,
+    ArtifactStoragePolicy,
     PublicationAudience,
     PublicationId,
     PublicationStatus,
@@ -36,7 +38,19 @@ class ArtifactPublicationTests(unittest.TestCase):
         self.services = ServiceIdentityRegistry()
         self.service_transport = self.services.bind("artifact_service")
         self.storage = LocalArtifactStorage(
-            root / "storage", self.sessions, self.services
+            root / "storage",
+            self.sessions,
+            self.services,
+            ArtifactStoragePolicy(
+                max_artifact_bytes=64,
+                max_actor_bytes=96,
+                max_campaign_bytes=192,
+            ),
+            {
+                "artifact_service": frozenset(
+                    {"evaluation", "publication_materialization"}
+                )
+            },
         )
         self.collaboration = SqliteCollaborationBackend(
             root / "collaboration.sqlite3", self.sessions
@@ -58,6 +72,9 @@ class ArtifactPublicationTests(unittest.TestCase):
         self.transports = tuple(
             self.sessions.bind(actor, SessionHandle(f"session-{index}"))
             for index, actor in enumerate(self.actors)
+        )
+        self.storage.open_campaign(
+            "campaign", tuple(actor.actor_id for actor in self.actors)
         )
 
     def tearDown(self) -> None:
@@ -275,6 +292,144 @@ class ArtifactPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "unknown or consumed"):
             self.storage.trusted_read(
                 self.service_transport, forged_authorization, "evaluation"
+            )
+
+        unrelated = self.services.bind("unrelated_service")
+        with self.assertRaisesRegex(PermissionError, "not permitted"):
+            self.storage.authorize_read(
+                unrelated, "campaign", artifact.ref, "evaluation"
+            )
+        with self.assertRaisesRegex(ValueError, "already has"):
+            self.services.bind("artifact_service")
+
+        authorization = self.storage.authorize_read(
+            self.service_transport, "campaign", artifact.ref, "evaluation"
+        )
+        self.services.revoke(self.service_transport)
+        replacement = self.services.bind("artifact_service")
+        with self.assertRaisesRegex(PermissionError, "does not match"):
+            self.storage.trusted_read(
+                replacement, authorization, "evaluation"
+            )
+
+    def test_artifact_and_actor_storage_quotas_fail_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "per-artifact"):
+            self.service.snapshot_bytes(self.transports[0], b"x" * 65)
+        self.service.snapshot_bytes(self.transports[0], b"a" * 60)
+        with self.assertRaisesRegex(ValueError, "actor storage quota"):
+            self.service.snapshot_bytes(self.transports[0], b"b" * 40)
+
+        self.service.snapshot_bytes(self.transports[1], b"c" * 60)
+        self.service.snapshot_bytes(self.transports[1], b"d" * 36)
+
+    def test_campaign_quota_must_cover_registered_actor_allocations(self) -> None:
+        root = Path(self._temporary.name) / "undersized-storage"
+        storage = LocalArtifactStorage(
+            root,
+            self.sessions,
+            self.services,
+            ArtifactStoragePolicy(
+                max_artifact_bytes=64,
+                max_actor_bytes=96,
+                max_campaign_bytes=128,
+            ),
+            {},
+        )
+        with self.assertRaisesRegex(ValueError, "cover every registered actor"):
+            storage.open_campaign(
+                "campaign", tuple(actor.actor_id for actor in self.actors)
+            )
+
+        changed_policy = LocalArtifactStorage(
+            Path(self._temporary.name) / "storage",
+            self.sessions,
+            self.services,
+            ArtifactStoragePolicy(
+                max_artifact_bytes=64,
+                max_actor_bytes=96,
+                max_campaign_bytes=256,
+            ),
+            {},
+        )
+        with self.assertRaisesRegex(ValueError, "policy changed"):
+            changed_policy.open_campaign(
+                "campaign", tuple(actor.actor_id for actor in self.actors)
+            )
+        with self.assertRaisesRegex(ValueError, "roster changed"):
+            self.storage.open_campaign("campaign", (self.actors[0].actor_id,))
+
+        unregistered_actor = AgentIdentity("campaign", 2)
+        unregistered = self.sessions.bind(
+            unregistered_actor, SessionHandle("session-unregistered")
+        )
+        with self.assertRaisesRegex(PermissionError, "not registered"):
+            self.service.snapshot_bytes(unregistered, b"not admitted")
+
+    def test_pre_roster_artifacts_require_explicit_migration(self) -> None:
+        root = Path(self._temporary.name) / "legacy-storage"
+        storage = LocalArtifactStorage(
+            root,
+            self.sessions,
+            self.services,
+            ArtifactStoragePolicy(
+                max_artifact_bytes=64,
+                max_actor_bytes=96,
+                max_campaign_bytes=192,
+            ),
+            {},
+        )
+        connection = sqlite3.connect(root / "artifacts.sqlite3")
+        connection.execute(
+            """
+            INSERT INTO artifacts(
+                artifact_ref, campaign_run_id, owner_actor_id,
+                digest, media_type, size_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "artifact-" + "a" * 32,
+                "legacy-campaign",
+                "legacy-campaign:actor:omitted",
+                "0" * 64,
+                "application/octet-stream",
+                1,
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        registered = (
+            "legacy-campaign:actor:0",
+            "legacy-campaign:actor:1",
+        )
+        with self.assertRaisesRegex(RuntimeError, "explicit migration"):
+            storage.open_campaign("legacy-campaign", registered)
+
+    def test_registered_campaign_revalidates_stored_owners(self) -> None:
+        database = Path(self._temporary.name) / "storage" / "artifacts.sqlite3"
+        connection = sqlite3.connect(database)
+        connection.execute(
+            """
+            INSERT INTO artifacts(
+                artifact_ref, campaign_run_id, owner_actor_id,
+                digest, media_type, size_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "artifact-" + "b" * 32,
+                "campaign",
+                "campaign:actor:omitted",
+                "0" * 64,
+                "application/octet-stream",
+                1,
+            ),
+        )
+        connection.commit()
+        connection.close()
+
+        with self.assertRaisesRegex(RuntimeError, "outside the registered roster"):
+            self.storage.open_campaign(
+                "campaign", tuple(actor.actor_id for actor in self.actors)
             )
 
 

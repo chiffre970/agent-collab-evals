@@ -7,13 +7,15 @@ import os
 import secrets
 import sqlite3
 import threading
-from contextlib import closing
+from contextlib import closing, suppress
 from pathlib import Path
+from typing import AbstractSet, Mapping
 
 from ..artifacts import (
     ArtifactReadAuthorization,
     ArtifactRecord,
     ArtifactRef,
+    ArtifactStoragePolicy,
     TrustedServiceTransport,
 )
 from ..collaboration import SessionTransport
@@ -29,18 +31,109 @@ class LocalArtifactStorage:
         root: Path,
         sessions: SessionIdentityRegistry,
         services: ServiceIdentityRegistry,
+        policy: ArtifactStoragePolicy,
+        trusted_read_policies: Mapping[str, AbstractSet[str]],
     ) -> None:
         self._root = root
         self._blob_root = root / "blobs"
         self._database_path = root / "artifacts.sqlite3"
         self._sessions = sessions
         self._services = services
+        self._policy = policy
+        self._trusted_read_policies = {
+            service_name: frozenset(purposes)
+            for service_name, purposes in trusted_read_policies.items()
+        }
         self._lock = threading.RLock()
         self._authorizations: dict[
-            int, tuple[object, str, ArtifactRef, str]
+            int, tuple[object, object, ArtifactRef, str]
         ] = {}
         self._blob_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
+
+    def open_campaign(
+        self, campaign_run_id: str, actor_ids: tuple[str, ...]
+    ) -> None:
+        if not campaign_run_id:
+            raise ValueError("campaign_run_id is required")
+        if not actor_ids or any(not actor_id for actor_id in actor_ids):
+            raise ValueError("campaign actor roster must not be empty")
+        if len(set(actor_ids)) != len(actor_ids):
+            raise ValueError("campaign actor roster must be unique")
+        if (
+            self._policy.max_actor_bytes * len(actor_ids)
+            > self._policy.max_campaign_bytes
+        ):
+            raise ValueError(
+                "campaign storage quota must cover every registered actor allocation"
+            )
+        requested = tuple(sorted(actor_ids))
+        with self._transaction() as connection:
+            policy_values = (
+                self._policy.max_artifact_bytes,
+                self._policy.max_actor_bytes,
+                self._policy.max_campaign_bytes,
+            )
+            stored_policy = connection.execute(
+                """
+                SELECT max_artifact_bytes, max_actor_bytes, max_campaign_bytes
+                FROM storage_campaigns WHERE campaign_run_id = ?
+                """,
+                (campaign_run_id,),
+            ).fetchone()
+            existing = tuple(
+                str(row["actor_id"])
+                for row in connection.execute(
+                    """
+                    SELECT actor_id FROM storage_campaign_actors
+                    WHERE campaign_run_id = ? ORDER BY actor_id
+                    """,
+                    (campaign_run_id,),
+                )
+            )
+            if stored_policy is not None:
+                stored_values = (
+                    int(stored_policy["max_artifact_bytes"]),
+                    int(stored_policy["max_actor_bytes"]),
+                    int(stored_policy["max_campaign_bytes"]),
+                )
+                if stored_values != policy_values:
+                    raise ValueError("campaign artifact storage policy changed")
+                if existing != requested:
+                    raise ValueError("campaign artifact actor roster changed")
+                self._validate_registered_usage(
+                    connection, campaign_run_id, frozenset(requested)
+                )
+                return
+            if existing:
+                raise RuntimeError("campaign artifact roster has no policy record")
+            legacy_artifacts = connection.execute(
+                """
+                SELECT COUNT(*) AS value FROM artifacts
+                WHERE campaign_run_id = ?
+                """,
+                (campaign_run_id,),
+            ).fetchone()
+            if int(legacy_artifacts["value"]) != 0:
+                raise RuntimeError(
+                    "pre-roster campaign artifacts require explicit migration"
+                )
+            connection.execute(
+                """
+                INSERT INTO storage_campaigns(
+                    campaign_run_id, max_artifact_bytes,
+                    max_actor_bytes, max_campaign_bytes
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (campaign_run_id, *policy_values),
+            )
+            connection.executemany(
+                """
+                INSERT INTO storage_campaign_actors(campaign_run_id, actor_id)
+                VALUES (?, ?)
+                """,
+                ((campaign_run_id, actor_id) for actor_id in requested),
+            )
 
     def put(
         self,
@@ -51,22 +144,33 @@ class LocalArtifactStorage:
         context = self._sessions.resolve(session)
         if not content:
             raise ValueError("artifact content must not be empty")
+        if len(content) > self._policy.max_artifact_bytes:
+            raise ValueError("artifact exceeds the per-artifact storage limit")
         if not media_type or len(media_type) > 255:
             raise ValueError("media_type must contain 1 to 255 characters")
         ref = ArtifactRef(f"artifact-{secrets.token_hex(16)}")
         digest = hashlib.sha256(content).hexdigest()
         destination = self._blob_path(ref)
+        created = False
         try:
             descriptor = os.open(
                 destination,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL,
                 0o600,
             )
+            created = True
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(content)
                 stream.flush()
                 os.fsync(stream.fileno())
+            self._sync_blob_directory()
             with self._transaction() as connection:
+                self._enforce_quotas(
+                    connection,
+                    context.campaign_run_id,
+                    context.actor_id,
+                    len(content),
+                )
                 connection.execute(
                     """
                     INSERT INTO artifacts(
@@ -92,7 +196,10 @@ class LocalArtifactStorage:
                     None,
                 )
         except Exception:
-            destination.unlink(missing_ok=True)
+            if created:
+                destination.unlink(missing_ok=True)
+                with suppress(OSError):
+                    self._sync_blob_directory()
             raise
         return ArtifactRecord(
             ref, context.campaign_run_id, context.actor_id, digest, media_type, len(content)
@@ -133,6 +240,11 @@ class LocalArtifactStorage:
         service_name = self._services.resolve(service)
         if not purpose:
             raise ValueError("read purpose is required")
+        permitted_purposes = self._trusted_read_policies.get(service_name)
+        if permitted_purposes is None or purpose not in permitted_purposes:
+            raise PermissionError(
+                "service is not permitted to read artifacts for this purpose"
+            )
         with self._transaction() as connection:
             record = self._stored_record(connection, ref)
             if record.campaign_run_id != campaign_run_id:
@@ -142,7 +254,7 @@ class LocalArtifactStorage:
         with self._lock:
             self._authorizations[id(identity)] = (
                 identity,
-                service_name,
+                service._identity,
                 ref,
                 purpose,
             )
@@ -154,15 +266,18 @@ class LocalArtifactStorage:
         authorization: ArtifactReadAuthorization,
         purpose: str,
     ) -> tuple[ArtifactRecord, bytes]:
-        service_name = self._services.resolve(service)
+        self._services.resolve(service)
         with self._lock:
             binding = self._authorizations.pop(
                 id(authorization._identity), None
             )
         if binding is None or binding[0] is not authorization._identity:
             raise PermissionError("unknown or consumed artifact authorization")
-        _, authorized_service, ref, authorized_purpose = binding
-        if authorized_service != service_name or authorized_purpose != purpose:
+        _, authorized_service_identity, ref, authorized_purpose = binding
+        if (
+            authorized_service_identity is not service._identity
+            or authorized_purpose != purpose
+        ):
             raise PermissionError("artifact authorization does not match this read")
         with self._transaction() as connection:
             record = self._stored_record(connection, ref)
@@ -197,6 +312,108 @@ class LocalArtifactStorage:
         if hashlib.sha256(content).hexdigest() != record.digest:
             raise RuntimeError("stored artifact digest does not match metadata")
         return content
+
+    def _enforce_quotas(
+        self,
+        connection: sqlite3.Connection,
+        campaign_run_id: str,
+        actor_id: str,
+        additional_bytes: int,
+    ) -> None:
+        stored_policy = connection.execute(
+            """
+            SELECT max_artifact_bytes, max_actor_bytes, max_campaign_bytes
+            FROM storage_campaigns WHERE campaign_run_id = ?
+            """,
+            (campaign_run_id,),
+        ).fetchone()
+        if stored_policy is None:
+            raise PermissionError("campaign storage is not registered")
+        if (
+            int(stored_policy["max_artifact_bytes"]),
+            int(stored_policy["max_actor_bytes"]),
+            int(stored_policy["max_campaign_bytes"]),
+        ) != (
+            self._policy.max_artifact_bytes,
+            self._policy.max_actor_bytes,
+            self._policy.max_campaign_bytes,
+        ):
+            raise RuntimeError("campaign artifact storage policy changed")
+        registered = connection.execute(
+            """
+            SELECT 1 FROM storage_campaign_actors
+            WHERE campaign_run_id = ? AND actor_id = ?
+            """,
+            (campaign_run_id, actor_id),
+        ).fetchone()
+        if registered is None:
+            raise PermissionError("actor is not registered for campaign storage")
+        campaign_row = connection.execute(
+            """
+            SELECT COALESCE(SUM(size_bytes), 0) AS used
+            FROM artifacts WHERE campaign_run_id = ?
+            """,
+            (campaign_run_id,),
+        ).fetchone()
+        actor_row = connection.execute(
+            """
+            SELECT COALESCE(SUM(size_bytes), 0) AS used
+            FROM artifacts WHERE campaign_run_id = ? AND owner_actor_id = ?
+            """,
+            (campaign_run_id, actor_id),
+        ).fetchone()
+        if int(actor_row["used"]) + additional_bytes > self._policy.max_actor_bytes:
+            raise ValueError("artifact exceeds the actor storage quota")
+        if (
+            int(campaign_row["used"]) + additional_bytes
+            > self._policy.max_campaign_bytes
+        ):
+            raise ValueError("artifact exceeds the campaign storage quota")
+
+    def _validate_registered_usage(
+        self,
+        connection: sqlite3.Connection,
+        campaign_run_id: str,
+        actor_ids: frozenset[str],
+    ) -> None:
+        total_bytes = 0
+        rows = connection.execute(
+            """
+            SELECT owner_actor_id, SUM(size_bytes) AS used,
+                   MAX(size_bytes) AS largest
+            FROM artifacts WHERE campaign_run_id = ?
+            GROUP BY owner_actor_id
+            """,
+            (campaign_run_id,),
+        ).fetchall()
+        for row in rows:
+            owner_actor_id = str(row["owner_actor_id"])
+            if owner_actor_id not in actor_ids:
+                raise RuntimeError(
+                    "campaign artifacts include an owner outside the registered roster"
+                )
+            used = int(row["used"])
+            largest = int(row["largest"])
+            if largest > self._policy.max_artifact_bytes:
+                raise RuntimeError(
+                    "stored artifact exceeds the registered artifact limit"
+                )
+            if used > self._policy.max_actor_bytes:
+                raise RuntimeError(
+                    "stored actor usage exceeds the registered actor allocation"
+                )
+            total_bytes += used
+        if total_bytes > self._policy.max_campaign_bytes:
+            raise RuntimeError(
+                "stored campaign usage exceeds the registered campaign allocation"
+            )
+
+    def _sync_blob_directory(self) -> None:
+        descriptor = os.open(self._blob_root, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def _blob_path(self, ref: ArtifactRef) -> Path:
         if len(ref.value) != 41 or not ref.value.startswith("artifact-") or any(
@@ -253,6 +470,20 @@ class LocalArtifactStorage:
                     media_type TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS storage_campaigns(
+                    campaign_run_id TEXT PRIMARY KEY,
+                    max_artifact_bytes INTEGER NOT NULL,
+                    max_actor_bytes INTEGER NOT NULL,
+                    max_campaign_bytes INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS storage_campaign_actors(
+                    campaign_run_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    PRIMARY KEY(campaign_run_id, actor_id),
+                    FOREIGN KEY(campaign_run_id)
+                        REFERENCES storage_campaigns(campaign_run_id)
+                        ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS artifact_audit(
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     campaign_run_id TEXT NOT NULL,
@@ -268,6 +499,7 @@ class LocalArtifactStorage:
     def _connection(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = FULL")
         return connection

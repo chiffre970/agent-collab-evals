@@ -357,6 +357,15 @@ Visibility rules:
 
 The two peer modes must use the same implementation version, persistence rules, pagination, tool descriptions and operation limits wherever truthful. Authorization checks—not client filtering—enforce visibility.
 
+Pagination cursors are signed and bound to the scope, authenticated actor,
+operation and normalized query. Notification polling returns a durable
+watermark cursor even when the reader is caught up, so a later poll cannot
+repeat previously returned notifications. In `actor_private`, returned entry
+sequences, pagination positions and notification watermarks are actor-local;
+campaign-wide activity is never encoded in an actor-visible value.
+Authorization denials, including invalid cursor signatures, commit an audit
+event before the denied operation returns its error.
+
 Collaboration visibility is the only cross-actor publication path in the peer comparison. Candidate and evaluator feedback, broker results, queue metadata, caches, files and artifacts remain actor-private until their owner explicitly publishes content or an authorized `PublicationId` in `peer_collab`.
 
 `PublicationId` is opaque and resolves only inside `ArtifactService` through `PublicationRegistry`. The identifier alone grants no authority: the registry must contain a bound active record and every read is checked against the caller's server-derived campaign and the recorded audience. A deliberately published identifier therefore resolves for an authorized same-campaign peer, while guessing, replaying or exposing an unbound identifier fails. An `actor_private` scope cannot create an organisation-audience publication. This preserves explicit sharing without exposing transferable signed grants to agents or coupling the storage and collaboration adapters.
@@ -439,6 +448,23 @@ interface StorageBackend:
   reset(scope) -> void
   seal(scope, final_manifest, checksums) -> StorageReceipt
 ```
+
+`ArtifactStoragePolicy` is pinned in the resolved study manifest and sets
+positive `max_artifact_bytes`, `max_actor_bytes` and `max_campaign_bytes`
+limits, ordered from narrowest to broadest. Admission checks the immutable
+content size against all three limits in one serialized metadata transaction;
+quota failure leaves no admitted record or blob. Before admission, storage
+durably registers the complete campaign actor roster and requires the campaign
+limit to cover the sum of every actor's full nontransferable allocation. It
+rejects roster or policy changes across restart. First registration fails if
+the campaign already contains pre-roster artifacts; those bytes require an
+explicit migration rather than implicit allocation. Reopen also validates that
+every stored owner belongs to the roster and that existing artifact, actor and
+campaign usage fits the registered policy. Therefore one actor exhausting its
+allocation cannot reduce another actor's capacity. The adapter also pins
+the trusted service-to-read-purpose allowlist. A service transport is unique
+while active, and an artifact-read authorization is bound to that exact
+transport, artifact and purpose rather than only to a reusable service name.
 
 The V0 local adapter may use JSONL, SQLite and content-addressed files. It guarantees monotonic event sequence numbers, immutable artifact hashes, atomic snapshots and campaign-scoped export.
 

@@ -133,6 +133,10 @@ class CollaborationBackend(Protocol):
 
 
 class StorageBackend(Protocol):
+    def open_campaign(
+        self, campaign_run_id: str, actor_ids: tuple[str, ...]
+    ) -> None: ...
+
     def put(
         self,
         session: SessionTransport,
