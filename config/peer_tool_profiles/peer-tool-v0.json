@@ -1,0 +1,14 @@
+{
+  "schema_version": "peer-tool-profile/v1",
+  "profile_id": "peer-tool-v0",
+  "status": "development",
+  "mcp_sdk_version": "1.30.0",
+  "server_script": "scripts/runtime/peer_tool_server.mjs",
+  "tool_names": [
+    "publish",
+    "list_recent",
+    "get_thread",
+    "search",
+    "notifications"
+  ]
+}

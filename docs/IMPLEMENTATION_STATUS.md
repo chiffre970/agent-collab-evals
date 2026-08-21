@@ -106,9 +106,21 @@ smallest useful seams before adding the runtime and collaboration machinery.
   reconciliation and a quiescent checkpoint barrier. A stream error, cursor
   gap, reconciliation gap or bridge timeout fails closed. Its two-job
   process-style restart test passes against a deterministic local gateway.
-- The real adapter rejects both peer conditions while `peer_tool` is false.
-  This prevents a missing integration from silently collapsing treatment and
-  control; the fake harness remains available for core four-condition tests.
+- The real adapter requires the pinned peer profile and gateway together for
+  both peer conditions. A missing or mismatched integration fails closed,
+  preventing treatment and control from silently collapsing.
+- The peer profile pins MCP SDK 1.30.0, the sidecar implementation, dependency
+  lock and five collaboration operations. Each OpenCode actor receives a
+  revocable session-scoped sidecar credential that is activated only after the
+  server session exists and is omitted from snapshots and model-visible tool
+  arguments. The bridge waits for MCP readiness before recording its effective
+  surface.
+- A real four-actor test passes for both peer arms. Configuration, model, tool,
+  permission and agent digests match within and across arms; actor-local paths
+  are normalized explicitly. Private actors see only their own entries, shared
+  actors see peer entries through the same calls, and shared state survives
+  suspension, runtime replacement and a second job. Audit export confirms that
+  only the shared arm contains cross-actor reads.
 - The minimal collaboration substrate now implements durable SQLite-backed
   actor-private and organisation-shared twin modes behind `CollaborationBackend`.
   It derives identity from an object-bound session transport, enforces
@@ -129,22 +141,20 @@ smallest useful seams before adding the runtime and collaboration machinery.
 
 The following remain gates, not implied capabilities:
 
-1. The remaining ADR 0001 collaboration proof: matched peer-tool injection
-   into stock OpenCode, identical schemas and activation in both peer arms,
-   four-peer end-to-end activation, and the combined exit evidence export.
-2. Provider-gateway dollar enforcement, formal provider-selection evidence and
+1. Provider-gateway dollar enforcement, formal provider-selection evidence and
    condition-matched OpenCode model routing.
-3. Submission, compute and research services, plus filesystem-safe workspace
+2. Submission, compute and research services, plus filesystem-safe workspace
    snapshot/materialization and campaign-level storage sealing beyond the
    byte-level artifact path proved by the current spike.
-4. Evaluator-owned untrusted candidate launch, public result release,
+3. Evaluator-owned untrusted candidate launch, public result release,
    remaining correctness/stability/shortcut gates, neutral selection, and a
    confirmatory registered score policy. The calibration Volume path is
    durable but is not yet the complete confirmatory evidence service or
    retention policy.
-5. Four-condition scheduling, registered manifests, audit export and the
+4. Four-condition scheduling, registered manifests, combined platform audit
+   export and the
    preregistered statistical analysis.
-6. An experiment-grade delivery outbox/receipt transaction. The development
+5. An experiment-grade delivery outbox/receipt transaction. The development
    controller records a completed delivery after the harness call; the future
    authoritative ledger must atomically bind admission, runtime receipt and
    campaign state so a ledger-write failure cannot leave unaudited work.
@@ -162,9 +172,8 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
-The stock-OpenCode gate and real runtime adapter are complete. The next gate is
-the remaining ADR 0001 fake vertical slice: implement the minimal collaboration,
-publication, storage and session-identity contracts; expose one identical peer
-tool in both peer conditions; and prove the actor-private/shared difference at
-four-peer cardinality. The provider budget gateway remains a separate gate
-before any live multi-condition model run.
+ADR 0001 is complete: the stock-OpenCode adapter, matched peer path and minimal
+collaboration, publication, storage and session-identity contracts pass their
+local conformance gates. The next gate is the provider budget gateway and
+condition-matched model routing, followed by the remaining enforcement-service
+vertical slice. No live multi-condition model run is authorized yet.

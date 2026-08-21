@@ -46,6 +46,7 @@ agent workspaces or committed files.
 ## OpenCode runtime
 
 OpenCode and its stable SDK are pinned exactly to 1.18.19 in `package-lock.json`.
+The matched peer sidecar pins the MCP SDK to 1.30.0 and Zod to 4.4.3.
 The runtime adapter reads model and runtime behavior from
 `config/runtime_profiles/`. Its caller must provide a `GatewayTokenIssuer`
 backed by the budget gateway; the issuer creates one opaque, revocable token
@@ -66,20 +67,21 @@ OpenAI-compatible fake gateway, restarts the stock server, exercises its native
 digests with and without out-of-process event observation. Its ignored detailed
 report is written below `tmp/opencode-conformance/`.
 
-The ordinary unit suite skips the slower real-runtime restart test. Run that
-test explicitly, still without API spend, with:
+The ordinary unit suite skips the slower real-runtime and MCP tests. Run them
+explicitly, still without API spend, with:
 
 ```bash
-RUN_OPENCODE_INTEGRATION=1 python -m unittest -v \
-  tests.test_opencode_harness_integration
+RUN_OPENCODE_INTEGRATION=1 RUN_PEER_TOOL_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest discover -s tests -v
 ```
 
 Do not point `OpenCodeHarnessRuntime` directly at OpenRouter for a study. Its
 `OrganisationSpec.model_endpoint` must be the experiment-owned budget gateway;
 that gateway will enforce the registered provider route, privacy settings and
 dollar limit and issue the session token. The gateway remains an implementation
-gate. Until the matched peer-tool profile is implemented, the real adapter
-rejects both peer conditions rather than silently running identical treatments.
+gate. The real adapter still rejects both peer conditions unless the pinned
+peer profile and gateway are supplied together, preventing an absent peer tool
+from silently collapsing treatment and control.
 
 ## OpenRouter
 

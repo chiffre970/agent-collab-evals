@@ -26,10 +26,24 @@ from ..domain import (
     SessionHandle,
     top_level_actor_count,
 )
+from ..collaboration import CollaborationVisibility
+from ..peer_tool import (
+    PeerToolAccess,
+    PeerToolGateway,
+    PeerToolIntegrationProfile,
+)
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _BRIDGE_PATH = _REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs"
+_PEER_TOOL_PATH = _REPOSITORY_ROOT / "scripts/runtime/peer_tool_server.mjs"
 _NODE_BIN = _REPOSITORY_ROOT / "node_modules/.bin"
+_PEER_TOOL_NAMES = (
+    "publish",
+    "list_recent",
+    "get_thread",
+    "search",
+    "notifications",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +228,7 @@ class _Bridge:
         endpoint: str,
         gateway_token: str,
         native_handoffs: bool,
+        peer_access: PeerToolAccess | None,
         timeout_seconds: int,
     ) -> None:
         state_root.mkdir(parents=True, exist_ok=True)
@@ -245,15 +260,24 @@ class _Bridge:
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
         self._stdout_thread.start()
         self._stderr_thread.start()
-        self.surface = self.request(
-            "init",
-            directory=str(directory),
-            port=_free_port(),
-            timeout_ms=timeout_seconds * 1000,
-            config=_runtime_config(
-                profile, endpoint, gateway_token, native_handoffs
-            ),
-        )["surface"]
+        try:
+            self.surface = self.request(
+                "init",
+                directory=str(directory),
+                port=_free_port(),
+                timeout_ms=timeout_seconds * 1000,
+                config=_runtime_config(
+                    profile,
+                    endpoint,
+                    gateway_token,
+                    native_handoffs,
+                    peer_access,
+                ),
+            )["surface"]
+        except Exception:
+            self._unusable = True
+            self._terminate()
+            raise
 
     def _read_stdout(self) -> None:
         assert self._process.stdout is not None
@@ -345,6 +369,7 @@ class _SessionState:
     state_root: Path
     bridge: _Bridge
     gateway_token_id: str
+    peer_access: PeerToolAccess | None = None
     delivered_jobs: dict[str, str] = field(default_factory=dict)
     events: list[Mapping[str, Any]] = field(default_factory=list)
     event_cursor: int = 0
@@ -369,6 +394,8 @@ class OpenCodeHarnessRuntime:
         state_base: Path,
         gateway_tokens: GatewayTokenIssuer,
         *,
+        peer_profile: PeerToolIntegrationProfile | None = None,
+        peer_gateway: PeerToolGateway | None = None,
         timeout_seconds: int = 300,
     ) -> None:
         if timeout_seconds < 1:
@@ -376,6 +403,15 @@ class OpenCodeHarnessRuntime:
         self._profile = profile
         self._state_base = state_base
         self._gateway_tokens = gateway_tokens
+        if (peer_profile is None) != (peer_gateway is None):
+            raise ValueError("peer profile and gateway must be configured together")
+        if (
+            peer_profile is not None
+            and peer_profile.tool_names != _PEER_TOOL_NAMES
+        ):
+            raise ValueError("peer-tool profile does not match the runtime tool surface")
+        self._peer_profile = peer_profile
+        self._peer_gateway = peer_gateway
         self._timeout_seconds = timeout_seconds
         self._organisations: dict[str, _OrganisationState] = {}
         self._session_to_organisation: dict[str, str] = {}
@@ -389,7 +425,12 @@ class OpenCodeHarnessRuntime:
             "durable_sessions": True,
             "native_handoffs": True,
             "observational_events": True,
-            "peer_tool": False,
+            "peer_tool": self._peer_profile is not None,
+            "peer_tool_profile_digest": (
+                self._peer_profile.resolved_digest
+                if self._peer_profile is not None
+                else None
+            ),
             "session_scoped_gateway_tokens": True,
         }
 
@@ -399,20 +440,24 @@ class OpenCodeHarnessRuntime:
         if organisation_id in self._organisations:
             raise ValueError(f"organisation already exists: {organisation_id}")
         handle = HarnessOrganisation(organisation_id)
+        if self._is_peer_condition(spec.condition):
+            assert self._peer_gateway is not None
+            visibility = (
+                CollaborationVisibility.ACTOR_PRIVATE
+                if spec.condition is CoordinationCondition.PEER_ISOLATED
+                else CollaborationVisibility.ORGANISATION_SHARED
+            )
+            self._peer_gateway.provision(spec.campaign_run_id, visibility)
         self._organisations[organisation_id] = _OrganisationState(handle, spec)
         return handle
 
-    @staticmethod
-    def _validate_spec(spec: OrganisationSpec) -> None:
+    def _validate_spec(self, spec: OrganisationSpec) -> None:
         parsed = urlparse(spec.model_endpoint)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("OpenCode model endpoint must be an absolute HTTP(S) URL")
-        if spec.condition in {
-            CoordinationCondition.PEER_ISOLATED,
-            CoordinationCondition.PEER_COLLAB,
-        }:
+        if self._is_peer_condition(spec.condition) and self._peer_profile is None:
             raise RuntimeError(
-                "peer conditions require the not-yet-installed matched peer-tool profile"
+                "peer conditions require the matched peer-tool profile"
             )
 
     def create_primary(
@@ -431,11 +476,17 @@ class OpenCodeHarnessRuntime:
         )
         if not credential.token_id or not credential.value:
             raise ValueError("gateway token issuer returned an invalid credential")
+        peer_access = self._issue_peer_access(state.spec, actor)
         try:
             bridge = self._start_bridge(
-                state.spec, directory, state_root, credential.value
+                state.spec,
+                directory,
+                state_root,
+                credential.value,
+                peer_access,
             )
         except Exception:
+            self._revoke_peer_access(peer_access)
             self._gateway_tokens.revoke(
                 credential.token_id, "runtime bridge creation failed"
             )
@@ -449,6 +500,9 @@ class OpenCodeHarnessRuntime:
             handle = SessionHandle(str(created["id"]))
             if handle.value in self._session_to_organisation:
                 raise ValueError(f"session already exists: {handle.value}")
+            if peer_access is not None:
+                assert self._peer_gateway is not None
+                self._peer_gateway.activate(peer_access, handle)
             session = _SessionState(
                 handle,
                 actor,
@@ -456,12 +510,14 @@ class OpenCodeHarnessRuntime:
                 state_root,
                 bridge,
                 credential.token_id,
+                peer_access,
             )
             state.sessions[handle.value] = session
             self._session_to_organisation[handle.value] = organisation.value
             return handle
         except Exception:
             bridge.close()
+            self._revoke_peer_access(peer_access)
             self._gateway_tokens.revoke(
                 credential.token_id, "session creation failed"
             )
@@ -511,6 +567,7 @@ class OpenCodeHarnessRuntime:
                     "directory": str(session.directory),
                     "state_root": str(session.state_root),
                     "gateway_token_id": session.gateway_token_id,
+                    "peer_tool_enabled": session.peer_access is not None,
                     "delivered_jobs": [
                         {"job_id": job_id, "materials_digest": materials_digest}
                         for job_id, materials_digest in session.delivered_jobs.items()
@@ -525,6 +582,11 @@ class OpenCodeHarnessRuntime:
             "schema": "opencode-harness-snapshot/v2",
             "runtime_profile_id": self._profile.profile_id,
             "runtime_profile_digest": self._profile.resolved_digest,
+            "peer_tool_profile_digest": (
+                self._peer_profile.resolved_digest
+                if self._peer_profile is not None
+                else None
+            ),
             "spec": {
                 "campaign_run_id": state.spec.campaign_run_id,
                 "condition": state.spec.condition.value,
@@ -543,6 +605,13 @@ class OpenCodeHarnessRuntime:
             raise ValueError("unsupported OpenCode harness snapshot schema")
         if payload.get("runtime_profile_digest") != self._profile.resolved_digest:
             raise ValueError("runtime profile changed across resume")
+        expected_peer_digest = (
+            self._peer_profile.resolved_digest
+            if self._peer_profile is not None
+            else None
+        )
+        if payload.get("peer_tool_profile_digest") != expected_peer_digest:
+            raise ValueError("peer-tool profile changed across resume")
         if snapshot.organisation_id in self._organisations:
             raise ValueError(f"organisation already exists: {snapshot.organisation_id}")
         if payload.get("stopped"):
@@ -556,6 +625,14 @@ class OpenCodeHarnessRuntime:
             model_endpoint=str(spec_payload["model_endpoint"]),
         )
         self._validate_spec(spec)
+        if self._is_peer_condition(spec.condition):
+            assert self._peer_gateway is not None
+            visibility = (
+                CollaborationVisibility.ACTOR_PRIVATE
+                if spec.condition is CoordinationCondition.PEER_ISOLATED
+                else CollaborationVisibility.ORGANISATION_SHARED
+            )
+            self._peer_gateway.provision(spec.campaign_run_id, visibility)
         handle = HarnessOrganisation(snapshot.organisation_id)
         session_items = payload.get("sessions")
         if not isinstance(session_items, list):
@@ -578,6 +655,11 @@ class OpenCodeHarnessRuntime:
         try:
             for item_value in session_items:
                 item = _mapping(item_value, "snapshot session")
+                expected_peer_enabled = self._is_peer_condition(spec.condition)
+                if item.get("peer_tool_enabled") is not expected_peer_enabled:
+                    raise ValueError(
+                        "snapshot peer-tool activation differs from condition"
+                    )
                 actor_ordinal = int(item["actor_ordinal"])
                 actor_key = f"actor-{actor_ordinal:04d}"
                 directory = spec.workspace_root / actor_key
@@ -598,11 +680,17 @@ class OpenCodeHarnessRuntime:
                     raise ValueError(
                         "gateway token issuer returned an invalid credential"
                     )
+                peer_access = self._issue_peer_access(spec, actor)
                 try:
                     bridge = self._start_bridge(
-                        spec, directory, state_root, credential.value
+                        spec,
+                        directory,
+                        state_root,
+                        credential.value,
+                        peer_access,
                     )
                 except Exception:
+                    self._revoke_peer_access(peer_access)
                     self._gateway_tokens.revoke(
                         credential.token_id, "runtime bridge resume failed"
                     )
@@ -614,11 +702,17 @@ class OpenCodeHarnessRuntime:
                     bridge.request(
                         "get_session", session_id=session_id, directory=str(directory)
                     )
+                    if peer_access is not None:
+                        assert self._peer_gateway is not None
+                        self._peer_gateway.activate(
+                            peer_access, SessionHandle(session_id)
+                        )
                     surface = bridge.request("surface")
                     if surface != item["surface"]:
                         raise RuntimeError("effective OpenCode surface changed across resume")
                 except Exception:
                     bridge.close()
+                    self._revoke_peer_access(peer_access)
                     self._gateway_tokens.revoke(
                         credential.token_id, "session resume failed"
                     )
@@ -630,6 +724,7 @@ class OpenCodeHarnessRuntime:
                     state_root=state_root,
                     bridge=bridge,
                     gateway_token_id=credential.token_id,
+                    peer_access=peer_access,
                     delivered_jobs={
                         str(job["job_id"]): str(job["materials_digest"])
                         for job in item["delivered_jobs"]
@@ -646,6 +741,7 @@ class OpenCodeHarnessRuntime:
                 self._gateway_tokens.revoke(
                     session.gateway_token_id, "organization resume rolled back"
                 )
+                self._revoke_peer_access(session.peer_access)
                 self._session_to_organisation.pop(
                     session.handle.value, None
                 )
@@ -661,6 +757,7 @@ class OpenCodeHarnessRuntime:
         for session in state.sessions.values():
             session.bridge.close()
             self._gateway_tokens.revoke(session.gateway_token_id, "runtime suspended")
+            self._revoke_peer_access(session.peer_access)
             self._session_to_organisation.pop(session.handle.value, None)
         self._organisations.pop(organisation.value)
         return snapshot
@@ -673,6 +770,7 @@ class OpenCodeHarnessRuntime:
         for session in state.sessions.values():
             session.bridge.close()
             self._gateway_tokens.revoke(session.gateway_token_id, reason)
+            self._revoke_peer_access(session.peer_access)
         state.stopped = True
         payload = dict(snapshot.payload)
         payload.update({"stopped": True, "stop_reason": reason})
@@ -755,6 +853,7 @@ class OpenCodeHarnessRuntime:
         directory: Path,
         state_root: Path,
         gateway_token: str,
+        peer_access: PeerToolAccess | None,
     ) -> _Bridge:
         return _Bridge(
             state_root=state_root,
@@ -763,8 +862,29 @@ class OpenCodeHarnessRuntime:
             endpoint=spec.model_endpoint,
             gateway_token=gateway_token,
             native_handoffs=spec.condition is CoordinationCondition.NATIVE_MULTIAGENT,
+            peer_access=peer_access,
             timeout_seconds=self._timeout_seconds,
         )
+
+    def _issue_peer_access(
+        self, spec: OrganisationSpec, actor: AgentIdentity
+    ) -> PeerToolAccess | None:
+        if not self._is_peer_condition(spec.condition):
+            return None
+        assert self._peer_gateway is not None
+        return self._peer_gateway.issue(actor)
+
+    def _revoke_peer_access(self, access: PeerToolAccess | None) -> None:
+        if access is not None:
+            assert self._peer_gateway is not None
+            self._peer_gateway.revoke(access)
+
+    @staticmethod
+    def _is_peer_condition(condition: CoordinationCondition) -> bool:
+        return condition in {
+            CoordinationCondition.PEER_ISOLATED,
+            CoordinationCondition.PEER_COLLAB,
+        }
 
     def _organisation_state_root(self, campaign_run_id: str) -> Path:
         identifier = hashlib.sha256(campaign_run_id.encode("utf-8")).hexdigest()[:24]
@@ -814,8 +934,12 @@ def _runtime_config(
     endpoint: str,
     gateway_token: str,
     native_handoffs: bool,
+    peer_access: PeerToolAccess | None = None,
 ) -> Mapping[str, Any]:
     denied_tools = {"bash": False, "edit": False, "webfetch": False, "write": False}
+    peer_tools = {
+        f"peer_{name}": peer_access is not None for name in _PEER_TOOL_NAMES
+    }
     permissions = {
         "edit": "deny",
         "bash": "deny",
@@ -824,7 +948,7 @@ def _runtime_config(
         "external_directory": "deny",
     }
     model = f"{profile.provider_id}/{profile.model_id}"
-    return {
+    config: dict[str, Any] = {
         "logLevel": "ERROR",
         "autoupdate": False,
         "share": "disabled",
@@ -863,19 +987,41 @@ def _runtime_config(
             }
         },
         "permission": permissions,
-        "tools": {**denied_tools, "task": native_handoffs},
+        "tools": {**denied_tools, **peer_tools, "task": native_handoffs},
         "agent": {
             "build": {
                 "mode": "primary",
                 "model": model,
-                "tools": {**denied_tools, "task": native_handoffs},
+                "tools": {
+                    **denied_tools,
+                    **peer_tools,
+                    "task": native_handoffs,
+                },
                 "permission": permissions,
             },
             "general": {
                 "mode": "subagent",
                 "model": model,
-                "tools": {**denied_tools, "task": False},
+                "tools": {
+                    **denied_tools,
+                    **{name: False for name in peer_tools},
+                    "task": False,
+                },
                 "permission": permissions,
             },
         },
     }
+    if peer_access is not None:
+        config["mcp"] = {
+            "peer": {
+                "type": "local",
+                "command": ["node", str(_PEER_TOOL_PATH)],
+                "environment": {
+                    "AGENT_COLLAB_PEER_ENDPOINT": peer_access.endpoint,
+                    "AGENT_COLLAB_PEER_TOKEN": peer_access.token,
+                },
+                "enabled": True,
+                "timeout": 10_000,
+            }
+        }
+    return config

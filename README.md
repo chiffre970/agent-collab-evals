@@ -56,6 +56,10 @@ The repository now contains the first scenario-shaped vertical slice:
 - a deterministic fake harness and atomic local campaign persistence;
 - a pinned stock-OpenCode runtime adapter with per-actor state/workspace
   isolation, out-of-process events and durable session resume;
+- a pinned session-bound MCP peer-tool path whose four-actor private and shared
+  modes use identical OpenCode surfaces and differ only in backend visibility;
+- durable SQLite collaboration, owner-private storage and server-authorized
+  artifact publication adapters with complete local audit exports;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
@@ -85,10 +89,10 @@ python -m unittest discover -s tests -v
 ```
 
 This is calibration infrastructure, not a completed experimental platform.
-The stock-OpenCode runtime conformance gate now passes. The collaboration
-service and matched peer tool, enforcement brokers, submission selection,
-public and hidden evaluators, and registered four-condition execution remain
-explicit later gates. See
+ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
+publication and storage gates now pass. The provider budget gateway,
+enforcement brokers, submission selection, public and hidden evaluators, and
+registered four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents

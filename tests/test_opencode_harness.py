@@ -217,6 +217,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
                     "directory": str(root / "workspaces" / f"actor-{ordinal:04d}"),
                     "state_root": str(state_root / f"actor-{ordinal:04d}"),
                     "gateway_token_id": f"old-{ordinal}",
+                    "peer_tool_enabled": False,
                     "delivered_jobs": [],
                     "surface": {"digest": "same"},
                     "events": [],
@@ -233,7 +234,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
                     "runtime_profile_digest": profile.resolved_digest,
                     "spec": {
                         "campaign_run_id": campaign_id,
-                        "condition": "peer_isolated",
+                        "condition": "native_multiagent",
                         "organisation_size": 2,
                         "workspace_root": str(root / "workspaces"),
                         "model_endpoint": "https://gateway.invalid/v1",

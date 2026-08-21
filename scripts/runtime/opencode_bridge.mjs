@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import process from "node:process";
 
@@ -29,6 +30,56 @@ function canonical(value) {
 
 function digest(value) {
   return `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`;
+}
+
+function sortedRecords(values) {
+  return [...values].sort((left, right) =>
+    canonical(left).localeCompare(canonical(right)),
+  );
+}
+
+function normalizeActorLocal(value) {
+  if (typeof value === "string") {
+    const runtimeRoot = dirname(process.env.HOME);
+    const replacements = [
+      [directory, "<actor-workspace>"],
+      [runtimeRoot, "<actor-runtime>"],
+    ];
+    let normalized = value;
+    for (const [source, replacement] of replacements) {
+      normalized = normalized.split(source).join(replacement);
+      if (source.startsWith("/")) {
+        normalized = normalized.split(source.slice(1)).join(replacement);
+      }
+    }
+    return normalized;
+  }
+  if (Array.isArray(value)) return value.map(normalizeActorLocal);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeActorLocal(item)]),
+    );
+  }
+  return value;
+}
+
+async function awaitMcpReady(config, timeoutMilliseconds) {
+  const expected = Object.keys(config.mcp ?? {}).sort();
+  if (expected.length === 0) return;
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    const result = await runtime.client.mcp.status({ query: query() });
+    const statuses = checked(result, "MCP status");
+    const failure = expected.find((name) => statuses[name]?.status === "failed");
+    if (failure !== undefined) {
+      throw new Error(
+        `MCP server ${failure} failed: ${statuses[failure].error ?? "unknown error"}`,
+      );
+    }
+    if (expected.every((name) => statuses[name]?.status === "connected")) return;
+    await sleep(25);
+  }
+  throw new Error(`MCP servers did not become ready: ${expected.join(", ")}`);
 }
 
 function recordEvent(event) {
@@ -62,6 +113,16 @@ function redactConfig(config) {
       provider.options.apiKey = "<redacted>";
     }
   }
+  for (const server of Object.values(copy.mcp ?? {})) {
+    if (server?.environment) {
+      if ("AGENT_COLLAB_PEER_ENDPOINT" in server.environment) {
+        server.environment.AGENT_COLLAB_PEER_ENDPOINT = "<peer-gateway>";
+      }
+      if ("AGENT_COLLAB_PEER_TOKEN" in server.environment) {
+        server.environment.AGENT_COLLAB_PEER_TOKEN = "<redacted>";
+      }
+    }
+  }
   return copy;
 }
 
@@ -79,16 +140,20 @@ async function inspectSurface() {
     runtime.client.app.agents({ query: query() }),
   ]);
   const config = redactConfig(checked(configResult, "effective config"));
-  const toolIDs = checked(idsResult, "tool identifiers");
-  const tools = checked(toolsResult, "tool list");
-  const agents = checked(agentsResult, "agent list");
+  const toolIDs = [...checked(idsResult, "tool identifiers")].sort();
+  const tools = sortedRecords(
+    checked(toolsResult, "tool list").map(normalizeActorLocal),
+  );
+  const agents = sortedRecords(
+    checked(agentsResult, "agent list").map(normalizeActorLocal),
+  );
   const permissions = {
     global: config.permission,
     agents: Object.fromEntries(
       Object.entries(config.agent ?? {}).map(([name, agent]) => [name, agent?.permission]),
     ),
   };
-  return {
+  const surface = {
     config_digest: digest(config),
     model_digest: digest({ model: config.model, small_model: config.small_model, provider: config.provider }),
     tool_digest: digest({ ids: toolIDs, tools }),
@@ -96,6 +161,7 @@ async function inspectSurface() {
     agent_digest: digest(agents),
     task_enabled: config.agent?.build?.tools?.task === true,
   };
+  return surface;
 }
 
 async function startObservation() {
@@ -220,6 +286,7 @@ async function dispatch(message) {
         config: message.config,
       });
       await startObservation();
+      await awaitMcpReady(message.config, message.timeout_ms ?? 20_000);
       return { url: runtime.server.url, surface: await inspectSurface() };
     }
     case "create_session":
