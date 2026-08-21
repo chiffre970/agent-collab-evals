@@ -159,16 +159,22 @@ smallest useful seams before adding the runtime and collaboration machinery.
   stream/metadata correlation, canonical model and provider attestation,
   native-token accounting, raw receipt persistence and authoritative
   provider-cost settlement without external spend.
+- The independently pinned development billing catalog records the public
+  DeepInfra FP8 prices and ZDR eligibility observed on 2026-08-21. One bounded
+  end-to-end gateway canary then attested the expected provider and both model
+  identities, retained the correlated metadata receipt and charged its exact
+  $0.00001136 provider total. An initial successful check that retained only
+  digests remains disclosed as an invalid evidence-lifecycle attempt; the
+  corrected run preserves owner-readable raw receipts.
 
 ## Not implemented
 
 The following remain gates, not implied capabilities:
 
-1. The timestamped live billing catalog, one bounded end-to-end gateway canary,
-   formal provider-selection evidence and condition-matched route
-   qualification. The provider adapter and generation-receipt path pass against
-   deterministic transport doubles, but are not yet qualified against live
-   OpenRouter behavior or pricing.
+1. Formal provider-selection evidence and condition-matched route
+   qualification. The timestamped development catalog and one live gateway
+   canary now pass, but they do not replace the frozen representative workload
+   or registered provider-selection record.
 2. Submission, compute and research services, plus filesystem-safe workspace
    snapshot/materialization and campaign-level storage sealing beyond the
    byte-level artifact path proved by the current spike.
@@ -199,7 +205,7 @@ evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
 ADR 0001 is complete, and the model budget gateway's local enforcement and
-provider-transport proofs now pass. The next gate is a timestamped billing
-catalog and one bounded live gateway canary, followed by route qualification,
-sandbox enforcement and the remaining compute, submission and evaluator
-services. No live multi-condition model run is authorized yet.
+provider-transport proofs now pass, including one bounded live development
+canary. The next gate is provider-route qualification and its selection record,
+followed by sandbox enforcement and the remaining compute, submission and
+evaluator services. No live multi-condition model run is authorized yet.

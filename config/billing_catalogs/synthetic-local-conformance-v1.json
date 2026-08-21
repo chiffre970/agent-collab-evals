@@ -1,0 +1,25 @@
+{
+  "schema_version": "billing-catalog/v1",
+  "catalog_id": "synthetic-local-conformance-catalog",
+  "status": "synthetic",
+  "observed_at": "not-applicable",
+  "source_url": "local-fixture",
+  "zdr_source_url": "local-fixture",
+  "provider_name": "DeepInfra",
+  "provider_tag": "local-fake",
+  "model_id": "deepseek/deepseek-v4-flash-0731",
+  "metadata_model": "deepseek/deepseek-v4-flash-20260731",
+  "quantization": "synthetic",
+  "schedule_version": "local-v1",
+  "effective_tier": "fixed",
+  "rates": {
+    "uncached_input_usd_nanos_per_million": 1000000000,
+    "cached_input_usd_nanos_per_million": 500000000,
+    "output_usd_nanos_per_million": 2000000000
+  },
+  "source_prices_usd_per_token": {
+    "prompt": "synthetic",
+    "input_cache_read": "synthetic",
+    "completion": "synthetic"
+  }
+}

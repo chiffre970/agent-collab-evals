@@ -1,7 +1,7 @@
 {
   "schema_version": "model-gateway-profile/v1",
-  "profile_id": "openrouter-deepinfra-local-conformance-v0",
-  "status": "conformance_only",
+  "profile_id": "openrouter-deepinfra-development-v0",
+  "status": "development",
   "model_profile": "config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json",
   "request_limits": {
     "max_body_bytes": 1048576,
@@ -9,6 +9,6 @@
     "input_token_overhead": 4096,
     "default_max_output_tokens": 32768
   },
-  "billing_catalog": "config/billing_catalogs/synthetic-local-conformance-v1.json",
+  "billing_catalog": "config/billing_catalogs/openrouter-deepinfra-deepseek-v4-flash-20260821.json",
   "cache_policy": "disabled"
 }

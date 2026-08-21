@@ -98,6 +98,23 @@ bounded metadata retry, exact stream-to-generation correlation, provider/model
 attestation and authoritative billed-cost persistence without reading
 `OPENROUTER_API_KEY` or contacting OpenRouter.
 
+Validate the committed development gateway and billing profiles without spend:
+
+```bash
+npm run check:model-gateway
+```
+
+Run one explicit live canary with a hard $0.01 gateway account and a 64-token
+output limit:
+
+```bash
+npm run preflight:model-gateway
+```
+
+The current canary normally costs much less than one cent. It records a key-free
+summary under ignored `tmp/preflight/`; only the gateway-side OpenRouter adapter
+receives the API credential.
+
 Do not point `OpenCodeHarnessRuntime` directly at OpenRouter for a study. Its
 `OrganisationSpec.model_endpoint` must be the experiment-owned budget gateway;
 that gateway will enforce the registered provider route, privacy settings and

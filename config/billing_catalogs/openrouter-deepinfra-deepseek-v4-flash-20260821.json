@@ -1,0 +1,25 @@
+{
+  "schema_version": "billing-catalog/v1",
+  "catalog_id": "openrouter-deepinfra-deepseek-v4-flash-20260821T111509Z",
+  "status": "development",
+  "observed_at": "2026-08-21T11:15:09Z",
+  "source_url": "https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-flash-0731/endpoints",
+  "zdr_source_url": "https://openrouter.ai/api/v1/endpoints/zdr",
+  "provider_name": "DeepInfra",
+  "provider_tag": "deepinfra/fp8",
+  "model_id": "deepseek/deepseek-v4-flash-0731",
+  "metadata_model": "deepseek/deepseek-v4-flash-20260731",
+  "quantization": "fp8",
+  "schedule_version": "public-endpoint-snapshot-20260821T111509Z",
+  "effective_tier": "fixed",
+  "rates": {
+    "uncached_input_usd_nanos_per_million": 80000000,
+    "cached_input_usd_nanos_per_million": 16000000,
+    "output_usd_nanos_per_million": 180000000
+  },
+  "source_prices_usd_per_token": {
+    "prompt": "0.00000008",
+    "input_cache_read": "0.000000016",
+    "completion": "0.00000018"
+  }
+}

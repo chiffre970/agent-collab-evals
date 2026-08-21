@@ -66,6 +66,8 @@ The repository now contains the first scenario-shaped vertical slice:
 - a dependency-free OpenRouter streaming adapter that retains both the raw
   stream and its correlated generation-metadata receipt for gateway-side
   attestation and billing;
+- independently pinned synthetic and timestamped development billing catalogs,
+  with one bounded live DeepInfra canary through the complete gateway;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result

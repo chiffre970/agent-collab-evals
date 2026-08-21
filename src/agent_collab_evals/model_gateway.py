@@ -7,7 +7,7 @@ import json
 import secrets
 import threading
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Protocol
@@ -53,6 +53,7 @@ class ModelGatewayProfile:
     rate_card: BillingRateCard
     source_digest: str
     model_profile_digest: str
+    billing_catalog_digest: str
     resolved_digest: str
 
     @classmethod
@@ -69,7 +70,7 @@ class ModelGatewayProfile:
                 "status",
                 "model_profile",
                 "request_limits",
-                "billing",
+                "billing_catalog",
                 "cache_policy",
             },
             "gateway profile",
@@ -142,19 +143,99 @@ class ModelGatewayProfile:
             },
             "request limits",
         )
-        billing = cls._mapping(payload["billing"], "billing")
+        catalog_path = repository_root / str(payload["billing_catalog"])
+        if not catalog_path.is_file():
+            raise ValueError("model gateway profile references a missing billing catalog")
+        with catalog_path.open("r", encoding="utf-8") as stream:
+            catalog = load_json(stream)
         cls._require_keys(
-            billing,
+            catalog,
             {
+                "schema_version",
                 "catalog_id",
+                "status",
+                "observed_at",
+                "source_url",
+                "zdr_source_url",
+                "provider_name",
+                "provider_tag",
+                "model_id",
+                "metadata_model",
+                "quantization",
                 "schedule_version",
                 "effective_tier",
+                "rates",
+                "source_prices_usd_per_token",
+            },
+            "billing catalog",
+        )
+        if catalog["schema_version"] != "billing-catalog/v1":
+            raise ValueError("unsupported billing catalog schema")
+        if catalog["status"] not in {"synthetic", "development", "registered"}:
+            raise ValueError("unsupported billing catalog status")
+        expected_catalog_status = {
+            "conformance_only": "synthetic",
+            "development": "development",
+            "registered": "registered",
+        }[str(payload["status"])]
+        if catalog["status"] != expected_catalog_status:
+            raise ValueError("billing catalog status differs from the gateway profile")
+        if (
+            catalog["provider_name"] != provider["expected"]
+            or catalog["model_id"] != model["requested_model"]
+            or catalog["metadata_model"] != model["expected_metadata_model"]
+        ):
+            raise ValueError("billing catalog identity differs from the model profile")
+        rates = cls._mapping(catalog["rates"], "billing catalog rates")
+        cls._require_keys(
+            rates,
+            {
                 "uncached_input_usd_nanos_per_million",
                 "cached_input_usd_nanos_per_million",
                 "output_usd_nanos_per_million",
             },
-            "billing",
+            "billing catalog rates",
         )
+        source_prices = cls._mapping(
+            catalog["source_prices_usd_per_token"],
+            "billing catalog source prices",
+        )
+        cls._require_keys(
+            source_prices,
+            {"prompt", "input_cache_read", "completion"},
+            "billing catalog source prices",
+        )
+        if any(
+            not isinstance(value, str) or not value
+            for value in source_prices.values()
+        ):
+            raise ValueError(
+                "billing catalog source prices must be nonempty strings"
+            )
+        if catalog["status"] != "synthetic":
+            price_rate_pairs = (
+                ("prompt", "uncached_input_usd_nanos_per_million"),
+                ("input_cache_read", "cached_input_usd_nanos_per_million"),
+                ("completion", "output_usd_nanos_per_million"),
+            )
+            for price_name, rate_name in price_rate_pairs:
+                try:
+                    expected_rate = Decimal(source_prices[price_name]) * Decimal(
+                        1_000_000_000_000_000
+                    )
+                except (InvalidOperation, ValueError) as error:
+                    raise ValueError(
+                        "billing catalog source price is not an exact decimal"
+                    ) from error
+                if (
+                    not expected_rate.is_finite()
+                    or expected_rate < 0
+                    or expected_rate != expected_rate.to_integral_value()
+                    or int(expected_rate) != rates[rate_name]
+                ):
+                    raise ValueError(
+                        "billing catalog integer rate differs from its source price"
+                    )
         for name in (
             "max_body_bytes",
             "max_response_bytes",
@@ -169,19 +250,19 @@ class ModelGatewayProfile:
             "provider_managed_observed",
         }:
             raise ValueError("unsupported provider cache policy")
-        billing_digest = digest_value(billing)
+        catalog_digest = digest_file(catalog_path)
         rate_card = BillingRateCard(
-            catalog_id=str(billing["catalog_id"]),
-            catalog_digest=billing_digest,
-            schedule_version=str(billing["schedule_version"]),
-            effective_tier=str(billing["effective_tier"]),
-            uncached_input_usd_nanos_per_million=billing[
+            catalog_id=str(catalog["catalog_id"]),
+            catalog_digest=catalog_digest,
+            schedule_version=str(catalog["schedule_version"]),
+            effective_tier=str(catalog["effective_tier"]),
+            uncached_input_usd_nanos_per_million=rates[
                 "uncached_input_usd_nanos_per_million"
             ],
-            cached_input_usd_nanos_per_million=billing[
+            cached_input_usd_nanos_per_million=rates[
                 "cached_input_usd_nanos_per_million"
             ],
-            output_usd_nanos_per_million=billing[
+            output_usd_nanos_per_million=rates[
                 "output_usd_nanos_per_million"
             ],
         )
@@ -192,6 +273,7 @@ class ModelGatewayProfile:
                 "gateway_profile": payload,
                 "gateway_profile_digest": source_digest,
                 "model_profile_digest": model_digest,
+                "billing_catalog_digest": catalog_digest,
             }
         )
         return cls(
@@ -215,6 +297,7 @@ class ModelGatewayProfile:
             rate_card=rate_card,
             source_digest=source_digest,
             model_profile_digest=model_digest,
+            billing_catalog_digest=catalog_digest,
             resolved_digest=resolved_digest,
         )
 

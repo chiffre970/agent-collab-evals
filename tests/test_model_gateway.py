@@ -22,6 +22,10 @@ PROFILE_PATH = (
     REPOSITORY_ROOT
     / "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json"
 )
+DEVELOPMENT_PROFILE_PATH = (
+    REPOSITORY_ROOT
+    / "config/gateway_profiles/openrouter-deepinfra-development-v0.json"
+)
 
 
 class _Upstream:
@@ -74,6 +78,25 @@ class _Upstream:
 
 
 class ModelBudgetGatewayTests(unittest.TestCase):
+    def test_development_profile_pins_exact_public_billing_snapshot(self) -> None:
+        profile = ModelGatewayProfile.load(
+            DEVELOPMENT_PROFILE_PATH, repository_root=REPOSITORY_ROOT
+        )
+        self.assertEqual(profile.status, "development")
+        self.assertEqual(
+            profile.rate_card.uncached_input_usd_nanos_per_million,
+            80_000_000,
+        )
+        self.assertEqual(
+            profile.rate_card.cached_input_usd_nanos_per_million,
+            16_000_000,
+        )
+        self.assertEqual(
+            profile.rate_card.output_usd_nanos_per_million,
+            180_000_000,
+        )
+        self.assertTrue(profile.billing_catalog_digest.startswith("sha256:"))
+
     def test_profile_transitively_pins_model_route_and_synthetic_rates(self) -> None:
         profile = ModelGatewayProfile.load(
             PROFILE_PATH, repository_root=REPOSITORY_ROOT
