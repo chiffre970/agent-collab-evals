@@ -103,7 +103,10 @@ gateway. OpenCode telemetry does not enforce dollars, provider selection,
 privacy policy or model identity. Direct OpenRouter study traffic is therefore
 not enabled by this result.
 
-ADR 0001 now proceeds to the matched peer-tool and minimal collaboration,
-publication, storage and session-identity slice. Its private/shared
-authorization, durable publication, cursor, audit export and four-peer checks
-must pass before the ADR is complete.
+The minimal collaboration, publication, byte-level storage and session-identity
+slice now passes its local conformance suite. The remaining ADR gate is the
+matched peer-tool path through stock OpenCode: both peer arms must expose the
+same schema and activation policy at four actors while the backend alone changes
+from actor-private to organisation-shared visibility. Filesystem-safe workspace
+snapshot/materialization and the combined exit evidence export remain follow-up
+work before ADR 0001 is complete.

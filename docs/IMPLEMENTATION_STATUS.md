@@ -109,18 +109,34 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - The real adapter rejects both peer conditions while `peer_tool` is false.
   This prevents a missing integration from silently collapsing treatment and
   control; the fake harness remains available for core four-condition tests.
+- The minimal collaboration substrate now implements durable SQLite-backed
+  actor-private and organisation-shared twin modes behind `CollaborationBackend`.
+  It derives identity from an object-bound session transport, enforces
+  visibility server-side, signs actor- and query-bound cursors, supports
+  idempotent publish/reply/search/notification operations, survives adapter
+  restart and exports exact read/write audit evidence. Four-actor private and
+  shared conformance tests pass against the same implementation.
+- Independent storage and publication adapters now keep immutable artifact
+  bytes owner-only and persist opaque prepared/bound/aborted publication state.
+  `ArtifactService` proves ownership, joins a publication to an idempotent
+  collaboration entry and materializes it only after checking the bound entry
+  and recorded audience. Trusted storage reads require a service identity plus
+  a purpose-bound, one-use authorization. Tests reject raw peer reads,
+  guessed, unbound, aborted, cross-campaign and wrong-audience publications,
+  forged service identities, mismatched purposes and authorization replay.
 
 ## Not implemented
 
 The following remain gates, not implied capabilities:
 
-1. The remaining ADR 0001 collaboration proof: matched peer-tool injection,
-   actor-private/shared authorization, publication/materialization, cursors,
-   durable audit export and four-peer activation.
+1. The remaining ADR 0001 collaboration proof: matched peer-tool injection
+   into stock OpenCode, identical schemas and activation in both peer arms,
+   four-peer end-to-end activation, and the combined exit evidence export.
 2. Provider-gateway dollar enforcement, formal provider-selection evidence and
    condition-matched OpenCode model routing.
-3. Collaboration, publication authorization, artifact storage, submission,
-   compute and research services.
+3. Submission, compute and research services, plus filesystem-safe workspace
+   snapshot/materialization and campaign-level storage sealing beyond the
+   byte-level artifact path proved by the current spike.
 4. Evaluator-owned untrusted candidate launch, public result release,
    remaining correctness/stability/shortcut gates, neutral selection, and a
    confirmatory registered score policy. The calibration Volume path is
