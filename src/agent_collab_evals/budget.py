@@ -248,3 +248,46 @@ class BudgetSnapshot:
             - self.organisation_reserved_usd_nanos
             - self.organisation_charged_usd_nanos
         )
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetReconciliation:
+    """Close-time validity evidence for one campaign budget ledger."""
+
+    campaign_run_id: str
+    accounting_mode: str
+    active_reservation_ids: tuple[str, ...] = ()
+    forfeited_reservation_ids: tuple[str, ...] = ()
+    overrun_reservation_ids: tuple[str, ...] = ()
+    missing_receipt_reservation_ids: tuple[str, ...] = ()
+    ledger_errors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.campaign_run_id or not self.accounting_mode:
+            raise ValueError("budget reconciliation identity must be nonempty")
+
+    @property
+    def valid(self) -> bool:
+        return not any(
+            (
+                self.active_reservation_ids,
+                self.forfeited_reservation_ids,
+                self.overrun_reservation_ids,
+                self.missing_receipt_reservation_ids,
+                self.ledger_errors,
+            )
+        )
+
+    def evidence(self) -> dict[str, object]:
+        return {
+            "campaign_run_id": self.campaign_run_id,
+            "accounting_mode": self.accounting_mode,
+            "valid": self.valid,
+            "active_reservation_ids": list(self.active_reservation_ids),
+            "forfeited_reservation_ids": list(self.forfeited_reservation_ids),
+            "overrun_reservation_ids": list(self.overrun_reservation_ids),
+            "missing_receipt_reservation_ids": list(
+                self.missing_receipt_reservation_ids
+            ),
+            "ledger_errors": list(self.ledger_errors),
+        }

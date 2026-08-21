@@ -8,8 +8,10 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.local_snapshots import LocalCampaignSnapshotStore
+from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
 from agent_collab_evals.adapters.sqlite_collaboration import (
     SqliteCollaborationBackend,
 )
@@ -31,6 +33,7 @@ from agent_collab_evals.peer_tool import (
     PeerToolIntegrationProfile,
 )
 from agent_collab_evals.session_identity import SessionIdentityRegistry
+from agent_collab_evals.sandbox import SandboxProfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +44,14 @@ PROFILE_PATH = (
 PEER_PROFILE_PATH = (
     REPOSITORY_ROOT / "config/peer_tool_profiles/peer-tool-v0.json"
 )
+SANDBOX_PROFILE_PATH = (
+    REPOSITORY_ROOT
+    / "config/sandbox_profiles/darwin-loopback-network-v0.json"
+)
+
+
+def _sandbox() -> DarwinSandboxExec:
+    return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
 
 
 class _GatewayHandler(BaseHTTPRequestHandler):
@@ -289,9 +300,12 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     profile,
                     root / "runtime-state",
                     tokens,
+                    process_sandbox=_sandbox(),
                     timeout_seconds=30,
                 )
-                first_controller = CampaignController(first_runtime, event_sink)
+                first_controller = CampaignController(
+                    first_runtime, event_sink, NoModelBudgetReconciler()
+                )
                 handle = first_controller.start(spec)
                 first_controller.deliver(
                     handle,
@@ -310,9 +324,12 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     profile,
                     root / "runtime-state",
                     tokens,
+                    process_sandbox=_sandbox(),
                     timeout_seconds=30,
                 )
-                second_controller = CampaignController(second_runtime, event_sink)
+                second_controller = CampaignController(
+                    second_runtime, event_sink, NoModelBudgetReconciler()
+                )
                 resumed = second_controller.resume(store.load("opencode-integration"))
                 second_controller.deliver(
                     resumed,
@@ -378,6 +395,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     runtime_profile,
                     root / "runtime-state",
                     tokens,
+                    process_sandbox=_sandbox(),
                     peer_profile=peer_profile,
                     peer_gateway=peer_gateway,
                     timeout_seconds=30,
@@ -392,7 +410,9 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     ),
                 )
                 controller = CampaignController(
-                    runtime, LocalEventSink(root / "events")
+                    runtime,
+                    LocalEventSink(root / "events"),
+                    NoModelBudgetReconciler(),
                 )
                 handle = controller.start(spec)
                 controller.deliver(
@@ -476,12 +496,15 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     runtime_profile,
                     root / "runtime-state",
                     tokens,
+                    process_sandbox=_sandbox(),
                     peer_profile=peer_profile,
                     peer_gateway=peer_gateway,
                     timeout_seconds=30,
                 )
                 controller = CampaignController(
-                    first_runtime, LocalEventSink(root / "events")
+                    first_runtime,
+                    LocalEventSink(root / "events"),
+                    NoModelBudgetReconciler(),
                 )
                 private_spec = OrganisationSpec(
                     campaign_run_id="matched-peer-private",
@@ -529,12 +552,15 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     runtime_profile,
                     root / "runtime-state",
                     tokens,
+                    process_sandbox=_sandbox(),
                     peer_profile=peer_profile,
                     peer_gateway=peer_gateway,
                     timeout_seconds=30,
                 )
                 resumed_controller = CampaignController(
-                    second_runtime, LocalEventSink(root / "events-resumed")
+                    second_runtime,
+                    LocalEventSink(root / "events-resumed"),
+                    NoModelBudgetReconciler(),
                 )
                 resumed = resumed_controller.resume(shared_campaign_snapshot)
                 resumed_controller.deliver(

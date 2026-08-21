@@ -6,18 +6,20 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .budget import BudgetReconciliation
 from .domain import (
     AgentIdentity,
     CampaignResult,
     CampaignSnapshot,
     CampaignStatus,
     HarnessOrganisation,
+    HarnessSnapshot,
     Job,
     OrganisationSpec,
     SessionHandle,
     top_level_actor_count,
 )
-from .ports import EventSink, HarnessRuntime
+from .ports import BudgetReconciliationGate, EventSink, HarnessRuntime
 
 
 @dataclass(slots=True)
@@ -30,12 +32,32 @@ class CampaignHandle:
     status: CampaignStatus = CampaignStatus.ACTIVE
 
 
+class CampaignCloseRejected(RuntimeError):
+    """The stopped campaign failed mandatory budget reconciliation."""
+
+    def __init__(
+        self,
+        message: str,
+        final_harness_snapshot: HarnessSnapshot,
+        reconciliation: BudgetReconciliation | None,
+    ) -> None:
+        super().__init__(message)
+        self.final_harness_snapshot = final_harness_snapshot
+        self.reconciliation = reconciliation
+
+
 class CampaignController:
     """Owns lifecycle only; it does not plan, delegate, merge, or score work."""
 
-    def __init__(self, harness: HarnessRuntime, events: EventSink) -> None:
+    def __init__(
+        self,
+        harness: HarnessRuntime,
+        events: EventSink,
+        budget_reconciliation: BudgetReconciliationGate | None = None,
+    ) -> None:
         self._harness = harness
         self._events = events
+        self._budget_reconciliation = budget_reconciliation
 
     def start(self, spec: OrganisationSpec) -> CampaignHandle:
         actor_count = top_level_actor_count(spec.condition, spec.organisation_size)
@@ -143,7 +165,59 @@ class CampaignController:
 
     def close(self, handle: CampaignHandle, reason: str) -> CampaignResult:
         self._require_active(handle)
+        if self._budget_reconciliation is None:
+            raise RuntimeError(
+                "campaign close requires a configured budget reconciliation gate"
+            )
         final_snapshot = self._harness.stop(handle.organisation, reason)
+        try:
+            reconciliation = self._budget_reconciliation.reconcile(
+                handle.spec.campaign_run_id
+            )
+        except Exception as error:
+            handle.status = CampaignStatus.INVALID
+            self._events.append(
+                handle.spec.campaign_run_id,
+                "campaign.invalid",
+                {
+                    "reason": "budget_reconciliation_failed",
+                    "error_type": type(error).__name__,
+                    "delivered_job_count": len(handle.delivered_job_ids),
+                },
+            )
+            raise CampaignCloseRejected(
+                "campaign budget reconciliation failed",
+                final_snapshot,
+                None,
+            ) from error
+        campaign_matches = (
+            reconciliation.campaign_run_id == handle.spec.campaign_run_id
+        )
+        if not reconciliation.valid or not campaign_matches:
+            handle.status = CampaignStatus.INVALID
+            self._events.append(
+                handle.spec.campaign_run_id,
+                "campaign.invalid",
+                {
+                    "reason": (
+                        "budget_reconciliation_invalid"
+                        if campaign_matches
+                        else "budget_reconciliation_campaign_mismatch"
+                    ),
+                    "delivered_job_count": len(handle.delivered_job_ids),
+                    "budget_reconciliation": reconciliation.evidence(),
+                },
+            )
+            raise CampaignCloseRejected(
+                "campaign budget reconciliation found invalid terminal state",
+                final_snapshot,
+                reconciliation,
+            )
+        self._events.append(
+            handle.spec.campaign_run_id,
+            "campaign.budget_reconciled",
+            reconciliation.evidence(),
+        )
         handle.status = CampaignStatus.CLOSED
         self._events.append(
             handle.spec.campaign_run_id,

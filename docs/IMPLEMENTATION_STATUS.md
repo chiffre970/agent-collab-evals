@@ -166,15 +166,48 @@ smallest useful seams before adding the runtime and collaboration machinery.
   $0.00001136 provider total. An initial successful check that retained only
   digests remains disclosed as an invalid evidence-lifecycle attempt; the
   corrected run preserves owner-readable raw receipts.
+- Campaign closure now requires a budget reconciliation gate. Harness stop
+  revokes model tokens through an in-flight request barrier, then the controller
+  verifies durable reservation and charge counters. Active reservations,
+  forfeitures, overruns, missing required receipts and ledger inconsistencies
+  emit `campaign.invalid` and cannot produce a `CampaignResult`. Local no-model
+  tests must provide an explicit `no_model_calls` attestation.
+- A frozen 2026-08-21 OpenRouter ZDR candidate snapshot and exact-decimal
+  selection policy choose DeepInfra FP8 as the lowest projected-cost eligible
+  route for the declared 100,000-input/10,000-output-token mix. The raw endpoint
+  and authenticated ZDR responses are retained with file and content digests;
+  the normalized candidate list is deterministically re-extracted on load. The
+  committed development record binds the sources, candidate, policy and gateway
+  digests.
+- The selected route passed three live bounded probes for exact provider/model
+  identity, visible text, forced tool calling, raw receipt capture and budget
+  reconciliation. Two byte-identical text requests and the tool request all
+  reported zero cached input tokens. The retained qualification cost $0.000052.
+  Its exact record and all six raw receipts are repository-retained and resolved
+  by digest when the selected route loads.
+- The OpenRouter transport now explicitly disables its response cache, and the
+  selected endpoint snapshot attests that DeepInfra does not provide implicit
+  caching for this model. ZDR membership alone is not treated as cache-isolation
+  evidence because ZDR endpoints can still use implicit caching.
+- OpenCode now launches through a separately pinned macOS `sandbox-exec`
+  development adapter. Its kernel-level conformance test permits all loopback
+  services and denies the host's nonloopback interface. Direct model-provider
+  endpoints fail admission, no ambient credential enters the process, and the
+  profile digest persists in runtime snapshots and across resume. This adapter
+  does not isolate the gateway from other loopback services or enforce
+  filesystem and process-resource limits.
 
 ## Not implemented
 
 The following remain gates, not implied capabilities:
 
-1. Formal provider-selection evidence and condition-matched route
-   qualification. The timestamped development catalog and one live gateway
-   canary now pass, but they do not replace the frozen representative workload
-   or registered provider-selection record.
+1. Registered-study promotion remains separate from the passing development
+   route, cache and macOS sandbox evidence. Before scored runs, freeze registered
+   copies of the provider snapshot, selection policy and record, billing and
+   gateway profiles, deployment build and block-validity rule. Replace or layer
+   the current development network policy with gateway-specific local-service,
+   filesystem and process-resource enforcement. The target environment needs a
+   pinned kernel- or container-level adapter and equivalent conformance proof.
 2. Submission, compute and research services, plus filesystem-safe workspace
    snapshot/materialization and campaign-level storage sealing beyond the
    byte-level artifact path proved by the current spike.
@@ -204,8 +237,10 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
-ADR 0001 is complete, and the model budget gateway's local enforcement and
-provider-transport proofs now pass, including one bounded live development
-canary. The next gate is provider-route qualification and its selection record,
-followed by sandbox enforcement and the remaining compute, submission and
-evaluator services. No live multi-condition model run is authorized yet.
+ADR 0001 is complete. Development provider-route qualification,
+condition-matched cache isolation, nonloopback egress denial and post-stream
+budget reconciliation now pass. Gateway-specific loopback isolation,
+filesystem and process-resource enforcement remain scored-run gates. The next
+gate is the remaining compute, submission and evaluator service slice, followed
+by complete registered manifests and promotion of every development enforcement
+profile. No live multi-condition model run is authorized yet.

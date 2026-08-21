@@ -222,7 +222,7 @@ The first near-term follow-ups are required rather than optional: test pooled or
 - **Weak native baseline:** customized or broken subagent behavior would make collab look artificially good. Use pinned stock general-purpose behavior and qualification tests.
 - **Provider-runtime mismatch:** some models may not use a runtime's tools well. Qualify before freezing and repeat later with other model profiles.
 - **Provider drift, caching and tariff windows:** mutable aliases, cross-run prefix caches or price-tier transitions can change effective capability or how much work a dollar buys. Isolate caches, freeze billing policy, retain provider identity and unit-rate receipts, keep a block within one effective tier and rerun complete affected blocks under the frozen rule.
-- **Budget leakage:** auxiliary calls or retries omitted from cost could favor a condition. Route all credentials through one account and reconcile traces.
+- **Budget leakage:** auxiliary calls or retries omitted from cost could favor a condition. Route all credentials through one account, make credential revocation an in-flight request barrier and reject campaign closure on active, forfeited, overrun or receipt-incomplete reservations.
 - **Hidden evaluator leakage:** public and hidden workloads must be disjoint and hidden results unavailable until closure.
 - **Infrastructure noise:** GPU and API variability can swamp effects. Block, randomize order and repeat.
 - **Selection advantage:** different mergers or candidate counts can create the result. Use one submission and selection policy.

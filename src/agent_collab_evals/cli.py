@@ -11,6 +11,7 @@ from typing import Sequence
 from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_events import LocalEventSink
 from .adapters.local_snapshots import LocalCampaignSnapshotStore
+from .adapters.no_model_budget import NoModelBudgetReconciler
 from .campaigns.model_serving import ModelServingCampaign
 from .controller import CampaignController
 from .domain import CoordinationCondition, OrganisationSpec
@@ -73,7 +74,9 @@ def _fake_solo(
     events = LocalEventSink(resolved_state_root / "events")
     snapshots = LocalCampaignSnapshotStore(resolved_state_root / "snapshots")
     first_harness = FakeHarnessRuntime()
-    first_controller = CampaignController(first_harness, events)
+    first_controller = CampaignController(
+        first_harness, events, NoModelBudgetReconciler()
+    )
     handle = first_controller.start(
         OrganisationSpec(
             campaign_run_id=campaign_run_id,
@@ -87,7 +90,9 @@ def _fake_solo(
         first_controller.deliver(handle, job)
     snapshots.save(first_controller.snapshot(handle))
 
-    resumed_controller = CampaignController(FakeHarnessRuntime(), events)
+    resumed_controller = CampaignController(
+        FakeHarnessRuntime(), events, NoModelBudgetReconciler()
+    )
     resumed = resumed_controller.resume(snapshots.load(campaign_run_id))
     result = resumed_controller.close(resumed, "fake vertical slice complete")
     event_log = events.read(campaign_run_id)

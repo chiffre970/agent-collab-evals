@@ -1,0 +1,58 @@
+{
+  "schema_version": "provider-selection-record/v1",
+  "record_id": "deepseek-v4-flash-deepinfra-development-20260821",
+  "status": "development",
+  "selection_policy": "config/provider_qualification/deepseek-v4-flash-development-policy.json",
+  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-development-v0.json",
+  "selected_route": {
+    "provider_name": "DeepInfra",
+    "tag": "deepinfra/fp8",
+    "quantization": "fp8",
+    "selection_digest": "sha256:fd55239e10d2174f5ff8d4761c5416311ec25f7e50ce19766fc9424f2c510467"
+  },
+  "qualification": {
+    "started_at": "2026-08-21T17:05:53.229293+00:00",
+    "finished_at": "2026-08-21T17:06:28.944001+00:00",
+    "qualification_record_file": "evidence/provider_qualification/records/provider-route-2026-08-21T17-06-28Z.json",
+    "qualification_record_digest": "sha256:e9910725dfaa9731434c683a6dbffd606e6eb9121bded94f8939b8d03f7ff90c",
+    "probe_count": 3,
+    "text_probe_passed": true,
+    "tool_call_probe_passed": true,
+    "cache_isolation": {
+      "gateway_cache_policy": "disabled",
+      "openrouter_response_cache_header": "false",
+      "provider_supports_implicit_caching": false,
+      "repeated_request_digest": "sha256:70bb3a45026e2cd8f2563c2438b1c82bf1ddb7f73bc4d35ee6571da96484894b",
+      "reported_cached_input_tokens": [
+        0,
+        0,
+        0
+      ]
+    },
+    "maximum_probe_elapsed_ms": 12024,
+    "total_charged_usd_nanos": 52000,
+    "budget_reconciliation_valid": true,
+    "conformance_failures": [],
+    "receipt_digests": [
+      {
+        "stream_digest": "sha256:ec6387efe49a52c31e27b13ae246ec59fe2f5722baa5405231edb6af2b02d3d8",
+        "stream_file": "evidence/provider_qualification/receipts/20260821T170628Z-00.stream.sse",
+        "metadata_digest": "sha256:cff7f6e76ae63381dd79d333f41ee8ea3a29da78205517eabd1559ba2088b7ed",
+        "metadata_file": "evidence/provider_qualification/receipts/20260821T170628Z-00.metadata.json"
+      },
+      {
+        "stream_digest": "sha256:3771dc649718a69e02be22d239ff65b6d08337f2c7d1931b77860b48b3703235",
+        "stream_file": "evidence/provider_qualification/receipts/20260821T170628Z-01.stream.sse",
+        "metadata_digest": "sha256:11266fc150d27bb23a3a725d948c3f256237802feb7e908fd91f1f2c49e29902",
+        "metadata_file": "evidence/provider_qualification/receipts/20260821T170628Z-01.metadata.json"
+      },
+      {
+        "stream_digest": "sha256:20be5cad90e3c27ea340e8cae957e798baff21e83802a38e92d86da42f7f7fea",
+        "stream_file": "evidence/provider_qualification/receipts/20260821T170628Z-02.stream.sse",
+        "metadata_digest": "sha256:f0b4daa432180a12b0889bef6086b2eeca9b0c90c60a1305f1e07bc8f3699597",
+        "metadata_file": "evidence/provider_qualification/receipts/20260821T170628Z-02.metadata.json"
+      }
+    ],
+    "raw_receipts_storage": "repository_retained_development_evidence"
+  }
+}

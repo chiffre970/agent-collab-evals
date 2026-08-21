@@ -175,6 +175,7 @@ class OpenRouterUpstreamTests(unittest.TestCase):
         self.assertEqual(post[:3], ("POST", "/api/v1/chat/completions", b'{"stream":true}'))
         self.assertEqual(post[3]["Authorization"], "Bearer secret-test-key")
         self.assertEqual(post[3]["X-Title"], "agent-collab-evals")
+        self.assertEqual(post[3]["X-OpenRouter-Cache"], "false")
         self.assertEqual(
             factory.connections[2].requests[0][1],
             "/api/v1/generation?id=gen-test",

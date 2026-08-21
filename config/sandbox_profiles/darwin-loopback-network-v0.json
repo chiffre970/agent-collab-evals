@@ -1,0 +1,22 @@
+{
+  "schema_version": "process-sandbox-profile/v1",
+  "profile_id": "darwin-loopback-network-v0",
+  "status": "development",
+  "driver": "darwin-sandbox-exec",
+  "executable": "/usr/bin/sandbox-exec",
+  "enforcement_scope": {
+    "network_outbound": "loopback_only",
+    "loopback_destinations": "all_ports_and_services",
+    "filesystem": "not_enforced",
+    "process_resources": "not_enforced"
+  },
+  "network": {
+    "mode": "loopback_only",
+    "allowed_model_endpoint_hosts": [
+      "127.0.0.1",
+      "::1",
+      "localhost"
+    ]
+  },
+  "credential_environment_allowlist": []
+}

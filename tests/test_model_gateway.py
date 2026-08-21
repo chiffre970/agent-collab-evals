@@ -4,6 +4,7 @@ import http.client
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -78,6 +79,58 @@ class _Upstream:
 
 
 class ModelBudgetGatewayTests(unittest.TestCase):
+    def test_revocation_waits_for_authenticated_requests(self) -> None:
+        profile = ModelGatewayProfile.load(
+            PROFILE_PATH, repository_root=REPOSITORY_ROOT
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            account = SqliteBudgetAccount(
+                Path(directory) / "budget.sqlite3", profile.rate_card
+            )
+            account.open_campaign(
+                "revocation-run",
+                1_000_000,
+                (
+                    ActorBudgetAllocation(
+                        "revocation-run", "revocation-run:actor:0", 1_000_000
+                    ),
+                ),
+            )
+            gateway = ModelBudgetGateway(
+                profile, account, _Upstream(), serve_http=False
+            )
+            token = gateway.issue(
+                campaign_run_id="revocation-run",
+                actor_id="revocation-run:actor:0",
+                model_endpoint=gateway.endpoint,
+            )
+            gateway.activate(token.token_id, SessionHandle("revocation-session"))
+            authorization = gateway._authorize(f"Bearer {token.value}")
+            self.assertIsNotNone(authorization)
+            assert authorization is not None
+
+            revoker = threading.Thread(
+                target=gateway.revoke,
+                args=(token.token_id, "session stopped"),
+            )
+            revoker.start()
+            with gateway._request_condition:
+                token_digest = gateway._token_ids[token.token_id]
+                state = gateway._tokens[token_digest]
+                self.assertTrue(
+                    gateway._request_condition.wait_for(
+                        lambda: state.revoked, timeout=1
+                    )
+                )
+            self.assertTrue(revoker.is_alive())
+
+            gateway._release_authorization(authorization.token_id)
+            revoker.join(timeout=1)
+
+            self.assertFalse(revoker.is_alive())
+            self.assertIsNone(gateway._authorize(f"Bearer {token.value}"))
+            gateway.close()
+
     def test_development_profile_pins_exact_public_billing_snapshot(self) -> None:
         profile = ModelGatewayProfile.load(
             DEVELOPMENT_PROFILE_PATH, repository_root=REPOSITORY_ROOT

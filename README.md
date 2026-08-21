@@ -68,6 +68,20 @@ The repository now contains the first scenario-shaped vertical slice:
   attestation and billing;
 - independently pinned synthetic and timestamped development billing catalogs,
   with one bounded live DeepInfra canary through the complete gateway;
+- retained raw OpenRouter endpoint and ZDR catalogs, a deterministic candidate
+  extractor and an evidence-complete three-probe qualification record whose
+  stream and metadata receipts are resolved and digest-checked from the
+  repository;
+- condition-matched cache isolation through an endpoint with no implicit cache,
+  an explicit OpenRouter response-cache denial and repeated-request receipts
+  reporting zero cached tokens;
+- a modular macOS development adapter that blocks nonloopback outbound traffic,
+  exposes no provider credentials and binds its profile digest into runtime
+  snapshots; it permits every loopback service and does not yet enforce
+  filesystem or process-resource limits;
+- a mandatory close-time budget validity gate that prevents post-stream
+  identity, usage, receipt, forfeiture or overrun defects from producing a
+  scoreable campaign result;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
@@ -98,9 +112,9 @@ python -m unittest discover -s tests -v
 
 This is calibration infrastructure, not a completed experimental platform.
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
-publication and storage gates now pass, as does the budget gateway's local
-enforcement and transport proof. Live route/billing qualification, sandbox and capability
-brokers, submission selection, public and hidden evaluators, and registered
+publication and storage gates now pass, as do the development provider-route,
+cache-isolation, sandbox and budget-reconciliation proofs. Registered profiles,
+capability brokers, submission selection, public and hidden evaluators, and
 four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
@@ -111,6 +125,7 @@ four-condition execution remain explicit later gates. See
 - [Agent-inference provider calibration](docs/calibration/AGENT_INFERENCE_PROVIDER.md)
 - [OpenCode runtime spike](docs/calibration/OPENCODE_RUNTIME_V0.md)
 - [Model budget gateway proof](docs/calibration/MODEL_GATEWAY_V0.md)
+- [Process sandbox proof](docs/calibration/SANDBOX_V0.md)
 - [Fast Gemma evaluator lessons](docs/GEMMA_CHALLENGE_EVALUATOR_LESSONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module contracts](docs/MODULE_CONTRACTS.md)

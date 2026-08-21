@@ -13,6 +13,7 @@ from ..budget import (
     BillingRateCard,
     BudgetCharge,
     BudgetRejected,
+    BudgetReconciliation,
     BudgetReservation,
     BudgetSnapshot,
     ModelCallContext,
@@ -24,10 +25,17 @@ from ..canonical import canonical_json_bytes, digest_bytes, digest_value, parse_
 class SqliteBudgetAccount:
     """Enforce organisation and actor model budgets with durable reservations."""
 
-    def __init__(self, database: Path, rate_card: BillingRateCard) -> None:
+    def __init__(
+        self,
+        database: Path,
+        rate_card: BillingRateCard,
+        *,
+        require_metadata_receipts: bool = True,
+    ) -> None:
         self._database = database
         self._rate_card = rate_card
         self._rate_card_digest = digest_value(rate_card)
+        self._require_metadata_receipts = require_metadata_receipts
         self._lock = threading.RLock()
         database.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -514,6 +522,295 @@ class SqliteBudgetAccount:
                 for row in audit
             ),
         )
+
+    def reconcile(self, campaign_run_id: str) -> BudgetReconciliation:
+        """Reconstruct terminal accounting and return every detected defect."""
+
+        with closing(self._connect()) as connection:
+            campaign = connection.execute(
+                "SELECT * FROM budget_campaigns WHERE campaign_run_id = ?",
+                (campaign_run_id,),
+            ).fetchone()
+            if campaign is None:
+                raise KeyError("budget campaign is not provisioned")
+            self._require_rate_card(campaign)
+            rows = connection.execute(
+                "SELECT * FROM budget_reservations "
+                "WHERE campaign_run_id = ? ORDER BY reservation_id",
+                (campaign_run_id,),
+            ).fetchall()
+            actor_rows = connection.execute(
+                "SELECT * FROM budget_actors WHERE campaign_run_id = ? "
+                "ORDER BY actor_id",
+                (campaign_run_id,),
+            ).fetchall()
+            audit_rows = connection.execute(
+                "SELECT sequence, actor_id, kind, details_json FROM budget_audit "
+                "WHERE campaign_run_id = ? ORDER BY sequence",
+                (campaign_run_id,),
+            ).fetchall()
+
+        active: list[str] = []
+        forfeited: list[str] = []
+        overrun: list[str] = []
+        missing: list[str] = []
+        errors: list[str] = []
+        actor_state = {
+            str(row["actor_id"]): {
+                "row": row,
+                "expected_reserved": 0,
+                "expected_charged": 0,
+            }
+            for row in actor_rows
+        }
+        terminal_audits: dict[str, list[tuple[str, str | None, dict[str, object]]]] = {}
+        terminal_kinds = {
+            "reservation.settled",
+            "reservation.overrun",
+            "reservation.forfeited",
+            "reservation.released",
+        }
+        for audit_row in audit_rows:
+            kind = str(audit_row["kind"])
+            if kind not in terminal_kinds:
+                continue
+            sequence = int(audit_row["sequence"])
+            try:
+                details = parse_json(str(audit_row["details_json"]))
+                if not isinstance(details, dict):
+                    raise ValueError("audit details are not an object")
+                reservation_value = details.get("reservation_id")
+                if not isinstance(reservation_value, str) or not reservation_value:
+                    raise ValueError("audit reservation ID is missing")
+            except (KeyError, TypeError, ValueError) as error:
+                errors.append(f"invalid_terminal_audit:{sequence}:{type(error).__name__}")
+                continue
+            terminal_audits.setdefault(reservation_value, []).append(
+                (kind, audit_row["actor_id"], details)
+            )
+
+        for row in rows:
+            reservation_id = str(row["reservation_id"])
+            status = str(row["status"])
+            actor_id = str(row["actor_id"])
+            actor = actor_state.get(actor_id)
+            if actor is None:
+                errors.append(f"reservation_actor_missing:{reservation_id}")
+                continue
+            maximum = int(row["maximum_usd_nanos"])
+            if maximum < 1:
+                errors.append(f"invalid_reservation_maximum:{reservation_id}")
+            expected_audit_kind: str | None = None
+            if status == "reserved":
+                active.append(reservation_id)
+                actor["expected_reserved"] = int(actor["expected_reserved"]) + maximum
+            elif status == "forfeited":
+                forfeited.append(reservation_id)
+                expected_audit_kind = "reservation.forfeited"
+            elif status == "overrun":
+                overrun.append(reservation_id)
+                expected_audit_kind = "reservation.overrun"
+            elif status == "settled":
+                expected_audit_kind = "reservation.settled"
+            elif status == "released":
+                expected_audit_kind = "reservation.released"
+            if status in {"settled", "overrun"}:
+                usage_json = row["usage_json"]
+                raw_receipt = row["raw_receipt"]
+                raw_metadata = row["raw_metadata_receipt"]
+                if (
+                    not isinstance(usage_json, str)
+                    or not usage_json
+                    or not isinstance(raw_receipt, bytes)
+                    or not raw_receipt
+                    or (
+                        self._require_metadata_receipts
+                        and (
+                            not isinstance(raw_metadata, bytes)
+                            or not raw_metadata
+                        )
+                    )
+                ):
+                    missing.append(reservation_id)
+                else:
+                    try:
+                        charge = self._charge(row)
+                        if charge.usage.requested_model != str(row["requested_model"]):
+                            errors.append(
+                                f"requested_model_mismatch:{reservation_id}"
+                            )
+                        reconstructed_charge = self._rate_card.charge(charge.usage)
+                        if reconstructed_charge != charge.charged_usd_nanos:
+                            errors.append(
+                                f"reconstructed_charge_mismatch:{reservation_id}"
+                            )
+                        reconstructed_status = (
+                            "overrun"
+                            if reconstructed_charge > maximum
+                            else "settled"
+                        )
+                        if reconstructed_status != status:
+                            errors.append(
+                                f"reconstructed_status_mismatch:{reservation_id}"
+                            )
+                    except (KeyError, RuntimeError, TypeError, ValueError):
+                        errors.append(f"receipt_or_usage_invalid:{reservation_id}")
+            elif status == "forfeited":
+                charged = row["charged_usd_nanos"]
+                raw_receipt = row["raw_receipt"]
+                if charged != maximum:
+                    errors.append(f"forfeit_charge_mismatch:{reservation_id}")
+                if not isinstance(raw_receipt, bytes) or not raw_receipt:
+                    missing.append(reservation_id)
+                if any(
+                    row[field] is not None
+                    for field in (
+                        "usage_digest",
+                        "usage_json",
+                        "raw_metadata_receipt",
+                    )
+                ):
+                    errors.append(f"forfeit_usage_present:{reservation_id}")
+            elif status in {"reserved", "released"}:
+                if any(
+                    row[field] is not None
+                    for field in (
+                        "charged_usd_nanos",
+                        "usage_digest",
+                        "usage_json",
+                        "raw_receipt",
+                        "raw_metadata_receipt",
+                    )
+                ):
+                    errors.append(f"inactive_receipt_present:{reservation_id}")
+            else:
+                errors.append(f"unknown_reservation_status:{reservation_id}")
+
+            charged_value = row["charged_usd_nanos"]
+            if status in {"settled", "overrun", "forfeited"}:
+                if type(charged_value) is not int or charged_value < 0:
+                    errors.append(f"invalid_terminal_charge:{reservation_id}")
+                else:
+                    actor["expected_charged"] = (
+                        int(actor["expected_charged"]) + charged_value
+                    )
+
+            audits = terminal_audits.pop(reservation_id, [])
+            if expected_audit_kind is None:
+                if audits:
+                    errors.append(f"unexpected_terminal_audit:{reservation_id}")
+            elif len(audits) != 1:
+                errors.append(f"terminal_audit_count_mismatch:{reservation_id}")
+            else:
+                kind, audit_actor_id, details = audits[0]
+                if kind != expected_audit_kind or audit_actor_id != actor_id:
+                    errors.append(f"terminal_audit_identity_mismatch:{reservation_id}")
+                self._reconcile_terminal_audit(row, details, errors)
+
+        for orphaned_reservation_id in sorted(terminal_audits):
+            errors.append(f"terminal_audit_without_reservation:{orphaned_reservation_id}")
+
+        campaign_reserved = int(campaign["reserved_usd_nanos"])
+        campaign_charged = int(campaign["charged_usd_nanos"])
+        campaign_limit = int(campaign["limit_usd_nanos"])
+        actor_reserved_total = sum(
+            int(state["row"]["reserved_usd_nanos"])
+            for state in actor_state.values()
+        )
+        actor_charged_total = sum(
+            int(state["row"]["charged_usd_nanos"])
+            for state in actor_state.values()
+        )
+        expected_reserved = sum(
+            int(state["expected_reserved"]) for state in actor_state.values()
+        )
+        expected_charged = sum(
+            int(state["expected_charged"]) for state in actor_state.values()
+        )
+        if campaign_limit < 1:
+            errors.append("invalid_campaign_limit")
+        if campaign_reserved < 0 or campaign_charged < 0:
+            errors.append("invalid_campaign_counter")
+        if campaign_reserved + campaign_charged > campaign_limit:
+            errors.append("campaign_limit_exceeded")
+        if sum(int(state["row"]["limit_usd_nanos"]) for state in actor_state.values()) != campaign_limit:
+            errors.append("actor_limits_do_not_partition_campaign")
+        for actor_id, state in actor_state.items():
+            actor_row = state["row"]
+            actor_limit = int(actor_row["limit_usd_nanos"])
+            actor_reserved_value = int(actor_row["reserved_usd_nanos"])
+            actor_charged_value = int(actor_row["charged_usd_nanos"])
+            if actor_limit < 1:
+                errors.append(f"invalid_actor_limit:{actor_id}")
+            if actor_reserved_value < 0 or actor_charged_value < 0:
+                errors.append(f"invalid_actor_counter:{actor_id}")
+            if actor_reserved_value + actor_charged_value > actor_limit:
+                errors.append(f"actor_limit_exceeded:{actor_id}")
+            if actor_reserved_value != int(state["expected_reserved"]):
+                errors.append(f"actor_reserved_counter_mismatch:{actor_id}")
+            if actor_charged_value != int(state["expected_charged"]):
+                errors.append(f"actor_charged_counter_mismatch:{actor_id}")
+        if campaign_reserved != actor_reserved_total:
+            errors.append("campaign_actor_reserved_total_mismatch")
+        if campaign_reserved != expected_reserved:
+            errors.append("active_reservation_counter_mismatch")
+        if campaign_charged != actor_charged_total:
+            errors.append("campaign_actor_charged_total_mismatch")
+        if campaign_charged != expected_charged:
+            errors.append("terminal_charge_counter_mismatch")
+        return BudgetReconciliation(
+            campaign_run_id=campaign_run_id,
+            accounting_mode=(
+                "provider_receipts_required"
+                if self._require_metadata_receipts
+                else "synthetic_metadata_optional"
+            ),
+            active_reservation_ids=tuple(active),
+            forfeited_reservation_ids=tuple(forfeited),
+            overrun_reservation_ids=tuple(overrun),
+            missing_receipt_reservation_ids=tuple(missing),
+            ledger_errors=tuple(errors),
+        )
+
+    def _reconcile_terminal_audit(
+        self,
+        row: sqlite3.Row,
+        details: dict[str, object],
+        errors: list[str],
+    ) -> None:
+        """Compare terminal row evidence with its independently stored audit event."""
+
+        reservation_id = str(row["reservation_id"])
+        status = str(row["status"])
+        if details.get("reservation_id") != reservation_id:
+            errors.append(f"terminal_audit_reservation_mismatch:{reservation_id}")
+            return
+        if status in {"settled", "overrun"}:
+            try:
+                charge = self._charge(row)
+            except (KeyError, RuntimeError, TypeError, ValueError):
+                return
+            expected = {
+                "call_id": str(row["call_id"]),
+                "maximum_usd_nanos": int(row["maximum_usd_nanos"]),
+                "charged_usd_nanos": charge.charged_usd_nanos,
+                "usage_digest": charge.usage.usage_digest,
+                "receipt_digest": charge.usage.receipt_digest,
+                "metadata_receipt_digest": charge.usage.metadata_receipt_digest,
+                "rate_card_digest": self._rate_card_digest,
+            }
+        elif status == "forfeited":
+            raw_receipt = row["raw_receipt"]
+            if not isinstance(raw_receipt, bytes) or not raw_receipt:
+                return
+            expected = {
+                "charged_usd_nanos": int(row["maximum_usd_nanos"]),
+                "receipt_digest": digest_bytes(raw_receipt),
+            }
+        else:
+            return
+        if any(details.get(key) != value for key, value in expected.items()):
+            errors.append(f"terminal_audit_evidence_mismatch:{reservation_id}")
 
     def _charge(self, row: sqlite3.Row) -> BudgetCharge:
         payload = parse_json(str(row["usage_json"]))

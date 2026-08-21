@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.opencode_harness import (
     OpenCodeHarnessRuntime,
     OpenCodeRuntimeProfile,
@@ -17,6 +18,7 @@ from agent_collab_evals.adapters.opencode_harness import (
     _bridge_environment,
     _runtime_config,
 )
+from agent_collab_evals.sandbox import SandboxProfile
 from agent_collab_evals.budget import GatewayAccessToken
 from agent_collab_evals.domain import (
     CoordinationCondition,
@@ -31,6 +33,14 @@ PROFILE_PATH = (
     REPOSITORY_ROOT
     / "config/runtime_profiles/opencode-deepseek-v4-flash-development.json"
 )
+SANDBOX_PROFILE_PATH = (
+    REPOSITORY_ROOT
+    / "config/sandbox_profiles/darwin-loopback-network-v0.json"
+)
+
+
+def _sandbox() -> DarwinSandboxExec:
+    return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
 
 
 class _TokenIssuer:
@@ -119,7 +129,12 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            runtime = OpenCodeHarnessRuntime(profile, root / "state", _TokenIssuer())
+            runtime = OpenCodeHarnessRuntime(
+                profile,
+                root / "state",
+                _TokenIssuer(),
+                process_sandbox=_sandbox(),
+            )
             for condition in (
                 CoordinationCondition.PEER_ISOLATED,
                 CoordinationCondition.PEER_COLLAB,
@@ -214,7 +229,12 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         issuer = Issuer()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            runtime = OpenCodeHarnessRuntime(profile, root / "state", issuer)
+            runtime = OpenCodeHarnessRuntime(
+                profile,
+                root / "state",
+                issuer,
+                process_sandbox=_sandbox(),
+            )
             campaign_id = "resume-rollback"
             state_root = runtime._organisation_state_root(campaign_id)
             session_items = [
@@ -236,9 +256,13 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
             snapshot = HarnessSnapshot(
                 f"opencode:{campaign_id}",
                 {
-                    "schema": "opencode-harness-snapshot/v2",
+                    "schema": "opencode-harness-snapshot/v3",
                     "runtime_profile_id": profile.profile_id,
                     "runtime_profile_digest": profile.resolved_digest,
+                    "sandbox_profile_id": runtime._process_sandbox.profile_id,
+                    "sandbox_profile_digest": (
+                        runtime._process_sandbox.profile_digest
+                    ),
                     "spec": {
                         "campaign_run_id": campaign_id,
                         "condition": "native_multiagent",

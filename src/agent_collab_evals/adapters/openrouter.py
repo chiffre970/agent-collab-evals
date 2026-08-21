@@ -106,6 +106,10 @@ class OpenRouterUpstream:
         api_key: str,
         **options: object,
     ) -> "OpenRouterUpstream":
+        if profile.cache_policy != "disabled":
+            raise ValueError(
+                "OpenRouter V0 requires the response cache to be disabled"
+            )
         return cls(
             profile.upstream_endpoint,
             api_key,
@@ -211,6 +215,7 @@ class OpenRouterUpstream:
             "Content-Type": "application/json",
             "Accept": accept,
             "X-Title": self._app_title,
+            "X-OpenRouter-Cache": "false",
         }
 
     def _connect(self) -> _Connection:

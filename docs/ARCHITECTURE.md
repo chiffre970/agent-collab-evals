@@ -168,7 +168,31 @@ Terminates all model-provider credentials for a campaign. It conservatively rese
 
 The manifest freezes whether provider caching is disabled, actor-run-scoped or provider-managed and observed. Gateway-controlled caches use separate `(campaign, actor)` namespaces in both peer conditions; confirmatory runs do not deliberately prewarm a condition or share those caches across actors or campaign runs. A confirmatory peer comparison requires effective actor isolation: use a provider namespace when available, otherwise a frozen non-semantic per-actor cache-isolation prefix, or disable caching. Provider-managed observation without effective isolation is permitted for calibration only. The billing policy also freezes the price-catalog digest, rate-schedule version and treatment of provider price tiers or windows. V0 completes a block in one effective tier; a catalog or tier change inside a block invokes the predeclared whole-block rule. For every response the gateway retains requested and returned model identifiers, any revision or system fingerprint, cached-token usage, provider request ID, provider timestamp, effective tier, unit rates and provider receipt. The gateway, not OpenCode's reported cost field, is the enforcement and accounting authority.
 
+The development route uses the simplest valid cache treatment: disabled. The
+selected endpoint attests no implicit provider cache, and the transport sends
+`X-OpenRouter-Cache: false`. A repeated-request qualification requires zero
+cached-token receipts. This same policy applies to every condition; changing it
+requires a new profile and study version.
+
+Campaign closure treats the gateway ledger as a validity boundary, not only an
+accounting report. Session-token revocation waits for authenticated requests to
+finish. The controller then rejects the campaign if any reservation remains
+active, was forfeited or overran its bound, lacks required receipts or fails
+ledger-counter reconciliation. HTTP output that reached an agent before a
+post-stream defect therefore cannot enter a scoreable campaign result.
+
 An unexpected returned model identity or fingerprint change is handled by a predeclared validity rule. A persistent backend change requires a new `study_version`; a change within a randomized block normally invalidates and reruns the complete block. If the provider exposes no fingerprint, its absence is recorded and closely interleaved blocked runs reduce, but do not eliminate, the resulting threat.
+
+The process sandbox remains a separate adapter from OpenCode. The current
+development adapter wraps the complete OpenCode process tree in a pinned macOS
+Seatbelt profile, validates that the configured model endpoint is loopback and
+retains its profile digest in each harness snapshot. Its kernel policy blocks
+nonloopback outbound traffic but permits all ports and services on loopback. It
+does not enforce filesystem or process-resource limits. This is a network-only
+development control, not the complete sandbox boundary shown above. Scored runs
+require a registered adapter that restricts local service access and enforces
+the declared filesystem and process-resource boundaries. Other operating
+systems require separate adapters and conformance evidence.
 
 ## Peer information isolation
 

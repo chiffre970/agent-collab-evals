@@ -7,6 +7,10 @@
     "node": ">=20"
   },
   "scripts": {
+    "check:provider-route": ".venv/bin/python scripts/preflight/provider_route_qualification.py",
+    "snapshot:provider-sources": "node --env-file=.env scripts/preflight/provider_source_snapshot.mjs",
+    "qualify:provider-route": "node --env-file=.env scripts/preflight/provider_route_qualification.mjs",
+    "retain:provider-route": ".venv/bin/python scripts/preflight/retain_provider_qualification.py",
     "check:openrouter": "node --check scripts/preflight/openrouter.mjs && node scripts/preflight/openrouter.mjs --validate-profile",
     "check:opencode": "node --check scripts/runtime/opencode_conformance.mjs && node --check scripts/runtime/opencode_bridge.mjs && node --check scripts/runtime/peer_tool_server.mjs && node --check scripts/runtime/peer_tool_conformance.mjs",
     "check:model-gateway": ".venv/bin/python scripts/preflight/model_gateway_live.py",

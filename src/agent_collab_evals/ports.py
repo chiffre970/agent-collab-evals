@@ -18,6 +18,7 @@ from .budget import (
     ActorBudgetAllocation,
     BudgetCharge,
     BudgetRejected,
+    BudgetReconciliation,
     BudgetReservation,
     BudgetSnapshot,
     ModelCallContext,
@@ -68,6 +69,20 @@ class HarnessRuntime(Protocol):
     def stop(
         self, organisation: HarnessOrganisation, reason: str
     ) -> HarnessSnapshot: ...
+
+
+class ProcessSandbox(Protocol):
+    @property
+    def profile_id(self) -> str: ...
+
+    @property
+    def profile_digest(self) -> str: ...
+
+    def validate_model_endpoint(self, endpoint: str) -> None: ...
+
+    def wrap(self, command: tuple[str, ...]) -> tuple[str, ...]: ...
+
+    def evidence(self) -> Mapping[str, object]: ...
 
 
 class EventSink(Protocol):
@@ -172,6 +187,12 @@ class BudgetAccount(Protocol):
     def release(self, reservation_id: str, reason: str) -> None: ...
 
     def snapshot(self, campaign_run_id: str) -> BudgetSnapshot: ...
+
+    def reconcile(self, campaign_run_id: str) -> BudgetReconciliation: ...
+
+
+class BudgetReconciliationGate(Protocol):
+    def reconcile(self, campaign_run_id: str) -> BudgetReconciliation: ...
 
 
 class StorageBackend(Protocol):

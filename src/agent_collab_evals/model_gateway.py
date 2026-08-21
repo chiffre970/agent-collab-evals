@@ -395,6 +395,8 @@ class _GatewayAccessState:
     campaign_run_id: str
     actor_id: str
     session: SessionHandle | None = None
+    active_requests: int = 0
+    revoked: bool = False
 
 
 class ModelBudgetGateway:
@@ -414,6 +416,7 @@ class ModelBudgetGateway:
         self._account = account
         self._upstream = upstream
         self._lock = threading.RLock()
+        self._request_condition = threading.Condition(self._lock)
         self._tokens: dict[str, _GatewayAccessState] = {}
         self._token_ids: dict[str, str] = {}
         self._sessions: dict[str, str] = {}
@@ -486,15 +489,24 @@ class ModelBudgetGateway:
     def revoke(self, token_id: str, reason: str) -> None:
         if not reason:
             raise ValueError("model gateway revocation reason must be nonempty")
-        with self._lock:
-            token_digest = self._token_ids.pop(token_id, None)
+        with self._request_condition:
+            token_digest = self._token_ids.get(token_id)
             if token_digest is None:
                 return
-            state = self._tokens.pop(token_digest)
+            state = self._tokens[token_digest]
+            state.revoked = True
+            while state.active_requests:
+                self._request_condition.wait()
+            self._token_ids.pop(token_id, None)
+            self._tokens.pop(token_digest, None)
             if state.session is not None:
                 self._sessions.pop(state.session.value, None)
 
     def close(self) -> None:
+        with self._lock:
+            token_ids = tuple(self._token_ids)
+        for token_id in token_ids:
+            self.revoke(token_id, "model gateway closing")
         with self._lock:
             self._tokens.clear()
             self._token_ids.clear()
@@ -513,6 +525,16 @@ class ModelBudgetGateway:
         if state is None:
             self._send_json(handler, 403, {"error": "model gateway access denied"})
             return
+        try:
+            self._handle_authorized(handler, state)
+        finally:
+            self._release_authorization(state.token_id)
+
+    def _handle_authorized(
+        self,
+        handler: BaseHTTPRequestHandler,
+        state: _GatewayAccessState,
+    ) -> None:
         length = self._content_length(handler)
         if length is None:
             self._send_json(handler, 400, {"error": "invalid request length"})
@@ -752,16 +774,28 @@ class ModelBudgetGateway:
         if not authorization.startswith("Bearer "):
             return None
         token_digest = self._token_digest(authorization[7:])
-        with self._lock:
+        with self._request_condition:
             state = self._tokens.get(token_digest)
-            if state is None or state.session is None:
+            if state is None or state.session is None or state.revoked:
                 return None
+            state.active_requests += 1
             return _GatewayAccessState(
                 state.token_id,
                 state.campaign_run_id,
                 state.actor_id,
                 state.session,
             )
+
+    def _release_authorization(self, token_id: str) -> None:
+        with self._request_condition:
+            token_digest = self._token_ids.get(token_id)
+            if token_digest is None:
+                raise RuntimeError("active model gateway token disappeared")
+            state = self._tokens[token_digest]
+            if state.active_requests < 1:
+                raise RuntimeError("model gateway request count underflow")
+            state.active_requests -= 1
+            self._request_condition.notify_all()
 
     def _content_length(self, handler: BaseHTTPRequestHandler) -> int | None:
         try:

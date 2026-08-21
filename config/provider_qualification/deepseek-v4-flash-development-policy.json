@@ -1,0 +1,35 @@
+{
+  "schema_version": "provider-selection-policy/v1",
+  "policy_id": "deepseek-v4-flash-development-policy",
+  "status": "development",
+  "candidate_snapshot": "config/provider_qualification/openrouter-deepseek-v4-flash-zdr-20260822.json",
+  "candidate_providers": [
+    "DeepInfra",
+    "Novita",
+    "CoreWeave"
+  ],
+  "eligibility": {
+    "allowed_quantizations": [
+      "fp8"
+    ],
+    "required_parameters": [
+      "max_tokens",
+      "reasoning_effort",
+      "tool_choice",
+      "tools"
+    ],
+    "require_zdr": true,
+    "require_no_implicit_caching": true,
+    "minimum_context_tokens": 163840,
+    "minimum_completion_tokens": 32768,
+    "minimum_uptime_last_1d_percent": "98.5"
+  },
+  "representative_mix": {
+    "uncached_input_tokens": 100000,
+    "output_tokens": 10000
+  },
+  "tie_break": [
+    "projected_cost_usd_nanos",
+    "provider_name"
+  ]
+}

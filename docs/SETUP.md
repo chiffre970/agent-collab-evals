@@ -75,6 +75,20 @@ RUN_OPENCODE_INTEGRATION=1 RUN_PEER_TOOL_INTEGRATION=1 \
   python -W error::ResourceWarning -m unittest discover -s tests -v
 ```
 
+On macOS, include the kernel egress proof with:
+
+```bash
+RUN_SANDBOX_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest -v tests.test_sandbox
+```
+
+The pinned `sandbox-exec` development profile allows every loopback destination
+and denies nonloopback network egress. It does not restrict filesystem access or
+process resources. OpenCode snapshots retain the profile digest. Scored runs
+must add gateway-specific local-service isolation plus filesystem and resource
+enforcement; a deployment cannot silently fall back to this partial boundary or
+an unenforced process.
+
 Run OpenCode through the local budget gateway and deterministic upstream with:
 
 ```bash
@@ -118,10 +132,10 @@ receives the API credential.
 Do not point `OpenCodeHarnessRuntime` directly at OpenRouter for a study. Its
 `OrganisationSpec.model_endpoint` must be the experiment-owned budget gateway;
 that gateway will enforce the registered provider route, privacy settings and
-dollar limit and issue the session token. Live route and billing qualification
-remain implementation gates. The real adapter still rejects both peer conditions unless the pinned
-peer profile and gateway are supplied together, preventing an absent peer tool
-from silently collapsing treatment and control.
+dollar limit and issue the session token. The real adapter still rejects both
+peer conditions unless the pinned peer profile and gateway are supplied
+together, preventing an absent peer tool from silently collapsing treatment
+and control.
 
 ## OpenRouter
 
@@ -143,6 +157,47 @@ Then run the small streaming request with:
 ```bash
 npm run preflight:openrouter
 ```
+
+Validate the frozen provider-selection policy and committed development record
+without spend:
+
+```bash
+npm run check:provider-route
+```
+
+To refresh the mutable catalog evidence during calibration, first fetch and
+retain exact endpoint and authenticated ZDR responses, then derive the candidate
+snapshot:
+
+```bash
+npm run snapshot:provider-sources
+```
+
+Review and update the policy's snapshot path before qualifying a route. The
+source command writes no credential and retains both compressed-file and raw
+response digests.
+
+To repeat the three-probe selected-route qualification under its hard `$0.05`
+gateway cap, run:
+
+```bash
+npm run qualify:provider-route
+```
+
+The qualification sends two identical text probes and one forced tool-call
+probe. It requires exact provider/model receipts, zero cached tokens and clean
+budget reconciliation. It writes the key-free summary and owner-readable raw
+receipts under ignored `tmp/provider-qualification/`. After review, retain one
+passing record and its six receipts with:
+
+```bash
+npm run retain:provider-route -- \
+  tmp/provider-qualification/provider-route-YYYY-MM-DDTHH-MM-SSZ.json
+```
+
+Update the development selection record to reference those retained paths and
+digests. `npm run check:provider-route` then resolves every source and receipt
+file and rejects missing or altered evidence.
 
 An alternate committed development profile can be checked or exercised
 explicitly without putting the model or provider in `.env`:

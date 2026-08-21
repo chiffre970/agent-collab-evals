@@ -8,7 +8,9 @@ from pathlib import Path
 from agent_collab_evals.adapters.fake_harness import FakeHarnessRuntime
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.local_snapshots import LocalCampaignSnapshotStore
-from agent_collab_evals.controller import CampaignController
+from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
+from agent_collab_evals.budget import BudgetReconciliation
+from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
 from agent_collab_evals.domain import (
     CoordinationCondition,
     Job,
@@ -55,14 +57,18 @@ class CampaignControllerTests(unittest.TestCase):
             events = LocalEventSink(root / "events")
             store = LocalCampaignSnapshotStore(root / "snapshots")
             first_runtime = FakeHarnessRuntime()
-            first = CampaignController(first_runtime, events)
+            first = CampaignController(
+                first_runtime, events, NoModelBudgetReconciler()
+            )
             handle = first.start(self._spec("durable-run", CoordinationCondition.SOLO))
             first.deliver(handle, _job("first"))
             snapshot = first.snapshot(handle)
             store.save(snapshot)
 
             second_runtime = FakeHarnessRuntime()
-            second = CampaignController(second_runtime, events)
+            second = CampaignController(
+                second_runtime, events, NoModelBudgetReconciler()
+            )
             resumed = second.resume(store.load("durable-run"))
             self.assertEqual(resumed.sessions, handle.sessions)
             second.deliver(resumed, _job("second"))
@@ -81,6 +87,7 @@ class CampaignControllerTests(unittest.TestCase):
                     "campaign.snapshotted",
                     "campaign.resumed",
                     "job.delivered",
+                    "campaign.budget_reconciled",
                     "campaign.closed",
                 ],
             )
@@ -125,6 +132,75 @@ class CampaignControllerTests(unittest.TestCase):
 
             for session in handle.sessions:
                 self.assertEqual(runtime.delivered_jobs(session), ("parallel",))
+
+    def test_close_requires_budget_reconciliation_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = FakeHarnessRuntime()
+            controller = CampaignController(
+                runtime, LocalEventSink(Path(directory) / "events")
+            )
+            handle = controller.start(
+                self._spec("missing-budget-gate", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError, "requires a configured budget reconciliation gate"
+            ):
+                controller.close(handle, "complete")
+
+            self.assertEqual(handle.status.value, "active")
+
+    def test_invalid_budget_terminal_state_rejects_campaign_result(self) -> None:
+        class InvalidBudget:
+            def reconcile(self, campaign_run_id: str) -> BudgetReconciliation:
+                return BudgetReconciliation(
+                    campaign_run_id,
+                    "provider_receipts_required",
+                    forfeited_reservation_ids=("reservation-forfeited",),
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = FakeHarnessRuntime()
+            events = LocalEventSink(root / "events")
+            controller = CampaignController(runtime, events, InvalidBudget())
+            handle = controller.start(
+                self._spec("invalid-budget", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaises(CampaignCloseRejected) as caught:
+                controller.close(handle, "complete")
+
+            self.assertEqual(handle.status.value, "invalid")
+            self.assertIsNotNone(caught.exception.reconciliation)
+            self.assertEqual(
+                [event["kind"] for event in events.read("invalid-budget")],
+                ["campaign.started", "campaign.invalid"],
+            )
+
+    def test_close_rejects_reconciliation_for_another_campaign(self) -> None:
+        class WrongCampaignBudget:
+            def reconcile(self, campaign_run_id: str) -> BudgetReconciliation:
+                return BudgetReconciliation("another-campaign", "test")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = LocalEventSink(root / "events")
+            controller = CampaignController(
+                FakeHarnessRuntime(), events, WrongCampaignBudget()
+            )
+            handle = controller.start(
+                self._spec("budget-mismatch", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaises(CampaignCloseRejected):
+                controller.close(handle, "complete")
+
+            invalid = events.read("budget-mismatch")[-1]
+            self.assertEqual(
+                invalid["payload"]["reason"],
+                "budget_reconciliation_campaign_mismatch",
+            )
 
     @staticmethod
     def _spec(run_id: str, condition: CoordinationCondition) -> OrganisationSpec:

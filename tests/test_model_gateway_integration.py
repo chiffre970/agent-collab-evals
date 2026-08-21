@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.opencode_harness import (
     OpenCodeHarnessRuntime,
@@ -13,13 +14,14 @@ from agent_collab_evals.adapters.opencode_harness import (
 )
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
 from agent_collab_evals.budget import ActorBudgetAllocation
-from agent_collab_evals.controller import CampaignController
+from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
 from agent_collab_evals.domain import CoordinationCondition, Job, OrganisationSpec
 from agent_collab_evals.model_gateway import (
     ModelBudgetGateway,
     ModelGatewayProfile,
     UpstreamStream,
 )
+from agent_collab_evals.sandbox import SandboxProfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -31,11 +33,20 @@ RUNTIME_PROFILE_PATH = (
     REPOSITORY_ROOT
     / "config/runtime_profiles/opencode-deepseek-v4-flash-development.json"
 )
+SANDBOX_PROFILE_PATH = (
+    REPOSITORY_ROOT
+    / "config/sandbox_profiles/darwin-loopback-network-v0.json"
+)
+
+
+def _sandbox() -> DarwinSandboxExec:
+    return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
 
 
 class _OpenCodeUpstream:
-    def __init__(self) -> None:
+    def __init__(self, provider_name: str = "DeepInfra") -> None:
         self.requests: list[dict[str, object]] = []
+        self.provider_name = provider_name
 
     def stream(self, request: bytes) -> UpstreamStream:
         body = json.loads(request)
@@ -83,7 +94,7 @@ class _OpenCodeUpstream:
             200,
             {"Content-Type": "text/event-stream"},
             (stream.encode(),),
-            provider_name="DeepInfra",
+            provider_name=self.provider_name,
         )
 
 
@@ -99,7 +110,9 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                 GATEWAY_PROFILE_PATH, repository_root=REPOSITORY_ROOT
             )
             account = SqliteBudgetAccount(
-                root / "budget.sqlite3", gateway_profile.rate_card
+                root / "budget.sqlite3",
+                gateway_profile.rate_card,
+                require_metadata_receipts=False,
             )
             campaign_run_id = "opencode-budget-gateway"
             actor_id = f"{campaign_run_id}:actor:0"
@@ -119,10 +132,11 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     OpenCodeRuntimeProfile.load(RUNTIME_PROFILE_PATH),
                     root / "runtime-state",
                     gateway,
+                    process_sandbox=_sandbox(),
                     timeout_seconds=30,
                 )
                 controller = CampaignController(
-                    runtime, LocalEventSink(root / "events")
+                    runtime, LocalEventSink(root / "events"), account
                 )
                 handle = controller.start(
                     OrganisationSpec(
@@ -166,6 +180,82 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     "reservation.settled",
                     [event["kind"] for event in snapshot.audit_events],
                 )
+            finally:
+                gateway.close()
+
+    def test_post_stream_route_drift_invalidates_campaign_at_close(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gateway_profile = ModelGatewayProfile.load(
+                GATEWAY_PROFILE_PATH, repository_root=REPOSITORY_ROOT
+            )
+            account = SqliteBudgetAccount(
+                root / "budget.sqlite3",
+                gateway_profile.rate_card,
+                require_metadata_receipts=False,
+            )
+            campaign_run_id = "opencode-post-stream-forfeit"
+            actor_id = f"{campaign_run_id}:actor:0"
+            account.open_campaign(
+                campaign_run_id,
+                250_000_000,
+                (
+                    ActorBudgetAllocation(
+                        campaign_run_id, actor_id, 250_000_000
+                    ),
+                ),
+            )
+            upstream = _OpenCodeUpstream("Unexpected Provider")
+            gateway = ModelBudgetGateway(gateway_profile, account, upstream)
+            events = LocalEventSink(root / "events")
+            try:
+                runtime = OpenCodeHarnessRuntime(
+                    OpenCodeRuntimeProfile.load(RUNTIME_PROFILE_PATH),
+                    root / "runtime-state",
+                    gateway,
+                    process_sandbox=_sandbox(),
+                    timeout_seconds=30,
+                )
+                controller = CampaignController(runtime, events, account)
+                handle = controller.start(
+                    OrganisationSpec(
+                        campaign_run_id=campaign_run_id,
+                        condition=CoordinationCondition.SOLO,
+                        organisation_size=1,
+                        workspace_root=root / "workspaces",
+                        model_endpoint=gateway.endpoint,
+                    )
+                )
+
+                controller.deliver(
+                    handle,
+                    Job(
+                        "forfeited-job",
+                        "Return a short completion.",
+                        "sha256:forfeited-job",
+                        {},
+                    ),
+                )
+                self.assertEqual(handle.delivered_job_ids, ["forfeited-job"])
+                self.assertEqual(len(upstream.requests), 1)
+
+                with self.assertRaises(CampaignCloseRejected) as caught:
+                    controller.close(handle, "complete")
+
+                reconciliation = caught.exception.reconciliation
+                self.assertIsNotNone(reconciliation)
+                assert reconciliation is not None
+                self.assertIn(
+                    "MODEL_GATEWAY_OK",
+                    json.dumps(caught.exception.final_harness_snapshot.payload),
+                )
+                self.assertEqual(len(reconciliation.forfeited_reservation_ids), 1)
+                self.assertEqual(handle.status.value, "invalid")
+                event_kinds = [
+                    event["kind"] for event in events.read(campaign_run_id)
+                ]
+                self.assertIn("campaign.invalid", event_kinds)
+                self.assertNotIn("campaign.closed", event_kinds)
             finally:
                 gateway.close()
 

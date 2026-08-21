@@ -228,7 +228,7 @@ CampaignInstance
   condition: CoordinationCondition
   organisation: Organisation
   jobs: ordered list<Job>
-  status: pending | active | closed | failed
+  status: pending | active | closed | invalid | failed
   started_at: timestamp | null
   closed_at: timestamp | null
 ```
@@ -245,6 +245,16 @@ interface CampaignController:
 ```
 
 The controller may schedule jobs and manage lifecycle. It may not decide agent roles, handoffs, peer messages, artifact merging or task solutions.
+
+`close()` requires a configured `BudgetReconciliationGate`. It first stops the
+harness and revokes its session credentials, waiting for authenticated in-flight
+model requests to reach a durable terminal state. It then reconciles the
+campaign ledger. The controller emits `campaign.closed` and returns a
+`CampaignResult` only when no reservation is active, forfeited, overrun or
+missing its required raw stream and provider-metadata receipts. Otherwise, it
+emits `campaign.invalid`, marks the handle invalid and raises without returning
+a scoreable result. A local fake that makes no model calls must still supply an
+explicit `no_model_calls` reconciler; an absent gate cannot close a campaign.
 
 The first serving campaign supplies one evolving job. Later definitions may supply a sequence without changing this contract.
 
@@ -509,6 +519,7 @@ interface BudgetAccount:
   settle(reservation_id, ProviderUsage) -> Charge
   release(reservation_id, reason) -> void
   snapshot() -> BudgetSnapshot
+  reconcile(campaign_run_id) -> BudgetReconciliation
 ```
 
 Enforcement rules:
@@ -523,6 +534,12 @@ Enforcement rules:
 - Every response records requested and returned model identifiers, available revision and system fingerprint, provider request ID, provider timestamp, cached input/output accounting, effective cache policy, price tier and cache-hit/cache-miss/output unit rates.
 - Gateway-controlled caches use separate `(campaign, actor)` namespaces in both peer conditions and are never shared across actors or campaign runs or selectively prewarmed by condition. Provider-managed isolation keys or a frozen non-semantic per-actor isolation prefix are used where needed; a provider that cannot provide effective isolation is calibration-only.
 - Subscription-backed model access is forbidden in confirmatory studies.
+- Token revocation is a quiescence barrier: it rejects new authentication and
+  waits for already authenticated calls to settle, release or forfeit before
+  returning.
+- Close-time reconciliation verifies reservation and charge counters and
+  rejects active reservations, forfeitures, overruns, unknown terminal states
+  or settled calls missing either required raw receipt.
 
 OpenCode's cost and token fields are retained as observational telemetry. They are reconciled against the gateway but never authorize requests, extend the cap or replace provider-accounting evidence.
 
@@ -549,6 +566,20 @@ The study declares how identity and billing drift are handled before execution. 
 The harness runtime launches inside an enforced sandbox profile that declares writable paths, process limits, network destinations and per-session broker endpoints. It mounts the session-bound local transport but no bearer, provider, cloud or storage credential. Raw network egress is denied; live research is available only through the broker's SSRF-resistant fetch path, and quarantined artifacts are neither readable nor executable until an explicit safe-extraction policy admits derived output.
 
 The sandbox must prevent bypassing the budget gateway or capability brokers. Logging an attempted bypass without blocking it is a control failure.
+
+The sandbox is supplied through a `ProcessSandbox` port rather than built into
+`OpenCodeHarnessRuntime`. It validates that the configured model endpoint is
+the loopback gateway, wraps the complete runtime process tree and exposes a
+pinned profile digest. Harness snapshot schema `opencode-harness-snapshot/v3`
+retains that digest, and resume fails if it changes. The current macOS
+`sandbox-exec` development adapter enforces only a loopback-wide network
+boundary: every loopback port remains reachable, and filesystem and
+process-resource constraints are not enforced. It therefore proves direct
+provider egress denial but is not a registered implementation of the full
+contract above. Scored execution requires a separate adapter or containment
+layer that restricts accessible local services and enforces the declared
+filesystem and process-resource limits. Every operating system requires its
+own equivalent kernel- or container-level conformance proof.
 
 ## Collaboration profile builder
 
@@ -641,6 +672,9 @@ Before the first confirmatory pilot, tests must prove:
 - GPU measurements hold exclusive leases and deterministically apply reset, warmup, repetition and canary rules.
 - Controlled web access rejects redirect and DNS-rebinding attempts to private or metadata addresses, sanitizes allowed text, and keeps binary or active content quarantined unless an approved isolated extractor produces separately admitted output.
 - Every settled provider response is reconciled with observational harness telemetry.
+- Campaign closure cannot return a scoreable result when budget reconciliation
+  finds an active reservation, forfeiture, overrun, missing receipt or ledger
+  counter inconsistency.
 - Returned provider identity, fingerprint, cache accounting, provider timestamp, effective price tier and unit rates are captured; identity or billing drift applies the frozen block-validity rule.
 - Hidden evaluator inputs and outputs never enter agent-visible storage.
 - The organisation-level candidate total, campaign-specific default outcomes and neutral public-score selection are identical across all four conditions; the two peer arms also use identical fixed actor sublimits.

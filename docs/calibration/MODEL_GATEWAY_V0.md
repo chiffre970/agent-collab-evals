@@ -87,6 +87,11 @@ substituted for the corrected run. Total model spend across both checks was
 - The opaque model credential is issued pending, activated against the actual
   OpenCode session and revoked on failure, suspend or stop. It is not stored in
   campaign snapshots.
+- Revocation rejects new authentication and waits for authenticated in-flight
+  requests to reach a durable terminal state. Mandatory close-time
+  reconciliation then rejects active reservations, forfeitures, overruns,
+  missing required receipts and ledger-counter inconsistencies, so a
+  post-stream defect cannot leave a scoreable campaign.
 - OpenCode handles decimal-valued inference parameters through a dedicated
   exact decimal JSON path; experiment money and evidence boundaries continue to
   reject binary floats.
@@ -125,12 +130,15 @@ RUN_MODEL_GATEWAY_INTEGRATION=1 \
 
 ## Remaining boundary
 
-Before any live multi-condition run, pass the frozen provider-selection and
-condition-matching workloads. The development canary confirms actual
-OpenRouter streaming, metadata availability, returned identity and billing;
-failure-injection tests still provide the deterministic unstarted/ambiguous
-failure evidence. The sandbox must then deny direct provider egress so the
-gateway is the only usable model path.
+Development provider selection and condition-matched disabled-cache evidence
+now pass. The macOS runtime also uses a kernel-enforced, loopback-wide network
+policy, so OpenCode cannot reach the provider directly. Every loopback service
+remains reachable, and filesystem and process-resource limits are not enforced.
+Before any scored run, promote the selected route, billing and gateway evidence,
+add the missing sandbox boundaries, and bind them into the complete platform
+manifest. A different deployment operating system requires its own sandbox
+adapter and equivalent proof. Failure-injection tests continue to provide the
+deterministic unstarted and ambiguous-request evidence.
 
 The transport behavior follows OpenRouter's official
 [streaming contract](https://openrouter.ai/docs/api/reference/streaming), and

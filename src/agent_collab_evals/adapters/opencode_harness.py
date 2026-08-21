@@ -33,6 +33,7 @@ from ..peer_tool import (
     PeerToolGateway,
     PeerToolIntegrationProfile,
 )
+from ..ports import ProcessSandbox
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _BRIDGE_PATH = _REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs"
@@ -222,6 +223,7 @@ class _Bridge:
         profile: OpenCodeRuntimeProfile,
         endpoint: str,
         gateway_token: str,
+        process_sandbox: ProcessSandbox,
         native_handoffs: bool,
         peer_access: PeerToolAccess | None,
         timeout_seconds: int,
@@ -240,8 +242,9 @@ class _Bridge:
         self._responses: queue.Queue[object] = queue.Queue()
         self._stderr: list[str] = []
         self._lock = threading.Lock()
+        command = process_sandbox.wrap((node, str(_BRIDGE_PATH)))
         self._process = subprocess.Popen(
-            [node, str(_BRIDGE_PATH)],
+            command,
             cwd=_REPOSITORY_ROOT,
             env=environment,
             stdin=subprocess.PIPE,
@@ -389,6 +392,7 @@ class OpenCodeHarnessRuntime:
         state_base: Path,
         gateway_tokens: GatewayTokenIssuer,
         *,
+        process_sandbox: ProcessSandbox,
         peer_profile: PeerToolIntegrationProfile | None = None,
         peer_gateway: PeerToolGateway | None = None,
         timeout_seconds: int = 300,
@@ -398,6 +402,7 @@ class OpenCodeHarnessRuntime:
         self._profile = profile
         self._state_base = state_base
         self._gateway_tokens = gateway_tokens
+        self._process_sandbox = process_sandbox
         if (peer_profile is None) != (peer_gateway is None):
             raise ValueError("peer profile and gateway must be configured together")
         if (
@@ -427,6 +432,8 @@ class OpenCodeHarnessRuntime:
                 else None
             ),
             "session_scoped_gateway_tokens": True,
+            "sandbox_profile_id": self._process_sandbox.profile_id,
+            "sandbox_profile_digest": self._process_sandbox.profile_digest,
         }
 
     def start_organisation(self, spec: OrganisationSpec) -> HarnessOrganisation:
@@ -454,6 +461,7 @@ class OpenCodeHarnessRuntime:
             raise RuntimeError(
                 "peer conditions require the matched peer-tool profile"
             )
+        self._process_sandbox.validate_model_endpoint(spec.model_endpoint)
 
     def create_primary(
         self, organisation: HarnessOrganisation, actor: AgentIdentity
@@ -575,7 +583,7 @@ class OpenCodeHarnessRuntime:
                 }
             )
         payload = {
-            "schema": "opencode-harness-snapshot/v2",
+            "schema": "opencode-harness-snapshot/v3",
             "runtime_profile_id": self._profile.profile_id,
             "runtime_profile_digest": self._profile.resolved_digest,
             "peer_tool_profile_digest": (
@@ -583,6 +591,8 @@ class OpenCodeHarnessRuntime:
                 if self._peer_profile is not None
                 else None
             ),
+            "sandbox_profile_id": self._process_sandbox.profile_id,
+            "sandbox_profile_digest": self._process_sandbox.profile_digest,
             "spec": {
                 "campaign_run_id": state.spec.campaign_run_id,
                 "condition": state.spec.condition.value,
@@ -597,10 +607,12 @@ class OpenCodeHarnessRuntime:
 
     def resume(self, snapshot: HarnessSnapshot) -> HarnessOrganisation:
         payload = _mapping(snapshot.payload, "harness snapshot")
-        if payload.get("schema") != "opencode-harness-snapshot/v2":
+        if payload.get("schema") != "opencode-harness-snapshot/v3":
             raise ValueError("unsupported OpenCode harness snapshot schema")
         if payload.get("runtime_profile_digest") != self._profile.resolved_digest:
             raise ValueError("runtime profile changed across resume")
+        if payload.get("sandbox_profile_digest") != self._process_sandbox.profile_digest:
+            raise ValueError("sandbox profile changed across resume")
         expected_peer_digest = (
             self._peer_profile.resolved_digest
             if self._peer_profile is not None
@@ -860,6 +872,7 @@ class OpenCodeHarnessRuntime:
             profile=self._profile,
             endpoint=spec.model_endpoint,
             gateway_token=gateway_token,
+            process_sandbox=self._process_sandbox,
             native_handoffs=spec.condition is CoordinationCondition.NATIVE_MULTIAGENT,
             peer_access=peer_access,
             timeout_seconds=self._timeout_seconds,

@@ -18,6 +18,7 @@ class CoordinationCondition(str, Enum):
 class CampaignStatus(str, Enum):
     ACTIVE = "active"
     CLOSED = "closed"
+    INVALID = "invalid"
 
 
 @dataclass(frozen=True, slots=True)
