@@ -8,9 +8,13 @@
   },
   "scripts": {
     "check:openrouter": "node --check scripts/preflight/openrouter.mjs && node scripts/preflight/openrouter.mjs --validate-profile",
+    "check:opencode": "node --check scripts/runtime/opencode_conformance.mjs && node --check scripts/runtime/opencode_bridge.mjs",
+    "spike:opencode": "node scripts/runtime/opencode_conformance.mjs",
     "preflight:openrouter": "node --env-file=.env scripts/preflight/openrouter.mjs"
   },
   "dependencies": {
-    "@openrouter/sdk": "1.2.34"
+    "@opencode-ai/sdk": "1.18.19",
+    "@openrouter/sdk": "1.2.34",
+    "opencode-ai": "1.18.19"
   }
 }

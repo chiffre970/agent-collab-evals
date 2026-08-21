@@ -28,7 +28,7 @@ python -m unittest discover -s tests -v
 the runtime snapshot, resumes it through a fresh harness instance and closes
 it. The unit suite additionally delivers a second job after resume.
 
-Install the pinned OpenRouter SDK:
+Install the pinned OpenRouter and OpenCode packages:
 
 ```bash
 npm install
@@ -42,6 +42,44 @@ cp .env.example .env
 
 `.env` is ignored by Git. Do not put credentials in manifests, documentation,
 agent workspaces or committed files.
+
+## OpenCode runtime
+
+OpenCode and its stable SDK are pinned exactly to 1.18.19 in `package-lock.json`.
+The runtime adapter reads model and runtime behavior from
+`config/runtime_profiles/`. Its caller must provide a `GatewayTokenIssuer`
+backed by the budget gateway; the issuer creates one opaque, revocable token
+per top-level session. The OpenCode bridge receives a complete minimal
+environment with an isolated home and temporary directory. It does not inherit
+host provider, Modal, GitHub or Hugging Face credentials. The selected runtime
+profile transitively digests its separate agent-inference provider profile.
+
+Run the deterministic stock-runtime proof without API or GPU spend:
+
+```bash
+npm run spike:opencode
+```
+
+The command starts only loopback servers. It routes OpenCode through a local
+OpenAI-compatible fake gateway, restarts the stock server, exercises its native
+`task` handoff, checks actual solo tool removal and compares effective-surface
+digests with and without out-of-process event observation. Its ignored detailed
+report is written below `tmp/opencode-conformance/`.
+
+The ordinary unit suite skips the slower real-runtime restart test. Run that
+test explicitly, still without API spend, with:
+
+```bash
+RUN_OPENCODE_INTEGRATION=1 python -m unittest -v \
+  tests.test_opencode_harness_integration
+```
+
+Do not point `OpenCodeHarnessRuntime` directly at OpenRouter for a study. Its
+`OrganisationSpec.model_endpoint` must be the experiment-owned budget gateway;
+that gateway will enforce the registered provider route, privacy settings and
+dollar limit and issue the session token. The gateway remains an implementation
+gate. Until the matched peer-tool profile is implemented, the real adapter
+rejects both peer conditions rather than silently running identical treatments.
 
 ## OpenRouter
 

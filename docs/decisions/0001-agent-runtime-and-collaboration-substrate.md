@@ -1,7 +1,8 @@
 # ADR 0001: Agent runtime and collaboration substrate
 
-- **Status:** Accepted for a timeboxed V0 implementation spike
+- **Status:** Accepted; stock-runtime proof passed, collaboration proof pending
 - **Decision date:** 2026-08-12
+- **Runtime proof date:** 2026-08-21
 
 ## Context
 
@@ -12,6 +13,12 @@ The first study needs a capable coding-agent loop, native hierarchical handoffs,
 V0 will pin a stock OpenCode release and integrate it through the generic `HarnessRuntime` port. An external controller uses its pinned SDK and consumes the public event stream out of process wherever that is sufficient. Because OpenCode's current [V2 plugin API](https://opencode.ai/v2/docs/build/plugins) is beta and can transform agents, models, requests and tools, any in-process instrumentation plugin is separately pinned, restricted to an explicit observational API/hook allowlist and verified not to mutate effective prompts, models, tools, permissions or configuration. Peer-tool injection uses a distinct pinned integration profile, identical in the two peer arms. All model traffic passes through the experiment-owned budget gateway. OpenCode telemetry is observational; the gateway, capability brokers, authorization services and sandbox remain the enforcement boundaries.
 
 We will not fork OpenCode initially. The first part of the spike must prove through the stock SDK plus the separately pinned observational and peer-tool paths that the adapter can create and resume durable sessions, expose native handoffs, inject the peer tool, capture the required events and route model traffic through the provider gateway. It must export effective prompt/model/tool/permission/configuration digests and demonstrate that observational instrumentation leaves them unchanged. If a required control cannot be implemented at that boundary, work stops for an explicit runtime decision rather than growing an implicit OpenCode fork.
+
+The stock-runtime portion passed on 2026-08-21 using OpenCode and SDK 1.18.19. A deterministic local OpenAI-compatible gateway proved model routing without API spend; the same session and messages survived a server restart; the stock `task` mechanism created and completed a child session; the out-of-process SDK stream captured parent and child events; and observation left the effective configuration, model, tool, permission and agent digests unchanged. A solo-profile request did not offer `task` to the model. The Python `HarnessRuntime` adapter then passed a two-job process-style resume through its stock-OpenCode bridge. See [the retained runtime-spike record](../calibration/OPENCODE_RUNTIME_V0.md).
+
+This result accepts stock OpenCode for the V0 runtime adapter. It does not complete ADR 0001: the matched peer-tool integration and minimal collaboration/publication backend still must pass the remaining exit checks below. It also does not authorize direct OpenRouter study traffic; the external budget gateway must enforce the pinned serving route and dollar limit first.
+
+The runtime hardening review subsequently made the budget-gateway credential session-scoped and removed ambient environment inheritance, added fail-closed peer-condition admission while the matched peer tool is absent, and made event checkpoints cursor-based and terminal-state reconciled. Bridge timeouts are terminal and failed resume rolls back provisional session mappings and tokens. These controls are part of the runtime acceptance boundary, not optional production hardening.
 
 Subject to that proof, V0 will implement a minimal collaboration backend directly behind the generic `CollaborationBackend` port. Its contract is limited to authenticated actor-private or organisation-shared publish, reply, list, fetch, lexical search, notifications, durable audit events and explicit artifact publication. Artifact authorization is handled server-side through the independent durable `PublicationRegistry`: an agent supplies a reference to an ordinary artifact it owns, the service creates and binds an opaque publication to the successful entry, and authorized readers materialize it through a session-bound service check. Agents never construct, carry or reason about authorization grants. The service must not assign roles, plan work, merge outputs, recommend collaborators, allocate resources or optimize coordination.
 

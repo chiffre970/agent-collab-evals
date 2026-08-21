@@ -1,0 +1,23 @@
+{
+  "schema_version": "opencode-runtime-profile/v1",
+  "profile_id": "opencode-deepseek-v4-flash-development",
+  "status": "development",
+  "opencode_version": "1.18.19",
+  "sdk_version": "1.18.19",
+  "provider": {
+    "id": "experiment_gateway",
+    "npm": "@ai-sdk/openai-compatible"
+  },
+  "model": {
+    "id": "deepseek/deepseek-v4-flash-0731",
+    "name": "DeepSeek V4 Flash 0731",
+    "tool_call": true,
+    "context_tokens": 163840,
+    "output_tokens": 32768
+  },
+  "agent_inference_profile": "config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json",
+  "instrumentation": {
+    "mode": "stock-sdk-out-of-process-sse",
+    "plugins": []
+  }
+}

@@ -11,6 +11,9 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - The fake harness preserves actor, session and delivered-job identity across
   a serialized process-style resume. Local snapshots use atomic replacement;
   local events are append-only, fsynced and sequence checked.
+- Multi-actor delivery submits every top-level session concurrently and joins
+  results in stable actor order. A partial failure remains safely retryable
+  because each harness delivery is idempotent by job and materials digest.
 - `model_serving_v0` transitively hashes its mission, schemas, workloads,
   hidden evaluator interface and reference candidate. Candidate validation
   rejects unknown fields and changes to the fixed model revision or hardware.
@@ -88,13 +91,32 @@ smallest useful seams before adding the runtime and collaboration machinery.
   retries: 672/672 requests and 27/27 raw artifacts validated under identical
   manifests, package set and GPU identity. The calibration ledger records
   provenance, variability and provisional bucket-specific TTFT/TPOT SLOs.
+- The stock-OpenCode portion of ADR 0001 passed at exact OpenCode and SDK
+  1.18.19. The zero-spend conformance probe proved provider-endpoint routing,
+  durable session/message resume, a real stock `task` child session, child
+  event observation, unchanged effective-surface digests under out-of-process
+  observation, and actual removal of `task` from solo model requests.
+- A real `OpenCodeHarnessRuntime` now implements the provider-neutral port
+  through a small JSON-lines SDK bridge. It runs one isolated OpenCode state
+  namespace per top-level actor, inherits no ambient host credentials, requires
+  an opaque revocable gateway token issued per session, derives workspaces and
+  state paths server-side, redacts the token from evidence, and rejects
+  runtime-profile or effective-surface changes across resume. Event snapshots
+  use monotonic cursors, bounded-buffer loss detection, terminal session/message
+  reconciliation and a quiescent checkpoint barrier. A stream error, cursor
+  gap, reconciliation gap or bridge timeout fails closed. Its two-job
+  process-style restart test passes against a deterministic local gateway.
+- The real adapter rejects both peer conditions while `peer_tool` is false.
+  This prevents a missing integration from silently collapsing treatment and
+  control; the fake harness remains available for core four-condition tests.
 
 ## Not implemented
 
 The following remain gates, not implied capabilities:
 
-1. The ADR 0001 stock-OpenCode feasibility spike and a real
-   `HarnessRuntime` adapter.
+1. The remaining ADR 0001 collaboration proof: matched peer-tool injection,
+   actor-private/shared authorization, publication/materialization, cursors,
+   durable audit export and four-peer activation.
 2. Provider-gateway dollar enforcement, formal provider-selection evidence and
    condition-matched OpenCode model routing.
 3. Collaboration, publication authorization, artifact storage, submission,
@@ -106,6 +128,10 @@ The following remain gates, not implied capabilities:
    retention policy.
 5. Four-condition scheduling, registered manifests, audit export and the
    preregistered statistical analysis.
+6. An experiment-grade delivery outbox/receipt transaction. The development
+   controller records a completed delivery after the harness call; the future
+   authoritative ledger must atomically bind admission, runtime receipt and
+   campaign state so a ledger-write failure cannot leave unaudited work.
 
 ## Next implementation gate
 
@@ -120,7 +146,9 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
-The next implementation gate is the ADR 0001 stock-OpenCode conformance spike.
-It must prove durable sessions, native handoffs, non-mutating observation, a
-matched peer-tool surface, and provider-gateway routing before broader V0
-implementation assumes those capabilities.
+The stock-OpenCode gate and real runtime adapter are complete. The next gate is
+the remaining ADR 0001 fake vertical slice: implement the minimal collaboration,
+publication, storage and session-identity contracts; expose one identical peer
+tool in both peer conditions; and prove the actor-private/shared difference at
+four-peer cardinality. The provider budget gateway remains a separate gate
+before any live multi-condition model run.

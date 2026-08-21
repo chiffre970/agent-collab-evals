@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,8 +69,18 @@ class CampaignController:
         self._require_active(handle)
         if job.job_id in handle.delivered_job_ids:
             raise ValueError(f"job already delivered: {job.job_id}")
-        for session in handle.sessions:
-            self._harness.deliver(session, job)
+        if len(handle.sessions) == 1:
+            self._harness.deliver(handle.sessions[0], job)
+        else:
+            with ThreadPoolExecutor(max_workers=len(handle.sessions)) as executor:
+                deliveries = [
+                    executor.submit(self._harness.deliver, session, job)
+                    for session in handle.sessions
+                ]
+                # Join in stable actor order so simultaneous failures surface
+                # deterministically. Successful peers remain idempotent on retry.
+                for delivery in deliveries:
+                    delivery.result()
         handle.delivered_job_ids.append(job.job_id)
         self._events.append(
             handle.spec.campaign_run_id,

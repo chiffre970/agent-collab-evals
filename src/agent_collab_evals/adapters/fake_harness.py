@@ -78,6 +78,12 @@ class FakeHarnessRuntime:
             return
         state.delivered_jobs[job.job_id] = job.materials_digest
 
+    def events(
+        self, organisation: HarnessOrganisation
+    ) -> tuple[dict[str, Any], ...]:
+        self._organisation(organisation)
+        return ()
+
     def snapshot(self, organisation: HarnessOrganisation) -> HarnessSnapshot:
         state = self._organisation(organisation)
         payload = {

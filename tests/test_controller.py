@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -102,6 +103,28 @@ class CampaignControllerTests(unittest.TestCase):
                     )
                     self.assertEqual(len(handle.actors), count)
                     self.assertEqual(len(handle.sessions), count)
+
+    def test_peer_delivery_fans_out_concurrently(self) -> None:
+        class BarrierHarness(FakeHarnessRuntime):
+            barrier = threading.Barrier(4, timeout=2)
+
+            def deliver(self, session, job):  # type: ignore[no-untyped-def]
+                self.barrier.wait()
+                super().deliver(session, job)
+
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = BarrierHarness()
+            controller = CampaignController(
+                runtime, LocalEventSink(Path(directory) / "events")
+            )
+            handle = controller.start(
+                self._spec("parallel-delivery", CoordinationCondition.PEER_ISOLATED)
+            )
+
+            controller.deliver(handle, _job("parallel"))
+
+            for session in handle.sessions:
+                self.assertEqual(runtime.delivered_jobs(session), ("parallel",))
 
     @staticmethod
     def _spec(run_id: str, condition: CoordinationCondition) -> OrganisationSpec:

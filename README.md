@@ -54,6 +54,8 @@ The repository now contains the first scenario-shaped vertical slice:
 
 - a dependency-free domain core with narrow harness, event and snapshot ports;
 - a deterministic fake harness and atomic local campaign persistence;
+- a pinned stock-OpenCode runtime adapter with per-actor state/workspace
+  isolation, out-of-process events and durable session resume;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
@@ -83,9 +85,10 @@ python -m unittest discover -s tests -v
 ```
 
 This is calibration infrastructure, not a completed experimental platform.
-OpenCode conformance, the collaboration service, enforcement brokers,
-submission selection, public and hidden evaluators, and registered
-four-condition execution remain explicit later gates. See
+The stock-OpenCode runtime conformance gate now passes. The collaboration
+service and matched peer tool, enforcement brokers, submission selection,
+public and hidden evaluators, and registered four-condition execution remain
+explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents
@@ -93,6 +96,7 @@ four-condition execution remain explicit later gates. See
 - [Local setup](docs/SETUP.md)
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [Agent-inference provider calibration](docs/calibration/AGENT_INFERENCE_PROVIDER.md)
+- [OpenCode runtime spike](docs/calibration/OPENCODE_RUNTIME_V0.md)
 - [Fast Gemma evaluator lessons](docs/GEMMA_CHALLENGE_EVALUATOR_LESSONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module contracts](docs/MODULE_CONTRACTS.md)
