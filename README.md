@@ -60,6 +60,12 @@ The repository now contains the first scenario-shaped vertical slice:
   modes use identical OpenCode surfaces and differ only in backend visibility;
 - durable SQLite collaboration, owner-private storage and server-authorized
   artifact publication adapters with complete local audit exports;
+- a durable fixed-point model budget account and session-bound
+  OpenAI-compatible gateway, proved end to end with stock OpenCode and a
+  deterministic upstream;
+- a dependency-free OpenRouter streaming adapter that retains both the raw
+  stream and its correlated generation-metadata receipt for gateway-side
+  attestation and billing;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
@@ -90,9 +96,10 @@ python -m unittest discover -s tests -v
 
 This is calibration infrastructure, not a completed experimental platform.
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
-publication and storage gates now pass. The provider budget gateway,
-enforcement brokers, submission selection, public and hidden evaluators, and
-registered four-condition execution remain explicit later gates. See
+publication and storage gates now pass, as does the budget gateway's local
+enforcement and transport proof. Live route/billing qualification, sandbox and capability
+brokers, submission selection, public and hidden evaluators, and registered
+four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents
@@ -101,6 +108,7 @@ registered four-condition execution remain explicit later gates. See
 - [Implementation status](docs/IMPLEMENTATION_STATUS.md)
 - [Agent-inference provider calibration](docs/calibration/AGENT_INFERENCE_PROVIDER.md)
 - [OpenCode runtime spike](docs/calibration/OPENCODE_RUNTIME_V0.md)
+- [Model budget gateway proof](docs/calibration/MODEL_GATEWAY_V0.md)
 - [Fast Gemma evaluator lessons](docs/GEMMA_CHALLENGE_EVALUATOR_LESSONS.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Module contracts](docs/MODULE_CONTRACTS.md)

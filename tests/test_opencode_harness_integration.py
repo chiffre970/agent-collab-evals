@@ -14,12 +14,17 @@ from agent_collab_evals.adapters.sqlite_collaboration import (
     SqliteCollaborationBackend,
 )
 from agent_collab_evals.adapters.opencode_harness import (
-    GatewayAccessToken,
     OpenCodeHarnessRuntime,
     OpenCodeRuntimeProfile,
 )
+from agent_collab_evals.budget import GatewayAccessToken
 from agent_collab_evals.controller import CampaignController
-from agent_collab_evals.domain import CoordinationCondition, Job, OrganisationSpec
+from agent_collab_evals.domain import (
+    CoordinationCondition,
+    Job,
+    OrganisationSpec,
+    SessionHandle,
+)
 from agent_collab_evals.collaboration import CollaborationVisibility
 from agent_collab_evals.peer_tool import (
     PeerToolGateway,
@@ -240,12 +245,16 @@ class _PeerCallingGatewayHandler(BaseHTTPRequestHandler):
 class _TokenIssuer:
     def __init__(self) -> None:
         self.issued: list[str] = []
+        self.activated: list[tuple[str, str]] = []
         self.revoked: list[tuple[str, str]] = []
 
     def issue(self, **_: str) -> GatewayAccessToken:
         token_id = f"test-token-{len(self.issued) + 1}"
         self.issued.append(token_id)
         return GatewayAccessToken(token_id, f"opaque-{token_id}")
+
+    def activate(self, token_id: str, session: SessionHandle) -> None:
+        self.activated.append((token_id, session.value))
 
     def revoke(self, token_id: str, reason: str) -> None:
         self.revoked.append((token_id, reason))
@@ -330,6 +339,10 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     session_snapshot["surface"]["config_digest"].startswith("sha256:")
                 )
                 self.assertEqual(tokens.issued, ["test-token-1", "test-token-2"])
+                self.assertEqual(
+                    [token_id for token_id, _ in tokens.activated],
+                    ["test-token-1", "test-token-2"],
+                )
                 self.assertEqual(
                     [token_id for token_id, _ in tokens.revoked],
                     ["test-token-1", "test-token-2"],

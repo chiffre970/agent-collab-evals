@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from ..budget import GatewayAccessToken
 from ..canonical import canonical_json_bytes, digest_file, digest_value, load_json
 from ..domain import (
     AgentIdentity,
@@ -166,14 +167,6 @@ def _free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-@dataclass(frozen=True, slots=True)
-class GatewayAccessToken:
-    """Opaque, revocable credential scoped to one top-level agent session."""
-
-    token_id: str
-    value: str = field(repr=False)
-
-
 class GatewayTokenIssuer(Protocol):
     def issue(
         self,
@@ -182,6 +175,8 @@ class GatewayTokenIssuer(Protocol):
         actor_id: str,
         model_endpoint: str,
     ) -> GatewayAccessToken: ...
+
+    def activate(self, token_id: str, session: SessionHandle) -> None: ...
 
     def revoke(self, token_id: str, reason: str) -> None: ...
 
@@ -500,6 +495,7 @@ class OpenCodeHarnessRuntime:
             handle = SessionHandle(str(created["id"]))
             if handle.value in self._session_to_organisation:
                 raise ValueError(f"session already exists: {handle.value}")
+            self._gateway_tokens.activate(credential.token_id, handle)
             if peer_access is not None:
                 assert self._peer_gateway is not None
                 self._peer_gateway.activate(peer_access, handle)
@@ -701,6 +697,9 @@ class OpenCodeHarnessRuntime:
                         raise ValueError(f"session already exists: {session_id}")
                     bridge.request(
                         "get_session", session_id=session_id, directory=str(directory)
+                    )
+                    self._gateway_tokens.activate(
+                        credential.token_id, SessionHandle(session_id)
                     )
                     if peer_access is not None:
                         assert self._peer_gateway is not None

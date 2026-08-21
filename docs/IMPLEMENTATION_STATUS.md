@@ -136,13 +136,39 @@ smallest useful seams before adding the runtime and collaboration machinery.
   a purpose-bound, one-use authorization. Tests reject raw peer reads,
   guessed, unbound, aborted, cross-campaign and wrong-audience publications,
   forged service identities, mismatched purposes and authorization replay.
+- A provider-neutral `BudgetAccount` port and durable SQLite adapter now enforce
+  fixed organisation and actor model allocations using integer USD
+  nanodollars. Reservations are atomic and conservative; exact settlement,
+  rejection, release, ambiguous-outcome forfeiture, overrun detection, raw
+  receipts, unit rates and identity metadata survive restart.
+- A loopback OpenAI-compatible model gateway now implements the OpenCode token
+  issuer lifecycle. Tokens are pending until bound to the actual runtime
+  session and revoked with it. The gateway overwrites model, provider and
+  inference routing from a transitively pinned profile, ignores caller identity
+  headers, rejects requests before upstream execution when funds are
+  insufficient, and charges a full reservation when usage or route identity is
+  invalid.
+- Stock OpenCode completed an end-to-end job through this gateway and a
+  deterministic fake upstream. The conformance profile and rates are explicitly
+  synthetic, so this proves local enforcement without making a pricing or live-
+  route claim.
+- A dependency-free OpenRouter upstream adapter pins the profile endpoint,
+  keeps the API credential inside the gateway process, streams bytes without
+  buffering the full response in the transport, and fetches the correlated
+  generation record with bounded retries. Deterministic tests prove exact
+  stream/metadata correlation, canonical model and provider attestation,
+  native-token accounting, raw receipt persistence and authoritative
+  provider-cost settlement without external spend.
 
 ## Not implemented
 
 The following remain gates, not implied capabilities:
 
-1. Provider-gateway dollar enforcement, formal provider-selection evidence and
-   condition-matched OpenCode model routing.
+1. The timestamped live billing catalog, one bounded end-to-end gateway canary,
+   formal provider-selection evidence and condition-matched route
+   qualification. The provider adapter and generation-receipt path pass against
+   deterministic transport doubles, but are not yet qualified against live
+   OpenRouter behavior or pricing.
 2. Submission, compute and research services, plus filesystem-safe workspace
    snapshot/materialization and campaign-level storage sealing beyond the
    byte-level artifact path proved by the current spike.
@@ -172,8 +198,8 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
-ADR 0001 is complete: the stock-OpenCode adapter, matched peer path and minimal
-collaboration, publication, storage and session-identity contracts pass their
-local conformance gates. The next gate is the provider budget gateway and
-condition-matched model routing, followed by the remaining enforcement-service
-vertical slice. No live multi-condition model run is authorized yet.
+ADR 0001 is complete, and the model budget gateway's local enforcement and
+provider-transport proofs now pass. The next gate is a timestamped billing
+catalog and one bounded live gateway canary, followed by route qualification,
+sandbox enforcement and the remaining compute, submission and evaluator
+services. No live multi-condition model run is authorized yet.

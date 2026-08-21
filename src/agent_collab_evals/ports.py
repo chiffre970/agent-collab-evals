@@ -14,6 +14,15 @@ from .artifacts import (
     PublicationSnapshot,
     TrustedServiceTransport,
 )
+from .budget import (
+    ActorBudgetAllocation,
+    BudgetCharge,
+    BudgetRejected,
+    BudgetReservation,
+    BudgetSnapshot,
+    ModelCallContext,
+    ProviderUsage,
+)
 from .domain import (
     AgentIdentity,
     CampaignSnapshot,
@@ -130,6 +139,39 @@ class CollaborationBackend(Protocol):
     def export(self, scope: CollaborationScope) -> CollaborationSnapshot: ...
 
     def reset(self, scope: CollaborationScope) -> None: ...
+
+
+class BudgetAccount(Protocol):
+    @property
+    def rate_card_digest(self) -> str: ...
+
+    def open_campaign(
+        self,
+        campaign_run_id: str,
+        organisation_limit_usd_nanos: int,
+        allocations: tuple[ActorBudgetAllocation, ...],
+    ) -> None: ...
+
+    def has_actor(self, campaign_run_id: str, actor_id: str) -> bool: ...
+
+    def reserve(
+        self,
+        campaign_run_id: str,
+        actor_id: str,
+        context: ModelCallContext,
+    ) -> BudgetReservation | BudgetRejected: ...
+
+    def settle(
+        self, reservation_id: str, usage: ProviderUsage
+    ) -> BudgetCharge: ...
+
+    def forfeit(
+        self, reservation_id: str, reason: str, raw_receipt: bytes
+    ) -> None: ...
+
+    def release(self, reservation_id: str, reason: str) -> None: ...
+
+    def snapshot(self, campaign_run_id: str) -> BudgetSnapshot: ...
 
 
 class StorageBackend(Protocol):

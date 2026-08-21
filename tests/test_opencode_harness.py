@@ -11,17 +11,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_collab_evals.adapters.opencode_harness import (
-    GatewayAccessToken,
     OpenCodeHarnessRuntime,
     OpenCodeRuntimeProfile,
     _Bridge,
     _bridge_environment,
     _runtime_config,
 )
+from agent_collab_evals.budget import GatewayAccessToken
 from agent_collab_evals.domain import (
     CoordinationCondition,
     HarnessSnapshot,
     OrganisationSpec,
+    SessionHandle,
 )
 
 
@@ -37,6 +38,9 @@ class _TokenIssuer:
         return GatewayAccessToken("test-token", "opaque-test-token")
 
     def revoke(self, token_id: str, reason: str) -> None:
+        return
+
+    def activate(self, token_id: str, session: SessionHandle) -> None:
         return
 
 
@@ -187,6 +191,9 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
 
             def revoke(self, token_id: str, reason: str) -> None:
                 self.revoked.append(token_id)
+
+            def activate(self, token_id: str, session: SessionHandle) -> None:
+                return
 
         class Bridge:
             def __init__(self, fail: bool) -> None:

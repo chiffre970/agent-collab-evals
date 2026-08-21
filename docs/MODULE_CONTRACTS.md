@@ -519,14 +519,26 @@ Enforcement rules:
 - In both peer conditions, each top-level actor is additionally constrained by the same fixed, non-transferable suballocation. A request is admitted only if both its actor allocation and organisation envelope can cover the reservation.
 - Reservations use decimal arithmetic, conservative maximums and the frozen `BillingPolicy` catalog, rate schedule and effective price tier.
 - Requests that could exceed the cap are rejected before provider execution.
-- Provider usage and receipts are retained unchanged and reconciled after settlement.
+- The raw provider stream and its correlated generation-metadata receipt are retained unchanged and reconciled after settlement. The gateway uses the provider's exact billed total for settlement when present; the frozen rate card supplies the conservative pre-call reservation bound.
 - Every response records requested and returned model identifiers, available revision and system fingerprint, provider request ID, provider timestamp, cached input/output accounting, effective cache policy, price tier and cache-hit/cache-miss/output unit rates.
 - Gateway-controlled caches use separate `(campaign, actor)` namespaces in both peer conditions and are never shared across actors or campaign runs or selectively prewarmed by condition. Provider-managed isolation keys or a frozen non-semantic per-actor isolation prefix are used where needed; a provider that cannot provide effective isolation is calibration-only.
 - Subscription-backed model access is forbidden in confirmatory studies.
 
 OpenCode's cost and token fields are retained as observational telemetry. They are reconciled against the gateway but never authorize requests, extend the cap or replace provider-accounting evidence.
 
+V0 represents USD internally as integer nanodollars and rates as integer
+nanodollars per million tokens. Ceiling division makes reservation and
+settlement fixed-point and conservative without binary floating-point values.
+This is the executable representation of the registered decimal amounts; user-
+facing dollar strings are derived only for reporting.
+
 The gateway derives campaign, actor and harness session from the same non-exportable session transport used by the brokers. `ModelCallContext` identifies only the call itself. Model-supplied or agent-supplied identity headers cannot select another actor's account or cache namespace.
+
+The runtime credential lifecycle is two-phase: the gateway issues a pending
+opaque credential for a provisioned actor, activates it only after the harness
+returns the actual session identifier, and revokes it on creation failure,
+suspend, stop or rollback. A pending or revoked credential cannot invoke the
+provider route.
 
 An actor may observe only its own charges, remaining allocation and rejections. Because the peer allocations partition the organisation envelope and unused capacity is not reassigned, another peer's activity cannot cause an actor's model call to be admitted or rejected in V0.
 

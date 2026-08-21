@@ -75,11 +75,34 @@ RUN_OPENCODE_INTEGRATION=1 RUN_PEER_TOOL_INTEGRATION=1 \
   python -W error::ResourceWarning -m unittest discover -s tests -v
 ```
 
+Run OpenCode through the local budget gateway and deterministic upstream with:
+
+```bash
+RUN_MODEL_GATEWAY_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest -v \
+  tests.test_model_gateway tests.test_model_gateway_integration
+```
+
+The committed gateway profile is conformance-only and uses a synthetic rate
+card. This command does not read `.env`, contact OpenRouter or incur spend.
+
+Run the dependency-free OpenRouter transport and generation-receipt tests with:
+
+```bash
+python -W error::ResourceWarning -m unittest -v \
+  tests.test_openrouter_upstream tests.test_sqlite_budget
+```
+
+These tests use deterministic in-process HTTP doubles. They verify streaming,
+bounded metadata retry, exact stream-to-generation correlation, provider/model
+attestation and authoritative billed-cost persistence without reading
+`OPENROUTER_API_KEY` or contacting OpenRouter.
+
 Do not point `OpenCodeHarnessRuntime` directly at OpenRouter for a study. Its
 `OrganisationSpec.model_endpoint` must be the experiment-owned budget gateway;
 that gateway will enforce the registered provider route, privacy settings and
-dollar limit and issue the session token. The gateway remains an implementation
-gate. The real adapter still rejects both peer conditions unless the pinned
+dollar limit and issue the session token. Live route and billing qualification
+remain implementation gates. The real adapter still rejects both peer conditions unless the pinned
 peer profile and gateway are supplied together, preventing an absent peer tool
 from silently collapsing treatment and control.
 
