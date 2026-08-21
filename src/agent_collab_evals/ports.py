@@ -14,6 +14,15 @@ from .domain import (
     OrganisationSpec,
     SessionHandle,
 )
+from .collaboration import (
+    CollaborationEntry,
+    CollaborationScope,
+    CollaborationSnapshot,
+    CollaborationVisibility,
+    Notification,
+    Page,
+    SessionTransport,
+)
 
 
 class HarnessRuntime(Protocol):
@@ -59,3 +68,55 @@ class CampaignDefinition(Protocol):
     def manifest_digest(self) -> str: ...
 
     def materialize(self, task_seed: int) -> MaterializedJobs: ...
+
+
+class CollaborationBackend(Protocol):
+    def provision(
+        self, campaign_run_id: str, visibility: CollaborationVisibility
+    ) -> CollaborationScope: ...
+
+    def publish(
+        self,
+        scope: CollaborationScope,
+        session: SessionTransport,
+        idempotency_key: str,
+        body: str,
+        reply_to: str | None = None,
+        publication_ids: tuple[str, ...] = (),
+    ) -> CollaborationEntry: ...
+
+    def list_recent(
+        self,
+        scope: CollaborationScope,
+        session: SessionTransport,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> Page[CollaborationEntry]: ...
+
+    def get_thread(
+        self,
+        scope: CollaborationScope,
+        session: SessionTransport,
+        entry_id: str,
+    ) -> tuple[CollaborationEntry, ...]: ...
+
+    def search(
+        self,
+        scope: CollaborationScope,
+        session: SessionTransport,
+        query: str,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> Page[CollaborationEntry]: ...
+
+    def notifications(
+        self,
+        scope: CollaborationScope,
+        session: SessionTransport,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> Page[Notification]: ...
+
+    def export(self, scope: CollaborationScope) -> CollaborationSnapshot: ...
+
+    def reset(self, scope: CollaborationScope) -> None: ...
