@@ -60,7 +60,11 @@ The repository now contains the first scenario-shaped vertical slice:
   normalizer and atomic evaluator-private raw-result store;
 - a transitively pinned calibration scorer with bucket-specific TTFT/TPOT
   goodput, equal-weight cross-bucket normalization and a conservative
-  three-repetition improvement bound; and
+  three-repetition improvement bound;
+- a frozen served-generation quality policy with paired aggregate and
+  per-family case-cluster uncertainty gates;
+- evaluator-owned durable raw and normalized evidence for the performance and
+  quality calibration series; and
 - a private Modal vLLM adapter that can run either an API canary or one
   isolated nine-point reference/candidate repetition on one L4.
 

@@ -303,3 +303,17 @@ valid. Raw prompts, answers and responses stay under the evaluator-owned
 Volume and ignored `tmp/evaluator-private/` mirror; the normalized score keeps
 only answer extractions and content digests. These runs calibrate the quality
 gate and do not constitute a confirmatory experiment.
+
+After all three pairs are valid, reproduce the frozen decision with:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  scripts/calibration/evaluate_quality_series.py
+```
+
+The command verifies the six committed receipt digests, validates each score
+from its per-case outcomes, and applies the frozen paired case-cluster
+bootstrap. It exits with status 2 when a candidate is validly measured but
+fails non-inferiority. For another candidate series, pass its evaluator-issued
+measurement ID with `--candidate-measurement-id`; pair it with a corresponding
+reference series through `--reference-measurement-id`.

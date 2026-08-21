@@ -1,0 +1,48 @@
+schema_version = "model-serving-quality-policy/v0alpha1"
+phase = "calibration_frozen_v2"
+quality_profile_digest = "sha256:297f7e46f1d78b740ff22baf888a8ac3d7f2487573090b9755e00c197b14e36a"
+quality_workload_digest = "sha256:9f129b49dda34d6af30d3e6a59f6ea945756b67fae32fbefca0ed9444492e8f4"
+pairing = "same_case_seed_and_repetition"
+repetitions = 3
+case_count = 64
+families = ["bbh_reasoning", "gsm8k", "mmlu", "structured_transform"]
+decision_rule = "paired_aggregate_and_family_noninferiority"
+malformed_response_policy = "fail_case"
+
+[noninferiority]
+comparison = "candidate_minus_contemporaneous_reference"
+aggregate_margin_ppm = 31250
+family_margin_ppm = 62500
+inclusive = true
+
+[uncertainty]
+method = "stratified_paired_case_cluster_percentile_bootstrap"
+confidence_ppm = 950000
+resamples = 100000
+seed = 20260821
+prng = "splitmix64_modulo"
+quantile = "lower_order_statistic_floor"
+cluster = "case_id_with_three_repetitions"
+stratify = "family_id"
+
+[calibration]
+reference_measurement_id = "qwen-quality-reference-v2"
+reference_receipt_digests = [
+  "sha256:70c7e9a06325c1cf2628269087001eaefffb29613784cf09bdb06a6cfa3a0f1d",
+  "sha256:1a71aaa42b3858b68c633de05db61b53f7bceac07dd0541f0f2ccda3ce1ee0a6",
+  "sha256:3a43c23370e8e5ebdb5ff5217a7e8011a472b60b213a30493ea70456623adc97",
+]
+clean_control_measurement_id = "qwen-quality-clean-control-v2"
+clean_control_receipt_digests = [
+  "sha256:8625a38e25a19b3250a9fcb5efb1984115b68770c6a6180e0c889d95a707b178",
+  "sha256:6fb787e515f7de484a60d6f1a44f4e8ba1506378336246526028f286f8d09a22",
+  "sha256:9249bafd1e26c280caa025231b6ab935a2ea2a19fffdb6a2fd76097c18060ad3",
+]
+reference_passes = 168
+clean_control_passes = 166
+paired_observations = 192
+observed_delta_ppm = -10417
+aggregate_lower_bound_ppm = -20833
+worst_family_observed_delta_ppm = -20833
+worst_family_lower_bound_ppm = -62500
+clean_control_expected_noninferior = true

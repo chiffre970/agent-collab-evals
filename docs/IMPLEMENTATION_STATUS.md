@@ -73,6 +73,12 @@ smallest useful seams before adding the runtime and collaboration machinery.
   oversized metadata transport rather than a model-quality result. The
   versioned V2 profile corrects those defects, pins eight-way request batching
   and reconstructs full receipts from a small durable-evidence pointer.
+- Three paired reference/clean-control quality repetitions completed without
+  retries. The frozen quality policy uses aggregate and per-family margins plus
+  one-sided 95% stratified paired case-cluster bounds. Its executable scorer
+  reproduces the 168/192 reference and 166/192 control outcomes, verifies all
+  six receipt digests, and admits the clean control without exposing private
+  prompts or answers.
 - Raw serving evidence now targets an evaluator-owned Modal v2 Volume. A
   restricted non-GPU function successfully wrote and synced a probe which the
   trusted client read back by digest. Detached dispatch records make long calls
@@ -94,9 +100,10 @@ The following remain gates, not implied capabilities:
 3. Collaboration, publication authorization, artifact storage, submission,
    compute and research services.
 4. Evaluator-owned untrusted candidate launch, public result release,
-   confirmatory registered score policy, calibrated hidden gates and neutral
-   selection. The calibration Volume path is durable but is not yet the
-   complete confirmatory evidence service or retention policy.
+   remaining correctness/stability/shortcut gates, neutral selection, and a
+   confirmatory registered score policy. The calibration Volume path is
+   durable but is not yet the complete confirmatory evidence service or
+   retention policy.
 5. Four-condition scheduling, registered manifests, audit export and the
    preregistered statistical analysis.
 
@@ -108,15 +115,12 @@ complete and recorded in the
 for candidate-sensitivity work, but is not presented as a preregistered
 confirmatory policy.
 
-The direct-vLLM non-reference sensitivity gate is complete. The next evaluator
-gate is three paired reference/clean-control runs over the architecture-neutral
-held-out generation interface and private 64-case workload. Those runs must
-freeze the downstream non-inferiority margins before agents optimize against a
-confirmatory evaluator. Raw calibration evidence is durably mirrored to the
-evaluator-owned Modal Volume, while confirmatory retention and export remain a
-later platform-service gate.
+The direct-vLLM sensitivity gate and the paired generation-quality calibration
+are complete. Raw calibration evidence is durably mirrored to the
+evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
+remaining hidden gates remain later platform-service work.
 
-The OpenCode conformance spike can proceed independently of evaluator
-calibration. Both must pass before broader V0 implementation assumes OpenCode
-can provide durable sessions, native handoffs, non-mutating observation and a
-matched peer-tool surface around an enforceable serving campaign.
+The next implementation gate is the ADR 0001 stock-OpenCode conformance spike.
+It must prove durable sessions, native handoffs, non-mutating observation, a
+matched peer-tool surface, and provider-gateway routing before broader V0
+implementation assumes those capabilities.

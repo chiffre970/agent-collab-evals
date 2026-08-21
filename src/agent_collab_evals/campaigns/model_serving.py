@@ -86,6 +86,12 @@ class ModelServingCampaign:
             "scoring_profile": cls._member(
                 root, str(raw["evaluation"]["scoring_profile"])
             ),
+            "quality_profile": cls._member(
+                root, str(raw["evaluation"]["quality_profile"])
+            ),
+            "quality_policy": cls._member(
+                root, str(raw["evaluation"]["quality_policy"])
+            ),
         }
         transitive = {
             name: digest_file(path) for name, path in declared_files.items()
@@ -98,14 +104,28 @@ class ModelServingCampaign:
         )
         campaign = cls(root, raw, transitive, manifest_digest)
         campaign.validate_reference_candidate()
-        campaign.hidden_contract()
+        hidden_contract = campaign.hidden_contract()
         measurement_profile = campaign.measurement_profile()
         scoring_profile = campaign.scoring_profile()
+        quality_profile = campaign.quality_profile()
+        quality_policy = campaign.quality_policy()
         scoring_profile.validate_against(
             campaign.benchmark_plan(),
             measurement_profile_digest=measurement_profile.digest,
             measurement_repetitions=measurement_profile.repetitions,
         )
+        quality_policy.validate_against(quality_profile)
+        hidden_quality = hidden_contract["quality_contract"]
+        expected_quality_digests = {
+            "quality_profile_digest": quality_profile.digest,
+            "quality_policy_digest": quality_policy.digest,
+            "quality_workload_digest": quality_policy.quality_workload_digest,
+        }
+        if any(
+            hidden_quality.get(key) != value
+            for key, value in expected_quality_digests.items()
+        ):
+            raise ManifestValidationError("hidden quality digests differ")
         return campaign
 
     @property
@@ -138,6 +158,18 @@ class ModelServingCampaign:
             self.root, str(self.raw["evaluation"]["scoring_profile"])
         )
 
+    @property
+    def quality_profile_path(self) -> Path:
+        return self._member(
+            self.root, str(self.raw["evaluation"]["quality_profile"])
+        )
+
+    @property
+    def quality_policy_path(self) -> Path:
+        return self._member(
+            self.root, str(self.raw["evaluation"]["quality_policy"])
+        )
+
     def measurement_profile(self):
         """Load the evaluator profile lazily to keep campaign modules decoupled."""
 
@@ -151,6 +183,20 @@ class ModelServingCampaign:
         from .serving_scoring import ScoringProfile
 
         return ScoringProfile.load(self.scoring_profile_path)
+
+    def quality_profile(self):
+        """Load the served-generation request profile."""
+
+        from .serving_quality import QualityProfile
+
+        return QualityProfile.load(self.quality_profile_path)
+
+    def quality_policy(self):
+        """Load the served-generation non-inferiority policy."""
+
+        from .serving_quality import QualityPolicy
+
+        return QualityPolicy.load(self.quality_policy_path)
 
     def hidden_contract(self) -> Mapping[str, Any]:
         path = self._member(
@@ -201,6 +247,9 @@ class ModelServingCampaign:
         if contract.get("required_digests") != [
             "correctness_requests",
             "quality_requests",
+            "quality_profile",
+            "quality_policy",
+            "quality_workload",
             "performance_profile",
         ]:
             raise ManifestValidationError(
@@ -237,14 +286,30 @@ class ModelServingCampaign:
             "candidate_implementation_policy": (
                 "unrestricted_within_campaign_policy"
             ),
-            "task_mix_status": "external_unmaterialized",
-            "threshold_status": "unset_until_quality_calibration",
+            "task_mix_status": "calibration_v2_materialized_evaluator_private",
+            "threshold_status": "frozen_quality_policy_v0alpha1",
         }
         ModelServingCampaign._exact_keys(
-            quality, set(expected_quality), "hidden quality contract"
+            quality,
+            {
+                *expected_quality,
+                "quality_profile_digest",
+                "quality_policy_digest",
+                "quality_workload_digest",
+            },
+            "hidden quality contract",
         )
-        if quality != expected_quality:
+        if any(quality.get(key) != value for key, value in expected_quality.items()):
             raise ManifestValidationError("unsupported hidden quality contract")
+        for key in (
+            "quality_profile_digest",
+            "quality_policy_digest",
+            "quality_workload_digest",
+        ):
+            if not isinstance(quality.get(key), str) or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}", quality[key]
+            ):
+                raise ManifestValidationError("hidden quality digest is invalid")
 
     def materialize(self, task_seed: int) -> MaterializedJobs:
         if task_seed < 0:
@@ -268,6 +333,10 @@ class ModelServingCampaign:
             "scoring_profile_digest": self.transitive_digests[
                 "scoring_profile"
             ],
+            "quality_profile_digest": self.transitive_digests[
+                "quality_profile"
+            ],
+            "quality_policy_digest": self.transitive_digests["quality_policy"],
         }
         material_digest = digest_value(material)
         job = Job(
@@ -615,6 +684,8 @@ class ModelServingCampaign:
                 "hidden_data_status",
                 "measurement_profile",
                 "scoring_profile",
+                "quality_profile",
+                "quality_policy",
             },
             "evaluation",
         )
@@ -622,7 +693,7 @@ class ModelServingCampaign:
             "primary_metric": "goodput_requests_per_second",
             "quality_gate": "reference_relative",
             "slo_status": "calibrated_for_candidate_sensitivity",
-            "hidden_data_status": "external_unmaterialized",
+            "hidden_data_status": "quality_materialized_other_hidden_external",
         }
         if any(evaluation.get(key) != value for key, value in expected_evaluation.items()):
             raise ManifestValidationError("unsupported calibration evaluation profile")
@@ -634,6 +705,9 @@ class ModelServingCampaign:
             "scoring_profile"
         ]:
             raise ManifestValidationError("evaluation.scoring_profile is required")
+        for key in ("quality_profile", "quality_policy"):
+            if not isinstance(evaluation.get(key), str) or not evaluation[key]:
+                raise ManifestValidationError(f"evaluation.{key} is required")
 
         limits = ModelServingCampaign._mapping(raw, "development_limits")
         ModelServingCampaign._exact_keys(

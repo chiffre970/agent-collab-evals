@@ -4,14 +4,17 @@ import csv
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from agent_collab_evals.canonical import digest_file
 from agent_collab_evals.campaigns.serving_quality import (
     QualityProfile,
+    QualityPolicy,
     QualityValidationError,
     build_quality_requests,
     compare_quality_runs,
+    evaluate_quality_series,
     load_quality_workload,
     materialize_quality_workload,
     score_quality_outputs,
@@ -22,11 +25,14 @@ from agent_collab_evals.campaigns.serving_quality import (
 PROFILE_PATH = Path(
     "campaigns/model_serving_v0/evaluator/quality_calibration.toml"
 )
+POLICY_PATH = Path("campaigns/model_serving_v0/evaluator/quality_policy.toml")
 
 
 class ServingQualityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.profile = QualityProfile.load(PROFILE_PATH)
+        self.policy = QualityPolicy.load(POLICY_PATH)
+        self.policy.validate_against(self.profile)
         self.assertEqual(self.profile.max_concurrency, 8)
         self.assertEqual(self.profile.request_timeout_seconds, 300)
 
@@ -185,6 +191,131 @@ class ServingQualityTests(unittest.TestCase):
                     repetition=1,
                     role="candidate",
                 )
+
+    def test_frozen_policy_scores_paired_case_clusters_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = materialize_quality_workload(
+                self.profile, self._sources(root), root, bytes(range(32))
+            )
+            workload = load_quality_workload(
+                write_private_workload(root / "workload.json", document),
+                self.profile,
+            )
+            policy = replace(
+                self.policy,
+                quality_workload_digest=workload.digest,
+                bootstrap_resamples=10_000,
+            )
+            correct = {
+                case.case_id: f"<answer>{case.expected}</answer>"
+                for case in workload.cases
+            }
+            reference_runs = [
+                score_quality_outputs(
+                    self.profile,
+                    workload,
+                    correct,
+                    repetition=repetition,
+                    role="reference",
+                )
+                for repetition in range(1, 4)
+            ]
+            candidate_runs = []
+            changed_case_ids = [
+                case.case_id
+                for case in workload.cases
+                if case.family_id == "bbh_reasoning"
+            ][:2]
+            for repetition in range(1, 4):
+                changed = dict(correct)
+                for case_id in changed_case_ids:
+                    changed[case_id] = "<answer>WRONG</answer>"
+                candidate_runs.append(
+                    score_quality_outputs(
+                        self.profile,
+                        workload,
+                        changed,
+                        repetition=repetition,
+                        role="candidate",
+                    )
+                )
+
+            decision = evaluate_quality_series(
+                policy, reference_runs, candidate_runs
+            )
+
+            self.assertFalse(decision["eligible"])
+            self.assertEqual(decision["aggregate"]["delta_ppm"], -31_250)
+            self.assertEqual(
+                decision["families"]["bbh_reasoning"]["delta_ppm"], -125_000
+            )
+            self.assertTrue(
+                any("bbh_reasoning" in failure for failure in decision["failures"])
+            )
+
+            tampered = json.loads(json.dumps(reference_runs))
+            tampered[0]["pass_count"] -= 1
+            with self.assertRaisesRegex(QualityValidationError, "pass count differs"):
+                evaluate_quality_series(policy, tampered, candidate_runs)
+
+    def test_clean_control_resolution_boundary_is_noninferior(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = materialize_quality_workload(
+                self.profile, self._sources(root), root, bytes(range(32))
+            )
+            workload = load_quality_workload(
+                write_private_workload(root / "workload.json", document),
+                self.profile,
+            )
+            policy = replace(
+                self.policy,
+                quality_workload_digest=workload.digest,
+                bootstrap_resamples=10_000,
+            )
+            correct = {
+                case.case_id: f"<answer>{case.expected}</answer>"
+                for case in workload.cases
+            }
+            reference_runs = []
+            control_runs = []
+            changed_case = next(
+                case.case_id
+                for case in workload.cases
+                if case.family_id == "bbh_reasoning"
+            )
+            for repetition in range(1, 4):
+                reference_runs.append(
+                    score_quality_outputs(
+                        self.profile,
+                        workload,
+                        correct,
+                        repetition=repetition,
+                        role="reference",
+                    )
+                )
+                changed = dict(correct)
+                if repetition == 1:
+                    changed[changed_case] = "<answer>WRONG</answer>"
+                control_runs.append(
+                    score_quality_outputs(
+                        self.profile,
+                        workload,
+                        changed,
+                        repetition=repetition,
+                        role="clean_control",
+                    )
+                )
+
+            decision = evaluate_quality_series(policy, reference_runs, control_runs)
+
+            self.assertTrue(decision["eligible"])
+            self.assertEqual(decision["paired_transitions"]["pass_fail"], 1)
+            self.assertGreaterEqual(
+                decision["families"]["bbh_reasoning"]["lower_bound_ppm"],
+                -policy.family_margin_ppm,
+            )
 
 
 if __name__ == "__main__":

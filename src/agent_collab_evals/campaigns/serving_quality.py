@@ -26,6 +26,8 @@ QUALITY_PROFILE_SCHEMA = "model-serving-quality-profile/v0alpha1"
 QUALITY_SOURCES_SCHEMA = "model-serving-quality-sources/v0alpha1"
 QUALITY_WORKLOAD_SCHEMA = "model-serving-quality-workload/v0alpha1"
 QUALITY_RUN_SCHEMA = "model-serving-quality-run/v0alpha1"
+QUALITY_POLICY_SCHEMA = "model-serving-quality-policy/v0alpha1"
+QUALITY_DECISION_SCHEMA = "model-serving-quality-decision/v0alpha1"
 _ANSWER = re.compile(r"<answer>\s*(.*?)\s*</answer>", re.IGNORECASE | re.DOTALL)
 _HEX = set("0123456789abcdef")
 
@@ -156,6 +158,75 @@ class QualityWorkload:
     document: Mapping[str, Any]
     digest: str
     cases: tuple[QualityCase, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class QualityPolicy:
+    path: Path
+    digest: str
+    quality_profile_digest: str
+    quality_workload_digest: str
+    repetitions: int
+    case_count: int
+    families: tuple[str, ...]
+    aggregate_margin_ppm: int
+    family_margin_ppm: int
+    confidence_ppm: int
+    bootstrap_resamples: int
+    bootstrap_seed: int
+    reference_measurement_id: str
+    reference_receipt_digests: tuple[str, ...]
+    clean_control_measurement_id: str
+    clean_control_receipt_digests: tuple[str, ...]
+
+    @classmethod
+    def load(cls, path: Path) -> "QualityPolicy":
+        resolved = path.resolve()
+        try:
+            with resolved.open("rb") as source:
+                raw = tomllib.load(source)
+        except tomllib.TOMLDecodeError as error:
+            raise QualityValidationError("quality policy is not valid TOML") from error
+        _validate_quality_policy(raw)
+        noninferiority = _mapping(raw, "noninferiority")
+        uncertainty = _mapping(raw, "uncertainty")
+        calibration = _mapping(raw, "calibration")
+        return cls(
+            path=resolved,
+            digest=digest_file(resolved),
+            quality_profile_digest=str(raw["quality_profile_digest"]),
+            quality_workload_digest=str(raw["quality_workload_digest"]),
+            repetitions=_positive_int(raw, "repetitions"),
+            case_count=_positive_int(raw, "case_count"),
+            families=tuple(raw["families"]),
+            aggregate_margin_ppm=_positive_int(
+                noninferiority, "aggregate_margin_ppm"
+            ),
+            family_margin_ppm=_positive_int(noninferiority, "family_margin_ppm"),
+            confidence_ppm=_positive_int(uncertainty, "confidence_ppm"),
+            bootstrap_resamples=_positive_int(uncertainty, "resamples"),
+            bootstrap_seed=_positive_int(uncertainty, "seed"),
+            reference_measurement_id=str(calibration["reference_measurement_id"]),
+            reference_receipt_digests=tuple(
+                calibration["reference_receipt_digests"]
+            ),
+            clean_control_measurement_id=str(
+                calibration["clean_control_measurement_id"]
+            ),
+            clean_control_receipt_digests=tuple(
+                calibration["clean_control_receipt_digests"]
+            ),
+        )
+
+    def validate_against(self, profile: QualityProfile) -> None:
+        if self.quality_profile_digest != profile.digest:
+            raise QualityValidationError("quality policy names a different profile")
+        if self.repetitions != profile.repetitions:
+            raise QualityValidationError("quality policy repetition count differs")
+        if self.case_count != profile.cases_per_family * len(profile.families):
+            raise QualityValidationError("quality policy case count differs")
+        if self.families != tuple(sorted(profile.families)):
+            raise QualityValidationError("quality policy family set differs")
 
 
 def materialize_quality_workload(
@@ -356,6 +427,147 @@ def compare_quality_runs(
         "delta_ppm": _integer(candidate, "score_ppm")
         - _integer(reference, "score_ppm"),
         "paired_transitions": transitions,
+    }
+
+
+def evaluate_quality_series(
+    policy: QualityPolicy,
+    reference_runs: Iterable[Mapping[str, Any]],
+    candidate_runs: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Apply the frozen paired non-inferiority rule to two served-output series."""
+
+    references = _validate_quality_series(policy, reference_runs, {"reference"})
+    candidates = _validate_quality_series(
+        policy, candidate_runs, {"candidate", "clean_control"}
+    )
+    candidate_roles = {str(run["role"]) for run in candidates}
+    if len(candidate_roles) != 1:
+        raise QualityValidationError("candidate quality roles differ")
+
+    clusters: dict[str, dict[str, list[int]]] = {
+        family_id: {} for family_id in policy.families
+    }
+    transitions = {"pass_pass": 0, "pass_fail": 0, "fail_pass": 0, "fail_fail": 0}
+    reference_passes = 0
+    candidate_passes = 0
+    family_reference_passes = {family_id: 0 for family_id in policy.families}
+    family_candidate_passes = {family_id: 0 for family_id in policy.families}
+
+    for reference, candidate in zip(references, candidates, strict=True):
+        reference_cases = {value["case_id"]: value for value in reference["cases"]}
+        candidate_cases = {value["case_id"]: value for value in candidate["cases"]}
+        if set(reference_cases) != set(candidate_cases):
+            raise QualityValidationError("paired quality case sets differ")
+        for case_id in sorted(reference_cases):
+            reference_case = reference_cases[case_id]
+            candidate_case = candidate_cases[case_id]
+            if reference_case["family_id"] != candidate_case["family_id"]:
+                raise QualityValidationError("paired quality case families differ")
+            family_id = str(reference_case["family_id"])
+            reference_passed = _case_passed(reference_case)
+            candidate_passed = _case_passed(candidate_case)
+            reference_passes += int(reference_passed)
+            candidate_passes += int(candidate_passed)
+            family_reference_passes[family_id] += int(reference_passed)
+            family_candidate_passes[family_id] += int(candidate_passed)
+            clusters[family_id].setdefault(case_id, []).append(
+                int(candidate_passed) - int(reference_passed)
+            )
+            transition = (
+                ("pass" if reference_passed else "fail")
+                + "_"
+                + ("pass" if candidate_passed else "fail")
+            )
+            transitions[transition] += 1
+
+    for family_id, cases in clusters.items():
+        if len(cases) * policy.repetitions != (
+            policy.case_count // len(policy.families)
+        ) * policy.repetitions:
+            raise QualityValidationError(
+                f"quality family {family_id} case count differs"
+            )
+        if any(len(values) != policy.repetitions for values in cases.values()):
+            raise QualityValidationError("quality case repetition count differs")
+
+    paired_observations = policy.case_count * policy.repetitions
+    aggregate_delta_ppm = _ratio_ppm(
+        candidate_passes - reference_passes, paired_observations
+    )
+    family_observations = (
+        policy.case_count // len(policy.families)
+    ) * policy.repetitions
+    family_delta_ppm = {
+        family_id: _ratio_ppm(
+            family_candidate_passes[family_id]
+            - family_reference_passes[family_id],
+            family_observations,
+        )
+        for family_id in policy.families
+    }
+    aggregate_lower_bound_ppm, family_lower_bound_ppm = _bootstrap_lower_bounds(
+        policy, clusters
+    )
+
+    failures: list[str] = []
+    if aggregate_delta_ppm < -policy.aggregate_margin_ppm:
+        failures.append("aggregate observed quality delta exceeds margin")
+    if aggregate_lower_bound_ppm < -policy.aggregate_margin_ppm:
+        failures.append("aggregate quality lower bound exceeds margin")
+    family_documents: dict[str, dict[str, Any]] = {}
+    for family_id in policy.families:
+        observed_passes = family_delta_ppm[family_id] >= -policy.family_margin_ppm
+        lower_bound_passes = (
+            family_lower_bound_ppm[family_id] >= -policy.family_margin_ppm
+        )
+        if not observed_passes:
+            failures.append(f"{family_id} observed quality delta exceeds margin")
+        if not lower_bound_passes:
+            failures.append(f"{family_id} quality lower bound exceeds margin")
+        family_documents[family_id] = {
+            "reference_passes": family_reference_passes[family_id],
+            "candidate_passes": family_candidate_passes[family_id],
+            "paired_observations": family_observations,
+            "delta_ppm": family_delta_ppm[family_id],
+            "lower_bound_ppm": family_lower_bound_ppm[family_id],
+            "margin_ppm": policy.family_margin_ppm,
+            "observed_passes": observed_passes,
+            "lower_bound_passes": lower_bound_passes,
+        }
+
+    return {
+        "schema_version": QUALITY_DECISION_SCHEMA,
+        "quality_policy_digest": policy.digest,
+        "quality_profile_digest": policy.quality_profile_digest,
+        "quality_workload_digest": policy.quality_workload_digest,
+        "candidate_role": next(iter(candidate_roles)),
+        "repetitions": policy.repetitions,
+        "case_count": policy.case_count,
+        "paired_observations": paired_observations,
+        "eligible": not failures,
+        "aggregate": {
+            "reference_passes": reference_passes,
+            "candidate_passes": candidate_passes,
+            "delta_ppm": aggregate_delta_ppm,
+            "lower_bound_ppm": aggregate_lower_bound_ppm,
+            "margin_ppm": policy.aggregate_margin_ppm,
+            "observed_passes": aggregate_delta_ppm
+            >= -policy.aggregate_margin_ppm,
+            "lower_bound_passes": aggregate_lower_bound_ppm
+            >= -policy.aggregate_margin_ppm,
+        },
+        "families": family_documents,
+        "paired_transitions": transitions,
+        "uncertainty": {
+            "method": "stratified_paired_case_cluster_percentile_bootstrap",
+            "confidence_ppm": policy.confidence_ppm,
+            "resamples": policy.bootstrap_resamples,
+            "seed": policy.bootstrap_seed,
+            "prng": "splitmix64_modulo",
+            "quantile": "lower_order_statistic_floor",
+        },
+        "failures": failures,
     }
 
 
@@ -650,6 +862,306 @@ def _validate_case_population(
         counts[case.family_id] += 1
     if any(count != profile.cases_per_family for count in counts.values()):
         raise QualityValidationError("quality family case count differs")
+
+
+def _validate_quality_series(
+    policy: QualityPolicy,
+    runs: Iterable[Mapping[str, Any]],
+    allowed_roles: set[str],
+) -> tuple[Mapping[str, Any], ...]:
+    supplied = tuple(runs)
+    if any(not isinstance(value, Mapping) for value in supplied):
+        raise QualityValidationError("quality series runs must be mappings")
+    values = tuple(
+        sorted(supplied, key=lambda value: _integer(value, "repetition"))
+    )
+    if len(values) != policy.repetitions:
+        raise QualityValidationError("quality series repetition count differs")
+    if tuple(_integer(value, "repetition") for value in values) != tuple(
+        range(1, policy.repetitions + 1)
+    ):
+        raise QualityValidationError("quality series repetitions differ")
+    expected_run_keys = {
+        "schema_version",
+        "profile_digest",
+        "workload_digest",
+        "role",
+        "repetition",
+        "case_count",
+        "pass_count",
+        "score_ppm",
+        "family_scores",
+        "cases",
+    }
+    expected_case_keys = {
+        "case_id",
+        "family_id",
+        "passed",
+        "extracted",
+        "content_digest",
+    }
+    canonical_case_families: dict[str, str] | None = None
+    for run in values:
+        if set(run) != expected_run_keys:
+            raise QualityValidationError("quality run fields differ")
+        if run["schema_version"] != QUALITY_RUN_SCHEMA:
+            raise QualityValidationError("quality run schema differs")
+        if run["profile_digest"] != policy.quality_profile_digest:
+            raise QualityValidationError("quality run profile digest differs")
+        if run["workload_digest"] != policy.quality_workload_digest:
+            raise QualityValidationError("quality run workload digest differs")
+        if run["role"] not in allowed_roles:
+            raise QualityValidationError("quality run role differs")
+        if _positive_int(run, "case_count") != policy.case_count:
+            raise QualityValidationError("quality run case count differs")
+        cases = _list(run, "cases")
+        if len(cases) != policy.case_count:
+            raise QualityValidationError("quality run case list differs")
+        case_families: dict[str, str] = {}
+        family_passes = {family_id: 0 for family_id in policy.families}
+        family_counts = {family_id: 0 for family_id in policy.families}
+        for case in cases:
+            if not isinstance(case, dict) or set(case) != expected_case_keys:
+                raise QualityValidationError("quality case score fields differ")
+            case_id = case["case_id"]
+            family_id = case["family_id"]
+            if (
+                not isinstance(case_id, str)
+                or not case_id
+                or case_id in case_families
+                or family_id not in policy.families
+                or not _is_digest(case["content_digest"])
+                or (
+                    case["extracted"] is not None
+                    and not isinstance(case["extracted"], str)
+                )
+            ):
+                raise QualityValidationError("quality case score is invalid")
+            passed = _case_passed(case)
+            case_families[case_id] = str(family_id)
+            family_counts[str(family_id)] += 1
+            family_passes[str(family_id)] += int(passed)
+        if canonical_case_families is None:
+            canonical_case_families = case_families
+        elif case_families != canonical_case_families:
+            raise QualityValidationError("quality series case identities differ")
+        expected_family_count = policy.case_count // len(policy.families)
+        if any(count != expected_family_count for count in family_counts.values()):
+            raise QualityValidationError("quality run family count differs")
+        pass_count = sum(family_passes.values())
+        if _nonnegative_int(run, "pass_count") != pass_count:
+            raise QualityValidationError("quality run pass count differs")
+        if _nonnegative_int(run, "score_ppm") != _ratio_ppm(
+            pass_count, policy.case_count
+        ):
+            raise QualityValidationError("quality run score differs")
+        family_scores = _mapping(run, "family_scores")
+        if set(family_scores) != set(policy.families):
+            raise QualityValidationError("quality run family scores differ")
+        for family_id in policy.families:
+            score = _mapping(family_scores, family_id)
+            if set(score) != {"case_count", "pass_count", "score_ppm"}:
+                raise QualityValidationError("quality family score fields differ")
+            if (
+                _positive_int(score, "case_count") != expected_family_count
+                or _nonnegative_int(score, "pass_count")
+                != family_passes[family_id]
+                or _nonnegative_int(score, "score_ppm")
+                != _ratio_ppm(family_passes[family_id], expected_family_count)
+            ):
+                raise QualityValidationError("quality family score differs")
+    return values
+
+
+def _bootstrap_lower_bounds(
+    policy: QualityPolicy,
+    clusters: Mapping[str, Mapping[str, list[int]]],
+) -> tuple[int, dict[str, int]]:
+    rng = _SplitMix64(policy.bootstrap_seed)
+    aggregate_samples: list[int] = []
+    family_samples: dict[str, list[int]] = {
+        family_id: [] for family_id in policy.families
+    }
+    clusters_by_family = {
+        family_id: tuple(
+            sum(values) for _, values in sorted(clusters[family_id].items())
+        )
+        for family_id in policy.families
+    }
+    family_observations = (
+        policy.case_count // len(policy.families)
+    ) * policy.repetitions
+    aggregate_observations = policy.case_count * policy.repetitions
+    for _ in range(policy.bootstrap_resamples):
+        aggregate_delta = 0
+        for family_id in policy.families:
+            values = clusters_by_family[family_id]
+            family_delta = sum(values[rng.index(len(values))] for _ in values)
+            family_samples[family_id].append(
+                _ratio_ppm(family_delta, family_observations)
+            )
+            aggregate_delta += family_delta
+        aggregate_samples.append(_ratio_ppm(aggregate_delta, aggregate_observations))
+    tail_index = (
+        (policy.bootstrap_resamples - 1) * (1_000_000 - policy.confidence_ppm)
+    ) // 1_000_000
+    aggregate_samples.sort()
+    lower_by_family: dict[str, int] = {}
+    for family_id, samples in family_samples.items():
+        samples.sort()
+        lower_by_family[family_id] = samples[tail_index]
+    return aggregate_samples[tail_index], lower_by_family
+
+
+class _SplitMix64:
+    """Small fixed PRNG used only to make bootstrap resampling reproducible."""
+
+    _MASK = (1 << 64) - 1
+
+    def __init__(self, seed: int) -> None:
+        self._state = seed & self._MASK
+
+    def index(self, upper: int) -> int:
+        if upper <= 0:
+            raise QualityValidationError("bootstrap cluster population is empty")
+        self._state = (self._state + 0x9E3779B97F4A7C15) & self._MASK
+        value = self._state
+        value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & self._MASK
+        value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & self._MASK
+        value ^= value >> 31
+        return value % upper
+
+
+def _validate_quality_policy(raw: Mapping[str, Any]) -> None:
+    expected_top = {
+        "schema_version",
+        "phase",
+        "quality_profile_digest",
+        "quality_workload_digest",
+        "pairing",
+        "repetitions",
+        "case_count",
+        "families",
+        "decision_rule",
+        "malformed_response_policy",
+        "noninferiority",
+        "uncertainty",
+        "calibration",
+    }
+    if set(raw) != expected_top:
+        raise QualityValidationError("quality policy fields differ")
+    expected_literals = {
+        "schema_version": QUALITY_POLICY_SCHEMA,
+        "phase": "calibration_frozen_v2",
+        "pairing": "same_case_seed_and_repetition",
+        "decision_rule": "paired_aggregate_and_family_noninferiority",
+        "malformed_response_policy": "fail_case",
+    }
+    if any(raw.get(key) != value for key, value in expected_literals.items()):
+        raise QualityValidationError("unsupported quality policy")
+    if not _is_digest(raw.get("quality_profile_digest")) or not _is_digest(
+        raw.get("quality_workload_digest")
+    ):
+        raise QualityValidationError("quality policy digests are invalid")
+    if _positive_int(raw, "repetitions") != 3 or _positive_int(
+        raw, "case_count"
+    ) != 64:
+        raise QualityValidationError("quality policy population differs")
+    expected_families = [
+        "bbh_reasoning",
+        "gsm8k",
+        "mmlu",
+        "structured_transform",
+    ]
+    if raw.get("families") != expected_families:
+        raise QualityValidationError("quality policy families differ")
+
+    noninferiority = _mapping(raw, "noninferiority")
+    if set(noninferiority) != {
+        "comparison",
+        "aggregate_margin_ppm",
+        "family_margin_ppm",
+        "inclusive",
+    }:
+        raise QualityValidationError("quality noninferiority fields differ")
+    if (
+        noninferiority.get("comparison")
+        != "candidate_minus_contemporaneous_reference"
+        or _positive_int(noninferiority, "aggregate_margin_ppm") != 31_250
+        or _positive_int(noninferiority, "family_margin_ppm") != 62_500
+        or _boolean(noninferiority, "inclusive") is not True
+    ):
+        raise QualityValidationError("quality noninferiority contract differs")
+
+    uncertainty = _mapping(raw, "uncertainty")
+    expected_uncertainty_literals = {
+        "method": "stratified_paired_case_cluster_percentile_bootstrap",
+        "prng": "splitmix64_modulo",
+        "quantile": "lower_order_statistic_floor",
+        "cluster": "case_id_with_three_repetitions",
+        "stratify": "family_id",
+    }
+    if set(uncertainty) != {
+        *expected_uncertainty_literals,
+        "confidence_ppm",
+        "resamples",
+        "seed",
+    } or any(
+        uncertainty.get(key) != value
+        for key, value in expected_uncertainty_literals.items()
+    ):
+        raise QualityValidationError("quality uncertainty contract differs")
+    if (
+        _positive_int(uncertainty, "confidence_ppm") != 950_000
+        or _positive_int(uncertainty, "resamples") != 100_000
+        or _positive_int(uncertainty, "seed") != 20_260_821
+    ):
+        raise QualityValidationError("quality uncertainty parameters differ")
+
+    calibration = _mapping(raw, "calibration")
+    expected_calibration_keys = {
+        "reference_measurement_id",
+        "reference_receipt_digests",
+        "clean_control_measurement_id",
+        "clean_control_receipt_digests",
+        "reference_passes",
+        "clean_control_passes",
+        "paired_observations",
+        "observed_delta_ppm",
+        "aggregate_lower_bound_ppm",
+        "worst_family_observed_delta_ppm",
+        "worst_family_lower_bound_ppm",
+        "clean_control_expected_noninferior",
+    }
+    if set(calibration) != expected_calibration_keys:
+        raise QualityValidationError("quality calibration fields differ")
+    for key in ("reference_measurement_id", "clean_control_measurement_id"):
+        if not isinstance(calibration.get(key), str) or not calibration[key]:
+            raise QualityValidationError("quality calibration identity is invalid")
+    for key in ("reference_receipt_digests", "clean_control_receipt_digests"):
+        digests = calibration.get(key)
+        if (
+            not isinstance(digests, list)
+            or len(digests) != 3
+            or len(set(digests)) != 3
+            or not all(_is_digest(value) for value in digests)
+        ):
+            raise QualityValidationError("quality calibration receipts are invalid")
+    reference_passes = _nonnegative_int(calibration, "reference_passes")
+    clean_control_passes = _nonnegative_int(calibration, "clean_control_passes")
+    paired_observations = _positive_int(calibration, "paired_observations")
+    if (
+        paired_observations != 192
+        or reference_passes > paired_observations
+        or clean_control_passes > paired_observations
+        or _integer(calibration, "observed_delta_ppm")
+        != _ratio_ppm(clean_control_passes - reference_passes, paired_observations)
+        or _integer(calibration, "aggregate_lower_bound_ppm") != -20_833
+        or _integer(calibration, "worst_family_observed_delta_ppm") != -20_833
+        or _integer(calibration, "worst_family_lower_bound_ppm") != -62_500
+        or _boolean(calibration, "clean_control_expected_noninferior") is not True
+    ):
+        raise QualityValidationError("quality calibration result differs")
 
 
 def _validate_quality_profile(raw: Mapping[str, Any]) -> None:

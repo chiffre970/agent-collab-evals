@@ -101,6 +101,19 @@ class ModelServingCampaignTests(unittest.TestCase):
         self.assertEqual(
             scoring.digest, self.campaign.transitive_digests["scoring_profile"]
         )
+        quality_profile = self.campaign.quality_profile()
+        quality_policy = self.campaign.quality_policy()
+        self.assertEqual(
+            quality_profile.digest,
+            self.campaign.transitive_digests["quality_profile"],
+        )
+        self.assertEqual(
+            quality_policy.digest,
+            self.campaign.transitive_digests["quality_policy"],
+        )
+        self.assertEqual(
+            quality_policy.quality_profile_digest, quality_profile.digest
+        )
         self.assertEqual(
             scoring.goodput_slos_ms_by_bucket["long"],
             {"ttft": 1450, "tpot": 90},
@@ -126,6 +139,10 @@ class ModelServingCampaignTests(unittest.TestCase):
         self.assertEqual(
             contract["quality_contract"]["candidate_implementation_policy"],
             "unrestricted_within_campaign_policy",
+        )
+        self.assertEqual(
+            contract["quality_contract"]["quality_policy_digest"],
+            self.campaign.quality_policy().digest,
         )
 
         changed = copy.deepcopy(contract)
