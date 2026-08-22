@@ -168,10 +168,15 @@ smallest useful seams before adding the runtime and collaboration machinery.
   corrected run preserves owner-readable raw receipts.
 - Campaign closure now requires a budget reconciliation gate. Harness stop
   revokes model tokens through an in-flight request barrier, then the controller
-  verifies durable reservation and charge counters. Active reservations,
-  forfeitures, overruns, missing required receipts and ledger inconsistencies
-  emit `campaign.invalid` and cannot produce a `CampaignResult`. Local no-model
-  tests must provide an explicit `no_model_calls` attestation.
+  verifies durable reservation and charge counters against an immutable
+  out-of-ledger `BudgetPlan` and an independent raw-receipt verifier. Registered
+  plans require their resolved-run-manifest digest at load time. Reconciliation
+  rejects coherent rewrites of stored limits, usage, charges, counters and
+  terminal audit when they differ from the plan or unchanged provider bytes.
+  Active reservations, forfeitures, overruns, missing or invalid receipts and
+  ledger inconsistencies emit `campaign.invalid` and cannot produce a
+  `CampaignResult`. Local no-model tests must provide an explicit
+  `no_model_calls` attestation.
 - A frozen 2026-08-21 OpenRouter ZDR candidate snapshot and exact-decimal
   selection policy choose DeepInfra FP8 as the lowest projected-cost eligible
   route for the declared 100,000-input/10,000-output-token mix. The raw endpoint
@@ -183,8 +188,12 @@ smallest useful seams before adding the runtime and collaboration machinery.
   identity, visible text, forced tool calling, raw receipt capture and budget
   reconciliation. Two byte-identical text requests and the tool request all
   reported zero cached input tokens. The retained qualification cost $0.000052.
-  Its exact record and all six raw receipts are repository-retained and resolved
-  by digest when the selected route loads.
+  Its exact record and all six raw receipts are repository-retained. Loading the
+  selected route resolves their digests and independently replays each raw pair
+  to reproduce identity, usage, cost and the exact $0.000052 total. An
+  append-only development-attempt index also preserves the two adjacent
+  diagnostic attempts: the three new records total $0.00015276; including the
+  earlier superseded attempt, indexed route-qualification spend is $0.00020764.
 - The OpenRouter transport now explicitly disables its response cache, and the
   selected endpoint snapshot attests that DeepInfra does not provide implicit
   caching for this model. ZDR membership alone is not treated as cache-isolation
@@ -204,7 +213,8 @@ The following remain gates, not implied capabilities:
 1. Registered-study promotion remains separate from the passing development
    route, cache and macOS sandbox evidence. Before scored runs, freeze registered
    copies of the provider snapshot, selection policy and record, billing and
-   gateway profiles, deployment build and block-validity rule. Replace or layer
+   gateway profiles, immutable budget plan, receipt-verifier profile, deployment
+   build and block-validity rule. Replace or layer
    the current development network policy with gateway-specific local-service,
    filesystem and process-resource enforcement. The target environment needs a
    pinned kernel- or container-level adapter and equivalent conformance proof.

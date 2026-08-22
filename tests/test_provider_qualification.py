@@ -7,6 +7,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from agent_collab_evals.canonical import digest_file
 from agent_collab_evals.provider_qualification import (
     ProviderQualificationPlan,
     QualifiedProviderRoute,
@@ -149,6 +150,97 @@ class ProviderQualificationTests(unittest.TestCase):
             receipt.write_bytes(receipt.read_bytes() + b"tampered")
 
             with self.assertRaisesRegex(ValueError, "retained evidence"):
+                QualifiedProviderRoute.load(
+                    root
+                    / "config/provider_qualification/"
+                    "deepseek-v4-flash-deepinfra-development-selection.json",
+                    repository_root=root,
+                )
+
+    def test_qualified_route_rejects_coherent_record_charge_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(REPOSITORY_ROOT / "config", root / "config")
+            shutil.copytree(
+                REPOSITORY_ROOT / "evidence/provider_qualification",
+                root / "evidence/provider_qualification",
+            )
+            selection_path = (
+                root
+                / "config/provider_qualification/"
+                "deepseek-v4-flash-deepinfra-development-selection.json"
+            )
+            selection = json.loads(selection_path.read_text(encoding="utf-8"))
+            record_path = root / selection["qualification"][
+                "qualification_record_file"
+            ]
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+            record["charges"][0]["charged_usd_nanos"] += 1
+            record["total_charged_usd_nanos"] += 1
+            record_path.write_text(json.dumps(record), encoding="utf-8")
+            selection["qualification"]["total_charged_usd_nanos"] += 1
+            selection["qualification"]["qualification_record_digest"] = (
+                digest_file(record_path)
+            )
+            selection_path.write_text(json.dumps(selection), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError, "charge differs from raw receipts"
+            ):
+                QualifiedProviderRoute.load(
+                    selection_path,
+                    repository_root=root,
+                )
+
+    def test_attempt_index_preserves_all_route_qualification_spend(self) -> None:
+        index = (
+            REPOSITORY_ROOT
+            / "evidence/provider_qualification/development-attempts.jsonl"
+        )
+        attempts = [
+            json.loads(line)
+            for line in index.read_text(encoding="utf-8").splitlines()
+        ]
+
+        self.assertEqual(len(attempts), 4)
+        self.assertEqual(
+            sum(attempt["charged_usd_nanos"] for attempt in attempts[-3:]),
+            152_760,
+        )
+        self.assertEqual(
+            sum(attempt["charged_usd_nanos"] for attempt in attempts),
+            207_640,
+        )
+        self.assertEqual(
+            [attempt["disposition"] for attempt in attempts[-3:]],
+            [
+                "diagnostic_local_evidence",
+                "retained_qualification",
+                "diagnostic_local_evidence",
+            ],
+        )
+
+    def test_qualified_route_rejects_tampered_attempt_index(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(REPOSITORY_ROOT / "config", root / "config")
+            shutil.copytree(
+                REPOSITORY_ROOT / "evidence/provider_qualification",
+                root / "evidence/provider_qualification",
+            )
+            index = (
+                root
+                / "evidence/provider_qualification/development-attempts.jsonl"
+            )
+            index.write_text(
+                index.read_text(encoding="utf-8").replace(
+                    '"charged_usd_nanos":50740',
+                    '"charged_usd_nanos":1',
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "attempt index digest"):
                 QualifiedProviderRoute.load(
                     root
                     / "config/provider_qualification/"

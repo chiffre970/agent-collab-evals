@@ -70,8 +70,8 @@ The repository now contains the first scenario-shaped vertical slice:
   with one bounded live DeepInfra canary through the complete gateway;
 - retained raw OpenRouter endpoint and ZDR catalogs, a deterministic candidate
   extractor and an evidence-complete three-probe qualification record whose
-  stream and metadata receipts are resolved and digest-checked from the
-  repository;
+  stream and metadata receipts are resolved, digest-checked and independently
+  replayed from the repository;
 - condition-matched cache isolation through an endpoint with no implicit cache,
   an explicit OpenRouter response-cache denial and repeated-request receipts
   reporting zero cached tokens;
@@ -81,7 +81,9 @@ The repository now contains the first scenario-shaped vertical slice:
   filesystem or process-resource limits;
 - a mandatory close-time budget validity gate that prevents post-stream
   identity, usage, receipt, forfeiture or overrun defects from producing a
-  scoreable campaign result;
+  scoreable campaign result, using a manifest-pinned immutable budget plan and
+  an independent raw-provider-receipt verifier rather than trusting the
+  mutable ledger as its own authority;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result

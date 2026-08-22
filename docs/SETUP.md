@@ -196,8 +196,20 @@ npm run retain:provider-route -- \
 ```
 
 Update the development selection record to reference those retained paths and
-digests. `npm run check:provider-route` then resolves every source and receipt
-file and rejects missing or altered evidence.
+digests. The retention command also appends one idempotent record to
+`evidence/provider_qualification/development-attempts.jsonl`; failed or
+diagnostic live attempts must be appended there as well, even when their bulky
+raw files remain under ignored `tmp/`. `npm run check:provider-route` resolves
+every source and receipt file, independently replays raw provider evidence to
+reconstruct identity, usage and cost, validates the attempt-index digest and
+rejects missing, altered or semantically inconsistent evidence.
+
+For scored campaigns, generate a `budget-plan/v1` document only after actor
+allocations and the billing rate card are frozen. Put its exact digest in the
+resolved run manifest and pass both the loaded plan and the registered
+provider-receipt verifier to the budget account. A `registered` plan cannot load
+without that expected manifest digest. Never derive the close-time authority
+from the SQLite ledger it is intended to check.
 
 An alternate committed development profile can be checked or exercised
 explicitly without putting the model or provider in `.env`:

@@ -12,8 +12,10 @@ from agent_collab_evals.adapters.opencode_harness import (
     OpenCodeHarnessRuntime,
     OpenCodeRuntimeProfile,
 )
+from agent_collab_evals.adapters.provider_receipts import OpenRouterReceiptVerifier
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
-from agent_collab_evals.budget import ActorBudgetAllocation
+from agent_collab_evals.budget import ActorBudgetAllocation, BudgetPlan
+from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
 from agent_collab_evals.domain import CoordinationCondition, Job, OrganisationSpec
 from agent_collab_evals.model_gateway import (
@@ -41,6 +43,32 @@ SANDBOX_PROFILE_PATH = (
 
 def _sandbox() -> DarwinSandboxExec:
     return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
+
+
+def _budget_account(
+    database: Path,
+    profile: ModelGatewayProfile,
+    campaign_run_id: str,
+    allocations: tuple[ActorBudgetAllocation, ...],
+) -> SqliteBudgetAccount:
+    return SqliteBudgetAccount(
+        database,
+        profile.rate_card,
+        require_metadata_receipts=False,
+        budget_plan=BudgetPlan.create(
+            plan_id=f"{campaign_run_id}-conformance-budget",
+            status="conformance_only",
+            campaign_run_id=campaign_run_id,
+            organisation_limit_usd_nanos=sum(
+                allocation.limit_usd_nanos for allocation in allocations
+            ),
+            allocations=allocations,
+            rate_card_digest=digest_value(profile.rate_card),
+        ),
+        receipt_verifier=OpenRouterReceiptVerifier(
+            profile, require_metadata_receipt=False
+        ),
+    )
 
 
 class _OpenCodeUpstream:
@@ -109,21 +137,23 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
             gateway_profile = ModelGatewayProfile.load(
                 GATEWAY_PROFILE_PATH, repository_root=REPOSITORY_ROOT
             )
-            account = SqliteBudgetAccount(
-                root / "budget.sqlite3",
-                gateway_profile.rate_card,
-                require_metadata_receipts=False,
-            )
             campaign_run_id = "opencode-budget-gateway"
             actor_id = f"{campaign_run_id}:actor:0"
+            allocations = (
+                ActorBudgetAllocation(
+                    campaign_run_id, actor_id, 250_000_000
+                ),
+            )
+            account = _budget_account(
+                root / "budget.sqlite3",
+                gateway_profile,
+                campaign_run_id,
+                allocations,
+            )
             account.open_campaign(
                 campaign_run_id,
                 250_000_000,
-                (
-                    ActorBudgetAllocation(
-                        campaign_run_id, actor_id, 250_000_000
-                    ),
-                ),
+                allocations,
             )
             upstream = _OpenCodeUpstream()
             gateway = ModelBudgetGateway(gateway_profile, account, upstream)
@@ -189,21 +219,23 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
             gateway_profile = ModelGatewayProfile.load(
                 GATEWAY_PROFILE_PATH, repository_root=REPOSITORY_ROOT
             )
-            account = SqliteBudgetAccount(
-                root / "budget.sqlite3",
-                gateway_profile.rate_card,
-                require_metadata_receipts=False,
-            )
             campaign_run_id = "opencode-post-stream-forfeit"
             actor_id = f"{campaign_run_id}:actor:0"
+            allocations = (
+                ActorBudgetAllocation(
+                    campaign_run_id, actor_id, 250_000_000
+                ),
+            )
+            account = _budget_account(
+                root / "budget.sqlite3",
+                gateway_profile,
+                campaign_run_id,
+                allocations,
+            )
             account.open_campaign(
                 campaign_run_id,
                 250_000_000,
-                (
-                    ActorBudgetAllocation(
-                        campaign_run_id, actor_id, 250_000_000
-                    ),
-                ),
+                allocations,
             )
             upstream = _OpenCodeUpstream("Unexpected Provider")
             gateway = ModelBudgetGateway(gateway_profile, account, upstream)

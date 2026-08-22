@@ -12,9 +12,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_collab_evals.adapters.openrouter import OpenRouterUpstream
+from agent_collab_evals.adapters.provider_receipts import OpenRouterReceiptVerifier
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
-from agent_collab_evals.budget import ActorBudgetAllocation
-from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes
+from agent_collab_evals.budget import ActorBudgetAllocation, BudgetPlan
+from agent_collab_evals.canonical import (
+    canonical_json_bytes,
+    digest_bytes,
+    digest_value,
+)
 from agent_collab_evals.domain import SessionHandle
 from agent_collab_evals.model_gateway import ModelBudgetGateway, ModelGatewayProfile
 
@@ -66,20 +71,32 @@ def main() -> int:
         raise RuntimeError("OPENROUTER_API_KEY is missing")
 
     started = datetime.now(UTC)
+    campaign_run_id = "model-gateway-live-canary"
+    actor_id = f"{campaign_run_id}:actor:0"
+    allocations = (
+        ActorBudgetAllocation(
+            campaign_run_id, actor_id, CANARY_BUDGET_USD_NANOS
+        ),
+    )
+    budget_plan = BudgetPlan.create(
+        plan_id="model-gateway-live-canary-budget-v1",
+        status="development",
+        campaign_run_id=campaign_run_id,
+        organisation_limit_usd_nanos=CANARY_BUDGET_USD_NANOS,
+        allocations=allocations,
+        rate_card_digest=digest_value(profile.rate_card),
+    )
     with tempfile.TemporaryDirectory() as directory:
         account = SqliteBudgetAccount(
-            Path(directory) / "budget.sqlite3", profile.rate_card
+            Path(directory) / "budget.sqlite3",
+            profile.rate_card,
+            budget_plan=budget_plan,
+            receipt_verifier=OpenRouterReceiptVerifier(profile),
         )
-        campaign_run_id = "model-gateway-live-canary"
-        actor_id = f"{campaign_run_id}:actor:0"
         account.open_campaign(
             campaign_run_id,
             CANARY_BUDGET_USD_NANOS,
-            (
-                ActorBudgetAllocation(
-                    campaign_run_id, actor_id, CANARY_BUDGET_USD_NANOS
-                ),
-            ),
+            allocations,
         )
         upstream = OpenRouterUpstream.from_profile(profile, api_key)
         gateway = ModelBudgetGateway(profile, account, upstream)
@@ -94,6 +111,7 @@ def main() -> int:
             )
             status, raw_stream = _request(gateway, token.value, profile.requested_model)
             snapshot = account.snapshot(campaign_run_id)
+            reconciliation = account.reconcile(campaign_run_id)
         finally:
             gateway.close()
 
@@ -103,6 +121,8 @@ def main() -> int:
         raise RuntimeError("model gateway canary response failed its content check")
     if len(snapshot.charges) != 1:
         raise RuntimeError("model gateway canary did not produce exactly one charge")
+    if not reconciliation.valid:
+        raise RuntimeError("model gateway canary failed budget reconciliation")
     charge = snapshot.charges[0]
     usage = charge.usage
     if not usage.raw_metadata_receipt:

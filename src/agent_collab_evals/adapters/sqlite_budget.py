@@ -11,12 +11,14 @@ from ..budget import (
     ActorBudgetAllocation,
     ActorBudgetSnapshot,
     BillingRateCard,
+    BudgetPlan,
     BudgetCharge,
     BudgetRejected,
     BudgetReconciliation,
     BudgetReservation,
     BudgetSnapshot,
     ModelCallContext,
+    ProviderReceiptVerifier,
     ProviderUsage,
 )
 from ..canonical import canonical_json_bytes, digest_bytes, digest_value, parse_json
@@ -31,11 +33,20 @@ class SqliteBudgetAccount:
         rate_card: BillingRateCard,
         *,
         require_metadata_receipts: bool = True,
+        budget_plan: BudgetPlan | None = None,
+        receipt_verifier: ProviderReceiptVerifier | None = None,
     ) -> None:
         self._database = database
         self._rate_card = rate_card
         self._rate_card_digest = digest_value(rate_card)
         self._require_metadata_receipts = require_metadata_receipts
+        self._budget_plan = budget_plan
+        self._receipt_verifier = receipt_verifier
+        if (
+            budget_plan is not None
+            and budget_plan.rate_card_digest != self._rate_card_digest
+        ):
+            raise ValueError("budget plan and account rate cards differ")
         self._lock = threading.RLock()
         database.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection:
@@ -110,20 +121,40 @@ class SqliteBudgetAccount:
     ) -> None:
         if not campaign_run_id:
             raise ValueError("campaign identifier must be nonempty")
-        if type(organisation_limit_usd_nanos) is not int or organisation_limit_usd_nanos < 1:
+        if (
+            type(organisation_limit_usd_nanos) is not int
+            or organisation_limit_usd_nanos < 1
+        ):
             raise ValueError("organisation budget limit must be a positive integer")
         if not allocations:
             raise ValueError("at least one actor allocation is required")
         actor_ids = [allocation.actor_id for allocation in allocations]
         if len(set(actor_ids)) != len(actor_ids):
             raise ValueError("actor budget allocations must be unique")
-        if any(allocation.campaign_run_id != campaign_run_id for allocation in allocations):
+        if any(
+            allocation.campaign_run_id != campaign_run_id
+            for allocation in allocations
+        ):
             raise ValueError("actor allocation belongs to another campaign")
         allocated = sum(
             allocation.limit_usd_nanos for allocation in allocations
         )
         if allocated != organisation_limit_usd_nanos:
-            raise ValueError("actor allocations must partition the organisation budget exactly")
+            raise ValueError(
+                "actor allocations must partition the organisation budget exactly"
+            )
+        if self._budget_plan is not None:
+            if (
+                self._budget_plan.campaign_run_id != campaign_run_id
+                or self._budget_plan.organisation_limit_usd_nanos
+                != organisation_limit_usd_nanos
+                or self._budget_plan.allocation_limits
+                != {
+                    allocation.actor_id: allocation.limit_usd_nanos
+                    for allocation in allocations
+                }
+            ):
+                raise ValueError("campaign budget differs from its immutable plan")
 
         with self._transaction() as connection:
             campaign = connection.execute(
@@ -555,6 +586,10 @@ class SqliteBudgetAccount:
         overrun: list[str] = []
         missing: list[str] = []
         errors: list[str] = []
+        if self._budget_plan is None:
+            errors.append("immutable_budget_plan_missing")
+        if self._receipt_verifier is None:
+            errors.append("provider_receipt_verifier_missing")
         actor_state = {
             str(row["actor_id"]): {
                 "row": row,
@@ -653,6 +688,20 @@ class SqliteBudgetAccount:
                             errors.append(
                                 f"reconstructed_status_mismatch:{reservation_id}"
                             )
+                        if self._receipt_verifier is not None:
+                            verified_usage = self._receipt_verifier.verify(
+                                raw_receipt,
+                                raw_metadata or b"",
+                            )
+                            if verified_usage.usage_digest != charge.usage.usage_digest:
+                                errors.append(
+                                    f"provider_receipt_usage_mismatch:{reservation_id}"
+                                )
+                            verified_charge = self._rate_card.charge(verified_usage)
+                            if verified_charge != charge.charged_usd_nanos:
+                                errors.append(
+                                    f"provider_receipt_charge_mismatch:{reservation_id}"
+                                )
                     except (KeyError, RuntimeError, TypeError, ValueError):
                         errors.append(f"receipt_or_usage_invalid:{reservation_id}")
             elif status == "forfeited":
@@ -727,13 +776,35 @@ class SqliteBudgetAccount:
         expected_charged = sum(
             int(state["expected_charged"]) for state in actor_state.values()
         )
+        if self._budget_plan is not None:
+            if self._budget_plan.campaign_run_id != campaign_run_id:
+                errors.append("budget_plan_campaign_mismatch")
+            if self._budget_plan.rate_card_digest != str(campaign["rate_card_digest"]):
+                errors.append("budget_plan_rate_card_mismatch")
+            if (
+                self._budget_plan.organisation_limit_usd_nanos
+                != campaign_limit
+            ):
+                errors.append("budget_plan_campaign_limit_mismatch")
+            stored_actor_limits = {
+                actor_id: int(state["row"]["limit_usd_nanos"])
+                for actor_id, state in actor_state.items()
+            }
+            if self._budget_plan.allocation_limits != stored_actor_limits:
+                errors.append("budget_plan_actor_allocations_mismatch")
         if campaign_limit < 1:
             errors.append("invalid_campaign_limit")
         if campaign_reserved < 0 or campaign_charged < 0:
             errors.append("invalid_campaign_counter")
         if campaign_reserved + campaign_charged > campaign_limit:
             errors.append("campaign_limit_exceeded")
-        if sum(int(state["row"]["limit_usd_nanos"]) for state in actor_state.values()) != campaign_limit:
+        if (
+            sum(
+                int(state["row"]["limit_usd_nanos"])
+                for state in actor_state.values()
+            )
+            != campaign_limit
+        ):
             errors.append("actor_limits_do_not_partition_campaign")
         for actor_id, state in actor_state.items():
             actor_row = state["row"]
@@ -761,9 +832,19 @@ class SqliteBudgetAccount:
         return BudgetReconciliation(
             campaign_run_id=campaign_run_id,
             accounting_mode=(
-                "provider_receipts_required"
+                "plan_and_provider_receipts_verified"
                 if self._require_metadata_receipts
-                else "synthetic_metadata_optional"
+                else "plan_and_synthetic_receipts_verified"
+            ),
+            budget_plan_digest=(
+                self._budget_plan.source_digest
+                if self._budget_plan is not None
+                else None
+            ),
+            receipt_verifier_digest=(
+                self._receipt_verifier.profile_digest
+                if self._receipt_verifier is not None
+                else None
             ),
             active_reservation_ids=tuple(active),
             forfeited_reservation_ids=tuple(forfeited),

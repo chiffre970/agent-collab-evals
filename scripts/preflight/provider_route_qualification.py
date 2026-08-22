@@ -14,9 +14,14 @@ from pathlib import Path
 from typing import Any
 
 from agent_collab_evals.adapters.openrouter import OpenRouterUpstream
+from agent_collab_evals.adapters.provider_receipts import OpenRouterReceiptVerifier
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
-from agent_collab_evals.budget import ActorBudgetAllocation
-from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes
+from agent_collab_evals.budget import ActorBudgetAllocation, BudgetPlan
+from agent_collab_evals.canonical import (
+    canonical_json_bytes,
+    digest_bytes,
+    digest_value,
+)
 from agent_collab_evals.domain import SessionHandle
 from agent_collab_evals.model_gateway import ModelBudgetGateway, ModelGatewayProfile
 from agent_collab_evals.provider_qualification import (
@@ -108,20 +113,32 @@ def main() -> int:
     started = datetime.now(UTC)
     campaign_run_id = "provider-route-qualification"
     actor_id = f"{campaign_run_id}:actor:0"
+    allocations = (
+        ActorBudgetAllocation(
+            campaign_run_id,
+            actor_id,
+            QUALIFICATION_BUDGET_USD_NANOS,
+        ),
+    )
+    budget_plan = BudgetPlan.create(
+        plan_id="provider-route-qualification-budget-v1",
+        status="development",
+        campaign_run_id=campaign_run_id,
+        organisation_limit_usd_nanos=QUALIFICATION_BUDGET_USD_NANOS,
+        allocations=allocations,
+        rate_card_digest=digest_value(profile.rate_card),
+    )
     with tempfile.TemporaryDirectory() as directory:
         account = SqliteBudgetAccount(
-            Path(directory) / "budget.sqlite3", profile.rate_card
+            Path(directory) / "budget.sqlite3",
+            profile.rate_card,
+            budget_plan=budget_plan,
+            receipt_verifier=OpenRouterReceiptVerifier(profile),
         )
         account.open_campaign(
             campaign_run_id,
             QUALIFICATION_BUDGET_USD_NANOS,
-            (
-                ActorBudgetAllocation(
-                    campaign_run_id,
-                    actor_id,
-                    QUALIFICATION_BUDGET_USD_NANOS,
-                ),
-            ),
+            allocations,
         )
         gateway = ModelBudgetGateway(
             profile,

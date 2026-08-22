@@ -9,7 +9,8 @@ from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping
 
-from .canonical import digest_bytes, digest_file, digest_value, load_json
+from .budget import ProviderReceiptVerifier
+from .canonical import digest_bytes, digest_file, digest_value, load_json, parse_json
 
 
 ENDPOINT_CATALOG_URL = (
@@ -766,11 +767,13 @@ class QualifiedProviderRoute:
             "gateway_profiles",
             "gateway profile",
         )
+        from .adapters.provider_receipts import OpenRouterReceiptVerifier
         from .model_gateway import ModelGatewayProfile
 
         gateway = ModelGatewayProfile.load(
             gateway_path, repository_root=repository_root
         )
+        receipt_verifier = OpenRouterReceiptVerifier(gateway)
         if record["status"] != plan.status or record["status"] != gateway.status:
             raise ValueError("provider selection component statuses differ")
         selected = ProviderQualificationPlan._mapping(
@@ -800,6 +803,7 @@ class QualifiedProviderRoute:
             record["qualification"],
             repository_root=repository_root,
             selection=selection,
+            receipt_verifier=receipt_verifier,
         )
         record_digest = digest_file(source)
         return cls(
@@ -827,6 +831,7 @@ class QualifiedProviderRoute:
         *,
         repository_root: Path,
         selection: ProviderRouteSelection,
+        receipt_verifier: ProviderReceiptVerifier,
     ) -> None:
         qualification = ProviderQualificationPlan._mapping(
             value, "provider route qualification"
@@ -836,6 +841,9 @@ class QualifiedProviderRoute:
             {
                 "started_at",
                 "finished_at",
+                "attempt_id",
+                "attempt_index_file",
+                "attempt_index_digest",
                 "qualification_record_file",
                 "qualification_record_digest",
                 "probe_count",
@@ -845,6 +853,7 @@ class QualifiedProviderRoute:
                 "maximum_probe_elapsed_ms",
                 "total_charged_usd_nanos",
                 "budget_reconciliation_valid",
+                "receipt_verifier_digest",
                 "conformance_failures",
                 "receipt_digests",
                 "raw_receipts_storage",
@@ -874,6 +883,8 @@ class QualifiedProviderRoute:
             or qualification["text_probe_passed"] is not True
             or qualification["tool_call_probe_passed"] is not True
             or qualification["budget_reconciliation_valid"] is not True
+            or qualification["receipt_verifier_digest"]
+            != receipt_verifier.profile_digest
             or failures != []
             or type(qualification["maximum_probe_elapsed_ms"]) is not int
             or not 0 < qualification["maximum_probe_elapsed_ms"] <= 60_000
@@ -891,6 +902,7 @@ class QualifiedProviderRoute:
             or len(receipts) != 3
         ):
             raise ValueError("provider route qualification did not pass")
+        retained_receipt_paths: list[tuple[Path, Path]] = []
         for receipt in receipts:
             value = ProviderQualificationPlan._mapping(
                 receipt, "provider qualification receipt"
@@ -905,6 +917,7 @@ class QualifiedProviderRoute:
                 },
                 "provider qualification receipt",
             )
+            resolved_paths: dict[str, Path] = {}
             for evidence_type in ("stream", "metadata"):
                 digest_key = f"{evidence_type}_digest"
                 file_key = f"{evidence_type}_file"
@@ -927,6 +940,10 @@ class QualifiedProviderRoute:
                     raise ValueError(
                         "provider qualification receipt differs from retained evidence"
                     )
+                resolved_paths[evidence_type] = evidence_path
+            retained_receipt_paths.append(
+                (resolved_paths["stream"], resolved_paths["metadata"])
+            )
         record_path = QualifiedProviderRoute._qualification_record_member(
             repository_root,
             qualification["qualification_record_file"],
@@ -998,6 +1015,44 @@ class QualifiedProviderRoute:
         ]
         if retained_digests != compact_digests:
             raise ValueError("retained qualification receipt list differs")
+        independently_verified_total = 0
+        for charge, (stream_path, metadata_path) in zip(
+            raw_charges, retained_receipt_paths, strict=True
+        ):
+            if not isinstance(charge, dict):
+                raise ValueError("retained qualification charge is invalid")
+            usage = receipt_verifier.verify(
+                stream_path.read_bytes(), metadata_path.read_bytes()
+            )
+            expected_charge = {
+                "provider_name": usage.provider_name,
+                "returned_model": usage.returned_model,
+                "metadata_model": usage.metadata_model,
+                "provider_request_id": usage.provider_request_id,
+                "provider_generation_id": usage.provider_generation_id,
+                "prompt_tokens": usage.prompt_tokens,
+                "cached_input_tokens": usage.cached_input_tokens,
+                "completion_tokens": usage.completion_tokens,
+                "charged_usd_nanos": usage.provider_cost_usd_nanos,
+            }
+            if any(
+                charge.get(key) != expected
+                for key, expected in expected_charge.items()
+            ):
+                raise ValueError(
+                    "retained qualification charge differs from raw receipts"
+                )
+            if usage.provider_cost_usd_nanos is None:
+                raise ValueError("raw provider receipt omitted its billed cost")
+            independently_verified_total += usage.provider_cost_usd_nanos
+        if independently_verified_total != qualification["total_charged_usd_nanos"]:
+            raise ValueError("raw provider receipt total differs")
+        QualifiedProviderRoute._validate_attempt_index(
+            qualification,
+            repository_root=repository_root,
+            selection=selection,
+            record_path=record_path,
+        )
 
     @staticmethod
     def _receipt_evidence_member(
@@ -1028,3 +1083,84 @@ class QualifiedProviderRoute:
                 f"qualification record must be directly under {expected}"
             )
         return path
+
+    @staticmethod
+    def _validate_attempt_index(
+        qualification: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        selection: ProviderRouteSelection,
+        record_path: Path,
+    ) -> None:
+        index_value = qualification["attempt_index_file"]
+        if not isinstance(index_value, str) or not index_value:
+            raise ValueError("provider attempt index path must be nonempty")
+        index_path = (repository_root / index_value).resolve()
+        expected = (
+            repository_root
+            / "evidence/provider_qualification/development-attempts.jsonl"
+        ).resolve()
+        if index_path != expected or not index_path.is_file():
+            raise ValueError("provider attempt index path differs")
+        if digest_file(index_path) != qualification["attempt_index_digest"]:
+            raise ValueError("provider attempt index digest differs")
+        attempts: list[Mapping[str, Any]] = []
+        for line_number, line in enumerate(
+            index_path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            value = parse_json(line)
+            if not isinstance(value, dict):
+                raise ValueError(f"provider attempt {line_number} is not an object")
+            required = {
+                "schema_version",
+                "attempt_id",
+                "started_at",
+                "finished_at",
+                "selection_digest",
+                "selected_provider",
+                "probe_count",
+                "charged_usd_nanos",
+                "qualified",
+                "record_digest",
+                "disposition",
+            }
+            allowed = required | {"retained_record"}
+            if not required.issubset(value) or not set(value).issubset(allowed):
+                raise ValueError(f"provider attempt {line_number} keys differ")
+            if (
+                value["schema_version"] != "provider-qualification-attempt/v1"
+                or type(value["charged_usd_nanos"]) is not int
+                or value["charged_usd_nanos"] < 1
+                or type(value["probe_count"]) is not int
+                or value["probe_count"] < 1
+                or type(value["qualified"]) is not bool
+            ):
+                raise ValueError(f"provider attempt {line_number} is invalid")
+            attempts.append(value)
+        identifiers = [str(attempt["attempt_id"]) for attempt in attempts]
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("provider attempt index repeats an attempt ID")
+        if [str(attempt["started_at"]) for attempt in attempts] != sorted(
+            str(attempt["started_at"]) for attempt in attempts
+        ):
+            raise ValueError("provider attempt index is not chronological")
+        selected_attempts = [
+            attempt
+            for attempt in attempts
+            if attempt["attempt_id"] == qualification["attempt_id"]
+        ]
+        if len(selected_attempts) != 1:
+            raise ValueError("selected provider attempt is absent from its index")
+        attempt = selected_attempts[0]
+        if (
+            attempt.get("disposition") != "retained_qualification"
+            or attempt.get("retained_record")
+            != str(record_path.relative_to(repository_root))
+            or attempt.get("record_digest")
+            != qualification["qualification_record_digest"]
+            or attempt.get("selection_digest") != selection.resolved_digest
+            or attempt.get("charged_usd_nanos")
+            != qualification["total_charged_usd_nanos"]
+            or attempt.get("qualified") is not True
+        ):
+            raise ValueError("selected provider attempt index entry differs")

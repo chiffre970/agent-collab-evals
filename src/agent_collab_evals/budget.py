@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping
+from pathlib import Path
+from typing import Mapping, Protocol
 
-from .canonical import digest_bytes, digest_value
+from .canonical import digest_bytes, digest_file, digest_value, load_json
 
 
 TOKENS_PER_MILLION = 1_000_000
@@ -109,6 +110,145 @@ class ActorBudgetAllocation:
 
 
 @dataclass(frozen=True, slots=True)
+class BudgetPlan:
+    """Immutable campaign budget authority supplied outside the ledger."""
+
+    plan_id: str
+    status: str
+    campaign_run_id: str
+    organisation_limit_usd_nanos: int
+    allocations: tuple[ActorBudgetAllocation, ...]
+    rate_card_digest: str
+    source_digest: str
+
+    def __post_init__(self) -> None:
+        if not all(
+            (
+                self.plan_id,
+                self.campaign_run_id,
+                self.rate_card_digest,
+                self.source_digest,
+            )
+        ):
+            raise ValueError("budget plan identity must be nonempty")
+        if self.status not in {"conformance_only", "development", "registered"}:
+            raise ValueError("budget plan status is unsupported")
+        _positive_integer(
+            self.organisation_limit_usd_nanos, "organisation budget limit"
+        )
+        if not self.allocations:
+            raise ValueError("budget plan must allocate at least one actor")
+        actor_ids = [allocation.actor_id for allocation in self.allocations]
+        if len(set(actor_ids)) != len(actor_ids):
+            raise ValueError("budget plan actor allocations must be unique")
+        if any(
+            allocation.campaign_run_id != self.campaign_run_id
+            for allocation in self.allocations
+        ):
+            raise ValueError("budget plan allocation belongs to another campaign")
+        if (
+            sum(allocation.limit_usd_nanos for allocation in self.allocations)
+            != self.organisation_limit_usd_nanos
+        ):
+            raise ValueError("budget plan allocations must partition the limit")
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        plan_id: str,
+        status: str,
+        campaign_run_id: str,
+        organisation_limit_usd_nanos: int,
+        allocations: tuple[ActorBudgetAllocation, ...],
+        rate_card_digest: str,
+    ) -> "BudgetPlan":
+        payload = {
+            "plan_id": plan_id,
+            "status": status,
+            "campaign_run_id": campaign_run_id,
+            "organisation_limit_usd_nanos": organisation_limit_usd_nanos,
+            "allocations": [
+                {
+                    "actor_id": allocation.actor_id,
+                    "limit_usd_nanos": allocation.limit_usd_nanos,
+                }
+                for allocation in allocations
+            ],
+            "rate_card_digest": rate_card_digest,
+        }
+        return cls(
+            plan_id,
+            status,
+            campaign_run_id,
+            organisation_limit_usd_nanos,
+            allocations,
+            rate_card_digest,
+            digest_value(payload),
+        )
+
+    @classmethod
+    def load(
+        cls, source: Path, *, expected_digest: str | None = None
+    ) -> "BudgetPlan":
+        """Load a pinned plan from a run manifest component."""
+
+        with source.open("r", encoding="utf-8") as stream:
+            payload = load_json(stream)
+        expected = {
+            "schema_version",
+            "plan_id",
+            "status",
+            "campaign_run_id",
+            "organisation_limit_usd_nanos",
+            "allocations",
+            "rate_card_digest",
+        }
+        if not isinstance(payload, dict) or set(payload) != expected:
+            raise ValueError("budget plan keys differ")
+        if payload["schema_version"] != "budget-plan/v1":
+            raise ValueError("unsupported budget plan schema")
+        allocation_values = payload["allocations"]
+        if not isinstance(allocation_values, list):
+            raise ValueError("budget plan allocations must be a list")
+        allocations: list[ActorBudgetAllocation] = []
+        for value in allocation_values:
+            if not isinstance(value, dict) or set(value) != {
+                "actor_id",
+                "limit_usd_nanos",
+            }:
+                raise ValueError("budget plan allocation keys differ")
+            allocations.append(
+                ActorBudgetAllocation(
+                    str(payload["campaign_run_id"]),
+                    str(value["actor_id"]),
+                    value["limit_usd_nanos"],
+                )
+            )
+        source_digest = digest_file(source)
+        if expected_digest is not None and source_digest != expected_digest:
+            raise ValueError("budget plan digest differs from the run manifest")
+        if payload["status"] == "registered" and expected_digest is None:
+            raise ValueError("registered budget plan requires a manifest digest")
+        return cls(
+            str(payload["plan_id"]),
+            str(payload["status"]),
+            str(payload["campaign_run_id"]),
+            payload["organisation_limit_usd_nanos"],
+            tuple(allocations),
+            str(payload["rate_card_digest"]),
+            source_digest,
+        )
+
+    @property
+    def allocation_limits(self) -> dict[str, int]:
+        return {
+            allocation.actor_id: allocation.limit_usd_nanos
+            for allocation in self.allocations
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ModelCallContext:
     call_id: str
     request_digest: str
@@ -188,6 +328,17 @@ class ProviderUsage:
         )
 
 
+class ProviderReceiptVerifier(Protocol):
+    """Reconstruct authoritative usage from raw provider evidence."""
+
+    @property
+    def profile_digest(self) -> str: ...
+
+    def verify(
+        self, raw_receipt: bytes, raw_metadata_receipt: bytes
+    ) -> ProviderUsage: ...
+
+
 @dataclass(frozen=True, slots=True)
 class BudgetReservation:
     reservation_id: str
@@ -256,6 +407,8 @@ class BudgetReconciliation:
 
     campaign_run_id: str
     accounting_mode: str
+    budget_plan_digest: str | None = None
+    receipt_verifier_digest: str | None = None
     active_reservation_ids: tuple[str, ...] = ()
     forfeited_reservation_ids: tuple[str, ...] = ()
     overrun_reservation_ids: tuple[str, ...] = ()
@@ -282,6 +435,8 @@ class BudgetReconciliation:
         return {
             "campaign_run_id": self.campaign_run_id,
             "accounting_mode": self.accounting_mode,
+            "budget_plan_digest": self.budget_plan_digest,
+            "receipt_verifier_digest": self.receipt_verifier_digest,
             "valid": self.valid,
             "active_reservation_ids": list(self.active_reservation_ids),
             "forfeited_reservation_ids": list(self.forfeited_reservation_ids),

@@ -7,6 +7,7 @@ from collections import deque
 from pathlib import Path
 
 from agent_collab_evals.adapters.openrouter import OpenRouterUpstream
+from agent_collab_evals.adapters.provider_receipts import OpenRouterReceiptVerifier
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
 from agent_collab_evals.model_gateway import (
     ModelBudgetGateway,
@@ -140,6 +141,28 @@ def _metadata_bytes() -> bytes:
 
 
 class OpenRouterUpstreamTests(unittest.TestCase):
+    def test_receipt_verifier_reconstructs_usage_without_ledger_fields(self) -> None:
+        profile = ModelGatewayProfile.load(
+            PROFILE_PATH, repository_root=REPOSITORY_ROOT
+        )
+        verifier = OpenRouterReceiptVerifier(profile)
+
+        usage = verifier.verify(_stream_bytes(), _metadata_bytes())
+
+        self.assertEqual(usage.requested_model, profile.requested_model)
+        self.assertEqual(usage.returned_model, profile.expected_returned_model)
+        self.assertEqual(usage.metadata_model, profile.expected_metadata_model)
+        self.assertEqual(usage.provider_name, profile.expected_provider)
+        self.assertEqual(usage.provider_cost_usd_nanos, 1_240)
+        self.assertEqual(
+            (
+                usage.prompt_tokens,
+                usage.cached_input_tokens,
+                usage.completion_tokens,
+            ),
+            (11, 3, 2),
+        )
+
     def test_streams_bytes_and_retries_generation_receipt(self) -> None:
         factory = _ConnectionFactory(
             (

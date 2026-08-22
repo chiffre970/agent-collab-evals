@@ -176,10 +176,16 @@ requires a new profile and study version.
 
 Campaign closure treats the gateway ledger as a validity boundary, not only an
 accounting report. Session-token revocation waits for authenticated requests to
-finish. The controller then rejects the campaign if any reservation remains
-active, was forfeited or overran its bound, lacks required receipts or fails
-ledger-counter reconciliation. HTTP output that reached an agent before a
-post-stream defect therefore cannot enter a scoreable campaign result.
+finish. The controller then reconciles the ledger against two authorities held
+outside that mutable database: the immutable `BudgetPlan` pinned by the
+resolved run manifest and a pinned provider-receipt verifier that reconstructs
+usage and exact cost from the retained raw stream and metadata bytes. It rejects
+the campaign if a stored limit, allocation, rate card, usage digest, charge or
+counter differs; if any reservation remains active, was forfeited or overran
+its bound; or if required receipts are absent or invalid. Coherently rewriting
+ledger rows and terminal audit rows is therefore insufficient to make a
+tampered campaign scoreable. HTTP output that reached an agent before a
+post-stream defect cannot enter a scoreable campaign result.
 
 An unexpected returned model identity or fingerprint change is handled by a predeclared validity rule. A persistent backend change requires a new `study_version`; a change within a randomized block normally invalidates and reruns the complete block. If the provider exposes no fingerprint, its absence is recorded and closely interleaved blocked runs reduce, but do not eliminate, the resulting threat.
 

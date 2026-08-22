@@ -11,11 +11,13 @@ from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
 from agent_collab_evals.budget import (
     ActorBudgetAllocation,
     BillingRateCard,
+    BudgetPlan,
     BudgetRejected,
     BudgetReservation,
     ModelCallContext,
     ProviderUsage,
 )
+from agent_collab_evals.canonical import digest_file, digest_value
 
 
 def _rate_card() -> BillingRateCard:
@@ -48,6 +50,22 @@ def _usage(
     provider_cost_usd_nanos: int | None = None,
     metadata_receipt: bytes = b"",
 ) -> ProviderUsage:
+    raw_receipt = json.dumps(
+        {
+            "requested_model": "test/model",
+            "returned_model": "test/model-20260821",
+            "provider_name": "Test Provider",
+            "provider_request_id": "provider-request-1",
+            "provider_timestamp": "2026-08-21T10:00:00Z",
+            "system_fingerprint": "test-fingerprint",
+            "provider_cost_usd_nanos": provider_cost_usd_nanos,
+            "prompt_tokens": prompt,
+            "cached_input_tokens": cached,
+            "completion_tokens": completion,
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
     return ProviderUsage(
         requested_model="test/model",
         returned_model="test/model-20260821",
@@ -61,12 +79,105 @@ def _usage(
         prompt_tokens=prompt,
         cached_input_tokens=cached,
         completion_tokens=completion,
-        raw_receipt=b'{"usage":"retained-verbatim"}',
+        raw_receipt=raw_receipt,
         raw_metadata_receipt=metadata_receipt,
     )
 
 
+class _JsonReceiptVerifier:
+    profile_digest = "sha256:test-json-receipt-verifier"
+
+    def verify(
+        self, raw_receipt: bytes, raw_metadata_receipt: bytes
+    ) -> ProviderUsage:
+        payload = json.loads(raw_receipt)
+        return ProviderUsage(
+            requested_model=payload["requested_model"],
+            returned_model=payload["returned_model"],
+            metadata_model=None,
+            provider_name=payload["provider_name"],
+            provider_request_id=payload["provider_request_id"],
+            provider_generation_id=None,
+            provider_timestamp=payload["provider_timestamp"],
+            system_fingerprint=payload["system_fingerprint"],
+            provider_cost_usd_nanos=payload["provider_cost_usd_nanos"],
+            prompt_tokens=payload["prompt_tokens"],
+            cached_input_tokens=payload["cached_input_tokens"],
+            completion_tokens=payload["completion_tokens"],
+            raw_receipt=raw_receipt,
+            raw_metadata_receipt=raw_metadata_receipt,
+        )
+
+
+def _plan(
+    campaign_run_id: str,
+    allocations: tuple[ActorBudgetAllocation, ...],
+) -> BudgetPlan:
+    return BudgetPlan.create(
+        plan_id=f"{campaign_run_id}-plan",
+        status="conformance_only",
+        campaign_run_id=campaign_run_id,
+        organisation_limit_usd_nanos=sum(
+            allocation.limit_usd_nanos for allocation in allocations
+        ),
+        allocations=allocations,
+        rate_card_digest=digest_value(_rate_card()),
+    )
+
+
 class SqliteBudgetAccountTests(unittest.TestCase):
+    def test_close_reconciliation_requires_external_authorities(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            account = SqliteBudgetAccount(
+                Path(directory) / "budget.sqlite3", _rate_card()
+            )
+            allocations = (
+                ActorBudgetAllocation("missing-authority", "actor-0", 100_000),
+            )
+            account.open_campaign("missing-authority", 100_000, allocations)
+
+            reconciliation = account.reconcile("missing-authority")
+
+            self.assertFalse(reconciliation.valid)
+            self.assertIn(
+                "immutable_budget_plan_missing", reconciliation.ledger_errors
+            )
+            self.assertIn(
+                "provider_receipt_verifier_missing", reconciliation.ledger_errors
+            )
+
+    def test_registered_budget_plan_requires_manifest_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "budget-plan.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "budget-plan/v1",
+                        "plan_id": "registered-plan",
+                        "status": "registered",
+                        "campaign_run_id": "registered-run",
+                        "organisation_limit_usd_nanos": 100_000,
+                        "allocations": [
+                            {
+                                "actor_id": "actor-0",
+                                "limit_usd_nanos": 100_000,
+                            }
+                        ],
+                        "rate_card_digest": digest_value(_rate_card()),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "manifest digest"):
+                BudgetPlan.load(source)
+            plan = BudgetPlan.load(
+                source, expected_digest=digest_file(source)
+            )
+
+            self.assertEqual(plan.status, "registered")
+            self.assertEqual(plan.organisation_limit_usd_nanos, 100_000)
+
     def test_close_reconciliation_rejects_tampered_receipts_and_accounting(self) -> None:
         mutations: tuple[tuple[str, str, tuple[object, ...]], ...] = (
             (
@@ -177,13 +288,126 @@ class SqliteBudgetAccountTests(unittest.TestCase):
                 )
             )
 
+    def test_close_reconciliation_rejects_coherent_limit_increase(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "budget.sqlite3"
+            account = self._settled_account(database)
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    "UPDATE budget_actors SET limit_usd_nanos = 200000"
+                )
+                connection.execute(
+                    "UPDATE budget_campaigns SET limit_usd_nanos = 200000"
+                )
+                connection.commit()
+
+            reconciliation = account.reconcile("tamper-run")
+
+            self.assertFalse(reconciliation.valid)
+            self.assertIn(
+                "budget_plan_campaign_limit_mismatch",
+                reconciliation.ledger_errors,
+            )
+            self.assertIn(
+                "budget_plan_actor_allocations_mismatch",
+                reconciliation.ledger_errors,
+            )
+
+    def test_close_reconciliation_rejects_coherent_usage_and_cost_rewrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "budget.sqlite3"
+            account = self._settled_account(database)
+            with sqlite3.connect(database) as connection:
+                connection.row_factory = sqlite3.Row
+                row = connection.execute(
+                    "SELECT * FROM budget_reservations"
+                ).fetchone()
+                assert row is not None
+                payload = json.loads(str(row["usage_json"]))
+                payload["provider_cost_usd_nanos"] = 999
+                payload["completion_tokens"] = 3
+                raw_receipt = bytes(row["raw_receipt"])
+                raw_metadata = bytes(row["raw_metadata_receipt"])
+                rewritten = ProviderUsage(
+                    requested_model=payload["requested_model"],
+                    returned_model=payload["returned_model"],
+                    metadata_model=payload["metadata_model"],
+                    provider_name=payload["provider_name"],
+                    provider_request_id=payload["provider_request_id"],
+                    provider_generation_id=payload["provider_generation_id"],
+                    provider_timestamp=payload["provider_timestamp"],
+                    system_fingerprint=payload["system_fingerprint"],
+                    provider_cost_usd_nanos=payload[
+                        "provider_cost_usd_nanos"
+                    ],
+                    prompt_tokens=payload["prompt_tokens"],
+                    cached_input_tokens=payload["cached_input_tokens"],
+                    completion_tokens=payload["completion_tokens"],
+                    raw_receipt=raw_receipt,
+                    raw_metadata_receipt=raw_metadata,
+                )
+                connection.execute(
+                    "UPDATE budget_reservations SET charged_usd_nanos = 999, "
+                    "usage_digest = ?, usage_json = ?",
+                    (
+                        rewritten.usage_digest,
+                        json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                    ),
+                )
+                connection.execute(
+                    "UPDATE budget_actors SET charged_usd_nanos = 999"
+                )
+                connection.execute(
+                    "UPDATE budget_campaigns SET charged_usd_nanos = 999"
+                )
+                audit = connection.execute(
+                    "SELECT sequence, details_json FROM budget_audit "
+                    "WHERE kind = 'reservation.settled'"
+                ).fetchone()
+                assert audit is not None
+                details = json.loads(str(audit["details_json"]))
+                details["charged_usd_nanos"] = 999
+                details["usage_digest"] = rewritten.usage_digest
+                details["provider_cost_usd_nanos"] = 999
+                details["completion_tokens"] = 3
+                connection.execute(
+                    "UPDATE budget_audit SET details_json = ? WHERE sequence = ?",
+                    (
+                        json.dumps(details, separators=(",", ":"), sort_keys=True),
+                        int(audit["sequence"]),
+                    ),
+                )
+                connection.commit()
+
+            reconciliation = account.reconcile("tamper-run")
+
+            self.assertFalse(reconciliation.valid)
+            self.assertIn(
+                "provider_receipt_usage_mismatch:"
+                + str(row["reservation_id"]),
+                reconciliation.ledger_errors,
+            )
+            self.assertIn(
+                "provider_receipt_charge_mismatch:"
+                + str(row["reservation_id"]),
+                reconciliation.ledger_errors,
+            )
+
     @staticmethod
     def _settled_account(database: Path) -> SqliteBudgetAccount:
-        account = SqliteBudgetAccount(database, _rate_card())
+        allocations = (
+            ActorBudgetAllocation("tamper-run", "actor-0", 100_000),
+        )
+        account = SqliteBudgetAccount(
+            database,
+            _rate_card(),
+            budget_plan=_plan("tamper-run", allocations),
+            receipt_verifier=_JsonReceiptVerifier(),
+        )
         account.open_campaign(
             "tamper-run",
             100_000,
-            (ActorBudgetAllocation("tamper-run", "actor-0", 100_000),),
+            allocations,
         )
         reservation = account.reserve(
             "tamper-run", "actor-0", _context("settled", 10, 10)
@@ -203,13 +427,19 @@ class SqliteBudgetAccountTests(unittest.TestCase):
 
     def test_close_reconciliation_accepts_complete_receipts_and_releases(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            allocations = (
+                ActorBudgetAllocation("valid-close", "actor-0", 100_000),
+            )
             account = SqliteBudgetAccount(
-                Path(directory) / "budget.sqlite3", _rate_card()
+                Path(directory) / "budget.sqlite3",
+                _rate_card(),
+                budget_plan=_plan("valid-close", allocations),
+                receipt_verifier=_JsonReceiptVerifier(),
             )
             account.open_campaign(
                 "valid-close",
                 100_000,
-                (ActorBudgetAllocation("valid-close", "actor-0", 100_000),),
+                allocations,
             )
             settled = account.reserve(
                 "valid-close", "actor-0", _context("settled", 10, 10)
@@ -235,22 +465,27 @@ class SqliteBudgetAccountTests(unittest.TestCase):
 
             self.assertTrue(reconciliation.valid)
             self.assertEqual(
-                reconciliation.accounting_mode, "provider_receipts_required"
+                reconciliation.accounting_mode,
+                "plan_and_provider_receipts_verified",
             )
 
     def test_close_reconciliation_reports_every_invalid_terminal_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
+            allocations = (
+                ActorBudgetAllocation(
+                    "invalid-close", "actor-0", 1_000_000
+                ),
+            )
             account = SqliteBudgetAccount(
-                Path(directory) / "budget.sqlite3", _rate_card()
+                Path(directory) / "budget.sqlite3",
+                _rate_card(),
+                budget_plan=_plan("invalid-close", allocations),
+                receipt_verifier=_JsonReceiptVerifier(),
             )
             account.open_campaign(
                 "invalid-close",
                 1_000_000,
-                (
-                    ActorBudgetAllocation(
-                        "invalid-close", "actor-0", 1_000_000
-                    ),
-                ),
+                allocations,
             )
             active = account.reserve(
                 "invalid-close", "actor-0", _context("active", 10, 10)

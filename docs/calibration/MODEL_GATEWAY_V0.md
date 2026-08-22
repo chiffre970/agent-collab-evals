@@ -89,9 +89,12 @@ substituted for the corrected run. Total model spend across both checks was
   campaign snapshots.
 - Revocation rejects new authentication and waits for authenticated in-flight
   requests to reach a durable terminal state. Mandatory close-time
-  reconciliation then rejects active reservations, forfeitures, overruns,
-  missing required receipts and ledger-counter inconsistencies, so a
-  post-stream defect cannot leave a scoreable campaign.
+  reconciliation then checks limits and allocations against an immutable
+  out-of-ledger budget plan and reconstructs usage and cost from raw provider
+  bytes with a separately pinned receipt verifier. It rejects coherent database
+  rewrites, active reservations, forfeitures, overruns, missing or invalid
+  receipts and ledger-counter inconsistencies, so a post-stream defect cannot
+  leave a scoreable campaign.
 - OpenCode handles decimal-valued inference parameters through a dedicated
   exact decimal JSON path; experiment money and evidence boundaries continue to
   reject binary floats.
@@ -135,6 +138,7 @@ now pass. The macOS runtime also uses a kernel-enforced, loopback-wide network
 policy, so OpenCode cannot reach the provider directly. Every loopback service
 remains reachable, and filesystem and process-resource limits are not enforced.
 Before any scored run, promote the selected route, billing and gateway evidence,
+register the immutable budget plan and independent receipt-verifier profile,
 add the missing sandbox boundaries, and bind them into the complete platform
 manifest. A different deployment operating system requires its own sandbox
 adapter and equivalent proof. Failure-injection tests continue to provide the

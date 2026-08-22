@@ -55,6 +55,8 @@ StudyManifest
   model: ModelProfile
   provider_selection: ProviderSelectionRecord
   budget: BudgetEnvelope
+  budget_plan: BudgetPlanRef
+  provider_receipt_verifier: ComponentRef
   actor_allocation: ActorAllocationPolicy
   campaign: CampaignRef
   peer_activation: PeerActivationPolicy
@@ -134,6 +136,14 @@ ProviderSelectionRecord
   tie_break: effective_cost_then_latency_then_provider_id
   selected_model_profile_digest: digest
   qualification_evidence_digest: digest
+
+BudgetPlanRef
+  plan_id: string
+  campaign_run_id: string
+  organisation_limit_usd_nanos: integer
+  actor_allocations: map<actor_id, integer>
+  rate_card_digest: digest
+  source_digest: digest
 ```
 
 The randomization algorithm assigns condition labels to already defined execution positions and stochastic seeds. `task_seed` generates one immutable material bundle for the whole block; its digest must be identical in all four resolved runs. Run and actor stochastic seeds control model/runtime randomness only and cannot alter missions, inputs, public workloads or evaluator data. The runner materializes and hashes every `BlockAssignment` before any outcome is observed. A resolved manifest cannot choose its condition, variant or seeds, and retries remain traceable to the original assignment.
@@ -153,6 +163,14 @@ A separately reported finite-sample exact Fisher test uses the same conditional 
 Before a study is registered, `ProviderSelectionRecord` freezes the candidate-route snapshot and digest, qualification workload and time window, eligibility thresholds, cost projection method, deterministic tie-break and resulting selected route. V0's rule first excludes routes that cannot attest the exact model, support the full request/tool surface, enforce the registered data and cache policy, expose sufficient billing evidence, or meet the declared reliability and latency floors. It then selects the lowest projected dollar cost for the frozen representative request mix, breaking an effective-cost tie by lower measured latency and then a fixed provider identifier. The qualification observes no treatment outcomes. Dynamic price or latency routing and provider fallbacks are disabled after selection.
 
 `BillingPolicy` freezes currency, price-catalog source and digest, rate-schedule version, allowed price tiers or windows, provider timestamp source and the block rule. V0 uses `single_effective_tier_per_block`: all four positions in a block settle under one tier, and an unplanned catalog or tier transition triggers the registered whole-block invalidation/retry rule. A future study may instead preregister a balanced tier-by-position design. Every call records its provider timestamp, effective tier and cache-hit/cache-miss/output unit rates rather than inferring dollars from OpenCode telemetry.
+
+`BudgetPlanRef` is the immutable authority for the campaign and actor limits.
+For a registered run, the controller loads the plan only with the source digest
+recorded in the resolved run manifest. The budget ledger may copy these values
+for atomic admission, but it cannot redefine them. The separately pinned
+provider-receipt verifier reconstructs identity, usage and billed cost from raw
+provider evidence without consulting ledger-derived usage or charge fields.
+Both authority digests are included in close-time reconciliation evidence.
 
 The first registered four-condition study uses an exact `deepseek-v4-flash` profile after provider selection and a common pass/fail feasibility qualification verifies base tools, native handoffs, peer tools and a valid campaign artifact without inspecting treatment differences. If its preregistered promise trigger is met, a separately registered `deepseek-v4-pro` study may repeat all four conditions. This is model-profile replication evidence, not an in-study substitution: attempts are all reported, results are not pooled across models, and changing the model, transport, provider route or any other profile field always creates a new study version. A later provider replication holds the model and other factors fixed while changing only the provider profile. No domain port contains provider-specific types.
 
@@ -539,7 +557,11 @@ Enforcement rules:
   returning.
 - Close-time reconciliation verifies reservation and charge counters and
   rejects active reservations, forfeitures, overruns, unknown terminal states
-  or settled calls missing either required raw receipt.
+  or settled calls missing either required raw receipt. It also compares all
+  persisted limits and allocations with the manifest-pinned `BudgetPlan`, then
+  independently reconstructs each usage digest and charge through the pinned
+  provider-receipt verifier. The ledger and its audit table are evidence, not
+  their own trust anchor; a coherent multi-table rewrite must fail closure.
 
 OpenCode's cost and token fields are retained as observational telemetry. They are reconciled against the gateway but never authorize requests, extend the cap or replace provider-accounting evidence.
 

@@ -73,7 +73,13 @@ budget reconciliation. End-to-end probe times were 11.6 to 12.0 seconds, and
 the retained qualification's total provider charge was $0.000052. The exact
 qualification record plus all six stream and metadata receipts are retained
 under `evidence/provider_qualification/`; loading the selected route resolves
-and digest-checks every file. This remains development evidence.
+and digest-checks every file, then independently replays each raw pair to
+reconstruct the recorded identity, native-token usage, provider charge and
+exact total. The append-only development-attempt index records the two adjacent
+diagnostic charges as well. Those three attempts cost $0.00005074, $0.00005200
+and $0.00005002, for $0.00015276 combined. Including the earlier superseded
+$0.00005488 attempt, indexed route-qualification spend is $0.00020764. This
+remains development evidence.
 
 Sources: OpenRouter's
 [model endpoint API](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-flash-0731/endpoints),
@@ -86,6 +92,7 @@ and [ZDR documentation](https://openrouter.ai/docs/guides/features/zdr).
 Prices, uptime and latency are mutable. Before registration, create registered
 copies of the raw source bundle, derived snapshot, policy and selection record
 after the declared observation window. Mirror the source and receipt evidence
-to evaluator-owned durable storage. Once the study begins, do not use
-OpenRouter's dynamic routing and do not switch providers within or between
-conditions in a randomized block.
+to evaluator-owned durable storage, and pin the receipt-verifier profile and
+immutable campaign budget-plan digest in the resolved run manifest. Once the
+study begins, do not use OpenRouter's dynamic routing and do not switch
+providers within or between conditions in a randomized block.

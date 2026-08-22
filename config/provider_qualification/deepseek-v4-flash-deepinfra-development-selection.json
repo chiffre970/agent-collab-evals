@@ -11,6 +11,9 @@
     "selection_digest": "sha256:fd55239e10d2174f5ff8d4761c5416311ec25f7e50ce19766fc9424f2c510467"
   },
   "qualification": {
+    "attempt_id": "provider-route-2026-08-21T17-06-28Z",
+    "attempt_index_file": "evidence/provider_qualification/development-attempts.jsonl",
+    "attempt_index_digest": "sha256:9b2f62b874984eccca5a78633c21fa7dad4175b7dade3cd8270850e355752322",
     "started_at": "2026-08-21T17:05:53.229293+00:00",
     "finished_at": "2026-08-21T17:06:28.944001+00:00",
     "qualification_record_file": "evidence/provider_qualification/records/provider-route-2026-08-21T17-06-28Z.json",
@@ -32,6 +35,7 @@
     "maximum_probe_elapsed_ms": 12024,
     "total_charged_usd_nanos": 52000,
     "budget_reconciliation_valid": true,
+    "receipt_verifier_digest": "sha256:ac2391e231b4dfcbc4378996d9b5e735a7441ff02f9e01d9141022b496aab929",
     "conformance_failures": [],
     "receipt_digests": [
       {
