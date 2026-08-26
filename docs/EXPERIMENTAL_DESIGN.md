@@ -171,7 +171,24 @@ Do not discard an inconvenient valid run as an outlier without a predeclared mec
 
 ## Candidate finalization
 
-All conditions receive the same organisation-level maximum number of immutable candidates and the same public validation feedback. In each peer arm, that maximum is divided into equal, non-transferable per-actor allowances; one peer cannot consume another's slots or learn about its submissions through a quota rejection. Candidate admission proves authenticated ownership and atomically reserves the public evaluator's worst-case duration from the submitter's GPU quota and deterministic slots. Public feedback is released at the registered slot boundary. At the deadline, the runner selects the eligible candidate with the greatest public-validation score under a frozen ordering and tie-break, then evaluates it on hidden data using the separate evaluator account. For serving optimization, the reference server participates as a system-owned fallback and candidates are ordered by public percentage improvement over it. Thus the winner of `peer_isolated` is simply the strongest independently produced improvement. The identical neutral rule applies to `peer_collab`, `native_multiagent` and `solo`.
+All conditions receive the same organisation-level maximum number of immutable
+candidates and the same public validation feedback. In each peer arm, that
+maximum is divided into equal, non-transferable per-actor allowances; one peer
+cannot consume another's slots or learn about its submissions through a quota
+rejection. Candidate admission proves authenticated ownership and uses a
+recoverable state machine to bind a provisional candidate to an idempotent
+reservation for the public evaluator's worst-case duration. The reservation
+comes from the submitter's GPU quota and deterministic slots. Public feedback
+is released at the registered slot boundary. At the deadline, the runner
+selects the eligible candidate with the greatest public-validation score under
+a frozen ordering and tie-break, persists that selection and evaluates the
+selected artifact on hidden data using the separate evaluator account. For
+serving optimization, the reference server participates as a registered
+system-owned fallback and candidates are ordered by public percentage
+improvement over it. If the reference wins, its artifact still receives a
+separate hidden evaluation. Thus the winner of `peer_isolated` is simply the
+strongest independently produced improvement. The identical neutral rule
+applies to `peer_collab`, `native_multiagent` and `solo`.
 
 For campaigns without a meaningful reference artifact, the selector instead uses the campaign's frozen normalized public criterion. If no candidate is eligible, it returns the campaign-defined failure-floor outcome. Hidden scores never participate in selection.
 

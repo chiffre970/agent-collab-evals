@@ -101,3 +101,12 @@ class ArtifactMaterialization:
     publication_id: PublicationId
     artifact: ArtifactRecord
     content: bytes = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class StorageSeal:
+    campaign_run_id: str
+    artifact_count: int
+    total_bytes: int
+    final_manifest_digest: str
+    seal_digest: str

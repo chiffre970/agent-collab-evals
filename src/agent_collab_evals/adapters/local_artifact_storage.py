@@ -16,8 +16,10 @@ from ..artifacts import (
     ArtifactRecord,
     ArtifactRef,
     ArtifactStoragePolicy,
+    StorageSeal,
     TrustedServiceTransport,
 )
+from ..canonical import canonical_json_bytes, digest_value
 from ..collaboration import SessionTransport
 from ..service_identity import ServiceIdentityRegistry
 from ..session_identity import SessionIdentityRegistry
@@ -292,6 +294,92 @@ class LocalArtifactStorage:
             )
             return record, content
 
+    def seal(
+        self, campaign_run_id: str, final_manifest: Mapping[str, object]
+    ) -> StorageSeal:
+        if not campaign_run_id or not isinstance(final_manifest, Mapping):
+            raise ValueError("campaign seal identity and manifest are required")
+        manifest_bytes = canonical_json_bytes(final_manifest)
+        final_manifest_digest = digest_value(final_manifest)
+        with self._transaction() as connection:
+            campaign = connection.execute(
+                "SELECT * FROM storage_campaigns WHERE campaign_run_id = ?",
+                (campaign_run_id,),
+            ).fetchone()
+            if campaign is None:
+                raise KeyError("campaign storage is not registered")
+            artifact_documents: list[dict[str, object]] = []
+            for row in connection.execute(
+                "SELECT * FROM artifacts WHERE campaign_run_id = ? "
+                "ORDER BY artifact_ref",
+                (campaign_run_id,),
+            ):
+                record = ArtifactRecord(
+                    ref=ArtifactRef(str(row["artifact_ref"])),
+                    campaign_run_id=str(row["campaign_run_id"]),
+                    owner_actor_id=str(row["owner_actor_id"]),
+                    digest=str(row["digest"]),
+                    media_type=str(row["media_type"]),
+                    size_bytes=int(row["size_bytes"]),
+                )
+                self._verified_content(record)
+                artifact_documents.append(
+                    {
+                        "artifact_ref": record.ref.value,
+                        "owner_actor_id": record.owner_actor_id,
+                        "digest": record.digest,
+                        "media_type": record.media_type,
+                        "size_bytes": record.size_bytes,
+                    }
+                )
+            artifacts = tuple(artifact_documents)
+            roster = tuple(
+                str(row["actor_id"])
+                for row in connection.execute(
+                    "SELECT actor_id FROM storage_campaign_actors "
+                    "WHERE campaign_run_id = ? ORDER BY actor_id",
+                    (campaign_run_id,),
+                )
+            )
+            seal_document = {
+                "schema_version": "artifact-storage-seal/v1",
+                "campaign_run_id": campaign_run_id,
+                "policy": {
+                    "max_artifact_bytes": int(campaign["max_artifact_bytes"]),
+                    "max_actor_bytes": int(campaign["max_actor_bytes"]),
+                    "max_campaign_bytes": int(campaign["max_campaign_bytes"]),
+                },
+                "actor_roster": roster,
+                "artifacts": artifacts,
+                "final_manifest_digest": final_manifest_digest,
+            }
+            seal_digest = digest_value(seal_document)
+            existing = connection.execute(
+                "SELECT * FROM storage_seals WHERE campaign_run_id = ?",
+                (campaign_run_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    str(existing["final_manifest_json"])
+                    != manifest_bytes.decode()
+                    or str(existing["seal_digest"]) != seal_digest
+                ):
+                    raise ValueError("campaign storage was already sealed differently")
+            else:
+                connection.execute(
+                    "INSERT INTO storage_seals("
+                    "campaign_run_id, final_manifest_json, seal_digest) "
+                    "VALUES (?, ?, ?)",
+                    (campaign_run_id, manifest_bytes.decode(), seal_digest),
+                )
+        return StorageSeal(
+            campaign_run_id=campaign_run_id,
+            artifact_count=len(artifacts),
+            total_bytes=sum(item["size_bytes"] for item in artifacts),
+            final_manifest_digest=final_manifest_digest,
+            seal_digest=seal_digest,
+        )
+
     @staticmethod
     def _require_owner(
         record: ArtifactRecord, campaign_run_id: str, actor_id: str
@@ -329,6 +417,11 @@ class LocalArtifactStorage:
         ).fetchone()
         if stored_policy is None:
             raise PermissionError("campaign storage is not registered")
+        if connection.execute(
+            "SELECT 1 FROM storage_seals WHERE campaign_run_id = ?",
+            (campaign_run_id,),
+        ).fetchone() is not None:
+            raise RuntimeError("campaign artifact storage is sealed")
         if (
             int(stored_policy["max_artifact_bytes"]),
             int(stored_policy["max_actor_bytes"]),
@@ -491,6 +584,11 @@ class LocalArtifactStorage:
                     kind TEXT NOT NULL,
                     artifact_ref TEXT NOT NULL,
                     purpose TEXT
+                );
+                CREATE TABLE IF NOT EXISTS storage_seals(
+                    campaign_run_id TEXT PRIMARY KEY,
+                    final_manifest_json TEXT NOT NULL,
+                    seal_digest TEXT NOT NULL
                 );
                 """
             )

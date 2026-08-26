@@ -20,6 +20,7 @@ client. Verify the local core and scenario pack with:
 ```bash
 collab-evals validate-scenario
 collab-evals fake-solo
+collab-evals fake-candidate-lifecycle
 python -m unittest discover -s tests -v
 ```
 
@@ -27,6 +28,14 @@ python -m unittest discover -s tests -v
 `tmp/fake-solo/`. It starts a campaign, delivers the serving mission, persists
 the runtime snapshot, resumes it through a fresh harness instance and closes
 it. The unit suite additionally delivers a second job after resume.
+
+`fake-candidate-lifecycle` creates two actor-owned candidate artifacts, reserves
+fixed non-transferable public-evaluation allowances, withholds results until
+the release boundary, resolves scores from an evaluator-owned receipt ledger,
+persists reference-aware neutral selection, evaluates the selected candidate or
+reference artifact under a separate hidden allowance, and seals the artifact
+store. Its scores are deterministic fixtures; it launches no candidate process
+and uses no model API or GPU.
 
 Install the pinned OpenRouter and OpenCode packages:
 

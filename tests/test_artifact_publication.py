@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -34,6 +35,7 @@ class ArtifactPublicationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         root = Path(self._temporary.name)
+        self.root = root
         self.sessions = SessionIdentityRegistry()
         self.services = ServiceIdentityRegistry()
         self.service_transport = self.services.bind("artifact_service")
@@ -73,6 +75,12 @@ class ArtifactPublicationTests(unittest.TestCase):
             self.sessions.bind(actor, SessionHandle(f"session-{index}"))
             for index, actor in enumerate(self.actors)
         )
+        self.workspaces = tuple(root / f"workspace-{index}" for index in range(2))
+        for transport, workspace in zip(
+            self.transports, self.workspaces, strict=True
+        ):
+            workspace.mkdir()
+            self.sessions.assign_workspace(transport, workspace)
         self.storage.open_campaign(
             "campaign", tuple(actor.actor_id for actor in self.actors)
         )
@@ -109,6 +117,86 @@ class ArtifactPublicationTests(unittest.TestCase):
             self.storage.trusted_read(
                 self.service_transport, authorization, "evaluation"
             )
+
+    def test_workspace_snapshot_and_materialization_reject_symlink_escape(self) -> None:
+        workspace = self.workspaces[0]
+        (workspace / "input").mkdir(parents=True)
+        (workspace / "output").mkdir()
+        (workspace / "input/candidate.json").write_bytes(b'{"candidate":true}')
+        artifact = self.service.snapshot_file(
+            self.transports[0],
+            "input/candidate.json",
+            media_type="application/json",
+            max_bytes=64,
+        )
+
+        destination = self.service.materialize_owned_file(
+            self.transports[0], artifact.ref, "output/candidate.json"
+        )
+
+        self.assertEqual(destination.read_bytes(), b'{"candidate":true}')
+        with self.assertRaises(FileExistsError):
+            self.service.materialize_owned_file(
+                self.transports[0],
+                artifact.ref,
+                "output/candidate.json",
+            )
+        os.symlink(Path(self._temporary.name), workspace / "escape")
+        with self.assertRaises(OSError):
+            self.service.snapshot_file(
+                self.transports[0], "escape/outside.txt"
+            )
+        with self.assertRaises(OSError):
+            self.service.materialize_owned_file(
+                self.transports[0], artifact.ref, "escape/copied.txt"
+            )
+        with self.assertRaisesRegex(ValueError, "normalized relative"):
+            self.service.snapshot_file(
+                self.transports[0], "input//candidate.json"
+            )
+        with self.assertRaisesRegex(ValueError, "already assigned"):
+            self.sessions.assign_workspace(self.transports[0], self.root)
+
+        unassigned = self.sessions.bind(
+            AgentIdentity("campaign", 2), SessionHandle("unassigned-session")
+        )
+        with self.assertRaisesRegex(PermissionError, "no assigned workspace"):
+            self.service.snapshot_file(unassigned, "repository-file.txt")
+
+    def test_storage_seal_is_idempotent_and_prevents_new_artifacts(self) -> None:
+        artifact = self.service.snapshot_bytes(
+            self.transports[0], b"final candidate", "text/plain"
+        )
+        manifest = {
+            "selection_digest": "sha256:selection",
+            "selected_artifact_ref": artifact.ref.value,
+        }
+
+        first = self.storage.seal("campaign", manifest)
+        repeated = self.storage.seal("campaign", manifest)
+
+        self.assertEqual(first, repeated)
+        self.assertEqual(first.artifact_count, 1)
+        self.assertEqual(first.total_bytes, len(b"final candidate"))
+        with self.assertRaisesRegex(RuntimeError, "sealed"):
+            self.service.snapshot_bytes(self.transports[1], b"too late")
+        with self.assertRaisesRegex(ValueError, "sealed differently"):
+            self.storage.seal("campaign", {"selection_digest": "changed"})
+
+    def test_storage_seal_rechecks_blob_integrity(self) -> None:
+        artifact = self.service.snapshot_bytes(
+            self.transports[0], b"candidate to corrupt", "text/plain"
+        )
+        blob = (
+            Path(self._temporary.name)
+            / "storage"
+            / "blobs"
+            / artifact.ref.value
+        )
+        blob.write_bytes(b"Candidate to corrupt")
+
+        with self.assertRaisesRegex(RuntimeError, "digest does not match"):
+            self.storage.seal("campaign", {"selection_digest": "sha256:test"})
 
     def test_shared_publication_materializes_for_peer_and_survives_restart(self) -> None:
         scope = self.collaboration.provision(

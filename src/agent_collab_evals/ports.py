@@ -12,6 +12,7 @@ from .artifacts import (
     PublicationId,
     PublicationRecord,
     PublicationSnapshot,
+    StorageSeal,
     TrustedServiceTransport,
 )
 from .budget import (
@@ -33,6 +34,18 @@ from .domain import (
     MaterializedJobs,
     OrganisationSpec,
     SessionHandle,
+)
+from .evaluation import (
+    CandidateReceipt,
+    ComputeSnapshot,
+    EvaluationReceipt,
+    EvaluationReservation,
+    EvaluationResult,
+    EvaluationScope,
+    SelectionReceipt,
+    SelectionResult,
+    SubmissionPolicy,
+    SubmissionSet,
 )
 from .collaboration import (
     CollaborationEntry,
@@ -228,6 +241,10 @@ class StorageBackend(Protocol):
         purpose: str,
     ) -> tuple[ArtifactRecord, bytes]: ...
 
+    def seal(
+        self, campaign_run_id: str, final_manifest: Mapping[str, object]
+    ) -> StorageSeal: ...
+
 
 class PublicationRegistry(Protocol):
     def prepare(
@@ -264,3 +281,107 @@ class PublicationRegistry(Protocol):
     def export(self, campaign_run_id: str) -> PublicationSnapshot: ...
 
     def reset(self, campaign_run_id: str) -> None: ...
+
+
+class ComputeBroker(Protocol):
+    def reserve_visible_evaluation(
+        self,
+        session: SessionTransport,
+        reservation_key: str,
+        artifact_ref: ArtifactRef,
+        seconds: int,
+    ) -> EvaluationReservation: ...
+
+    def reserve_hidden_evaluation(
+        self,
+        service: TrustedServiceTransport,
+        reservation_key: str,
+        campaign_run_id: str,
+        artifact_ref: ArtifactRef,
+        seconds: int,
+    ) -> EvaluationReservation: ...
+
+    def complete(
+        self, reservation_id: str, used_seconds: int
+    ) -> EvaluationReservation: ...
+
+    def fail(self, reservation_id: str, reason: str) -> None: ...
+
+    def cancel(self, reservation_id: str, reason: str) -> None: ...
+
+    def release_visible_results(
+        self, campaign_run_id: str, actor_id: str
+    ) -> None: ...
+
+    def is_visible_result_released(
+        self, campaign_run_id: str, actor_id: str
+    ) -> bool: ...
+
+    def snapshot(self, campaign_run_id: str) -> ComputeSnapshot: ...
+
+
+class CandidateEvaluator(Protocol):
+    @property
+    def profile_digest(self) -> str: ...
+
+    @property
+    def visible_used_seconds(self) -> int: ...
+
+    @property
+    def hidden_used_seconds(self) -> int: ...
+
+    def visible_evaluate(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation | None,
+        evaluation_key: str,
+    ) -> EvaluationReceipt: ...
+
+    def hidden_evaluate(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> EvaluationReceipt: ...
+
+    def resolve(
+        self,
+        receipt: EvaluationReceipt,
+        candidate: bytes,
+        reservation: EvaluationReservation | None,
+        scope: EvaluationScope,
+    ) -> EvaluationResult: ...
+
+
+class SubmissionRegistry(Protocol):
+    def initialize(
+        self,
+        campaign_run_id: str,
+        job_id: str,
+        actor_ids: tuple[str, ...],
+        policy: SubmissionPolicy,
+        default_artifact_ref: ArtifactRef,
+        default_evaluation_receipt: EvaluationReceipt,
+    ) -> None: ...
+
+    def submit(
+        self,
+        session: SessionTransport,
+        job_id: str,
+        artifact_ref: ArtifactRef,
+        idempotency_key: str,
+    ) -> CandidateReceipt: ...
+
+    def evaluate_visible(self, receipt: CandidateReceipt) -> None: ...
+
+    def visible_result(
+        self, session: SessionTransport, receipt: CandidateReceipt
+    ) -> EvaluationResult | None: ...
+
+    def close(self, campaign_run_id: str, job_id: str) -> SubmissionSet: ...
+
+    def select(self, submissions: SubmissionSet) -> SelectionResult: ...
+
+    def evaluate_hidden(
+        self, selection_receipt: SelectionReceipt, *, reserved_seconds: int
+    ) -> EvaluationResult: ...

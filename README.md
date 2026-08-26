@@ -85,6 +85,14 @@ The repository now contains the first scenario-shaped vertical slice:
   an independent raw-provider-receipt verifier rather than trusting the
   mutable ledger as its own authority;
 - a fail-closed `model_serving_v0` campaign pack pinned to one Qwen revision;
+- a durable no-spend candidate lifecycle with session-derived ownership,
+  per-actor submission and GPU-second allocations, delayed public-result
+  release, evaluator-owned receipts, persisted reference-aware neutral
+  selection, separate hidden evaluation for every winner, restart recovery and
+  final artifact sealing;
+- race-resistant single-file workspace snapshot and materialization paths that
+  derive the root from the authenticated session and reject traversal, symlink
+  escape and overwrite;
 - a pure nine-point public benchmark plan for vLLM 0.21.0;
 - a pinned warm-steady-state measurement protocol, strict vLLM result
   normalizer and atomic evaluator-private raw-result store;
@@ -109,15 +117,16 @@ Run the local slice without model or GPU spend:
 ```bash
 collab-evals validate-scenario
 collab-evals fake-solo
+collab-evals fake-candidate-lifecycle
 python -m unittest discover -s tests -v
 ```
 
 This is calibration infrastructure, not a completed experimental platform.
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
 publication and storage gates now pass, as do the development provider-route,
-cache-isolation, sandbox and budget-reconciliation proofs. Registered profiles,
-capability brokers, submission selection, public and hidden evaluators, and
-four-condition execution remain explicit later gates. See
+cache-isolation, sandbox, budget-reconciliation and fake candidate-lifecycle
+proofs. A real untrusted compute/evaluator backend, registered profiles,
+research brokerage and four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents

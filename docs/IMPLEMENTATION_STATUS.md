@@ -205,6 +205,38 @@ smallest useful seams before adding the runtime and collaboration machinery.
   profile digest persists in runtime snapshots and across resume. This adapter
   does not isolate the gateway from other loopback services or enforce
   filesystem and process-resource limits.
+- A provider-neutral candidate lifecycle now runs without external spend. The
+  durable SQLite submission registry derives campaign and actor from the
+  session transport, verifies artifact ownership, applies fixed per-actor
+  candidate limits and keeps candidate existence and results owner-private.
+  Admission uses a recoverable provisional record followed by an idempotent
+  artifact-bound compute reservation, so interruption and concurrent registry
+  retries converge without a cross-database atomicity claim.
+- A separate durable compute ledger pins actor allocations that exactly
+  partition the organisation GPU-second limit and a distinct hidden-evaluator
+  allowance. Reservations are idempotent and artifact-bound, cannot borrow
+  across actors, survive restart and expose no queue position or peer state.
+  Completed public results remain pending until an explicit actor release
+  boundary. Submission closure rejects pending, orphaned or mismatched compute
+  reservations.
+- The fake model-serving evaluator validates real candidate manifests through
+  the campaign contract while returning pinned integer fixtures through a
+  separate durable evaluator-owned receipt ledger. The registry stores opaque
+  evaluator receipts, recomputes and persists deterministic reference-aware
+  selection after closure, and exposes an opaque selection receipt. The system
+  reference wins ties. Hidden evaluation revalidates the authoritative
+  selection and evaluates either the winning candidate or registered reference
+  artifact under the separate evaluator allowance. It never reuses the visible
+  score and is never agent-visible.
+- Artifact ingestion and materialization now include race-resistant single-file
+  workspace operations rooted in the authenticated session's server-side
+  workspace assignment. Agents cannot nominate another root. Directory
+  traversal, symlink traversal and overwrite fail closed. Final storage sealing
+  rechecks every blob digest, binds the final selection/evaluation manifest and
+  prevents later artifact admission.
+- `collab-evals fake-candidate-lifecycle` executes two owned candidates through
+  admission, public evaluation, release, selection, hidden evaluation and
+  storage sealing. It uses no GPU or model API.
 
 ## Not implemented
 
@@ -218,14 +250,15 @@ The following remain gates, not implied capabilities:
    the current development network policy with gateway-specific local-service,
    filesystem and process-resource enforcement. The target environment needs a
    pinned kernel- or container-level adapter and equivalent conformance proof.
-2. Submission, compute and research services, plus filesystem-safe workspace
-   snapshot/materialization and campaign-level storage sealing beyond the
-   byte-level artifact path proved by the current spike.
-3. Evaluator-owned untrusted candidate launch, public result release,
-   remaining correctness/stability/shortcut gates, neutral selection, and a
-   confirmatory registered score policy. The calibration Volume path is
-   durable but is not yet the complete confirmatory evidence service or
-   retention policy.
+2. A real `ComputeBackend` adapter that launches untrusted candidates in a
+   registered isolated environment, plus the research broker. The current
+   compute implementation proves durable allocation and lifecycle enforcement
+   with a fake evaluator; it does not execute candidate code.
+3. The production evaluator path for public and hidden measurements, including
+   the remaining correctness, stability and shortcut gates and complete
+   confirmatory evidence retention. Neutral selection and result-release
+   enforcement pass locally, and the calibration Volume path is durable, but
+   they are not yet composed with untrusted launch as a registered service.
 4. Four-condition scheduling, registered manifests, combined platform audit
    export and the
    preregistered statistical analysis.
@@ -247,10 +280,11 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
 remaining hidden gates remain later platform-service work.
 
-ADR 0001 is complete. Development provider-route qualification,
-condition-matched cache isolation, nonloopback egress denial and post-stream
-budget reconciliation now pass. Gateway-specific loopback isolation,
-filesystem and process-resource enforcement remain scored-run gates. The next
-gate is the remaining compute, submission and evaluator service slice, followed
-by complete registered manifests and promotion of every development enforcement
-profile. No live multi-condition model run is authorized yet.
+ADR 0001 and the fake submission/compute/evaluator slice are complete.
+Development provider-route qualification, condition-matched cache isolation,
+nonloopback egress denial and post-stream budget reconciliation also pass.
+Gateway-specific loopback isolation, filesystem and process-resource
+enforcement remain scored-run gates. The next gate is a registered isolated
+`ComputeBackend` that runs the existing Modal evaluator contract through this
+lifecycle, followed by complete resolved-run manifests and four-condition
+scheduling. No live multi-condition model run is authorized yet.

@@ -159,7 +159,24 @@ dashboard/call-graph timestamps are observational lifecycle evidence only;
 they never enter goodput or request-latency scores. Every result records the
 timing source explicitly.
 
-The frozen reference server is automatically registered as a system-owned candidate. Every condition has the same total candidate allowance; in the peer arms it is divided equally into fixed actor allowances so peers cannot consume or signal through one another's capacity. Before candidate admission, the registry proves authenticated artifact ownership and reserves the public evaluator's worst-case duration from the submitting actor's GPU allocation and slots. At the deadline, the runner selects whichever has the highest public-validation score: the reference or the strongest valid agent candidate, using a frozen tie-break. In `peer_isolated`, this means choosing the largest independently produced public improvement; if no agent beats the reference publicly, the baseline wins. The selected candidate alone proceeds through corresponding correctness, quality, stability and shortcut gates on hidden prompts and workloads under a separate evaluator measurement account. If an agent candidate fails a hidden gate, the operational outcome reverts to the reference and records zero improvement rather than removing the campaign from analysis.
+The frozen reference server is automatically registered as a system-owned
+candidate. Every condition has the same total candidate allowance; in the peer
+arms it is divided equally into fixed actor allowances so peers cannot consume
+or signal through one another's capacity. Candidate admission proves
+authenticated artifact ownership, durably records a provisional candidate and
+binds it to an idempotent reservation for the public evaluator's worst-case
+duration from the submitting actor's GPU allocation and slots. At the deadline,
+the runner selects whichever has the highest public-validation score: the
+reference or the strongest valid agent candidate, using a frozen tie-break. In
+`peer_isolated`, this means choosing the largest independently produced public
+improvement; if no agent beats the reference publicly, the baseline wins. The
+persisted selected artifact proceeds through corresponding correctness,
+quality, stability and shortcut gates on hidden prompts and workloads under a
+separate evaluator measurement account. This hidden evaluation also runs when
+the reference wins; it never substitutes the visible reference result. If an
+agent candidate fails a hidden gate, the operational outcome reverts to the
+reference and records zero improvement rather than removing the campaign from
+analysis.
 
 The primary metric for a candidate passing the hidden gates is sustained goodput on the held-out workload under the frozen latency service-level objective. Report alongside it:
 

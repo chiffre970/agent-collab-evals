@@ -97,13 +97,31 @@ It does not decide how agents delegate, communicate, merge work or solve jobs.
 
 ### `SubmissionRegistry`
 
-Accepts immutable candidate artifacts, applies identical per-job or per-campaign limits and executes a predeclared neutral selector. Before admission it asks `ArtifactService` to prove that the authenticated submitting actor owns an admitted ordinary `ArtifactRef`; a publication identifier, quarantined object or another actor's reference is rejected. It also atomically reserves the candidate slot and the public evaluator's worst-case GPU time from that actor's allocation. It never combines candidates. Each campaign definition supplies its own default outcome and public ordering semantics; the registry contains no serving-specific or generative-task-specific preference.
+Accepts immutable candidate artifacts, applies identical per-job or
+per-campaign limits and executes a predeclared neutral selector. Before
+admission it asks `ArtifactService` to prove that the authenticated submitting
+actor owns an admitted ordinary `ArtifactRef`; a publication identifier,
+quarantined object or another actor's reference is rejected. It durably records
+a provisional candidate, obtains an idempotent artifact-bound reservation for
+the public evaluator's worst-case GPU time from that actor's allocation, and
+then marks the candidate admitted. Retries recover the same state across the
+independent submission and compute adapters. It never combines candidates.
+Each campaign definition supplies its own default outcome and public ordering
+semantics; the registry contains no serving-specific or generative-task-specific
+preference.
 
 An optimization campaign may auto-register its frozen reference artifact as the default and rank candidates by greatest valid public improvement. A generative campaign may instead define a normalized public criterion and a failure-floor outcome when no eligible candidate exists. The same campaign-specific default and selector apply to every condition, so `peer_isolated` is not disadvantaged by lacking a human or agent merger.
 
 ### `ArtifactService`
 
-Provides the only general-purpose agent-facing path for moving bytes between workspaces and immutable artifact storage; compute, evaluation and quarantine extraction use separately authorized internal paths. From an authenticated session it can snapshot declared workspace paths into an actor-owned `ArtifactRef`, or materialize an artifact the actor owns or is authorized to read back into that actor's workspace. Paths are canonicalized, bounded and checked against symlink escape.
+Provides the only general-purpose agent-facing path for moving bytes between
+workspaces and immutable artifact storage; compute, evaluation and quarantine
+extraction use separately authorized internal paths. From an authenticated
+session it derives the server-bound workspace root, snapshots declared relative
+paths into an actor-owned `ArtifactRef`, or materializes an artifact the actor
+owns or is authorized to read back into that workspace. Agents cannot provide
+or replace the root. Paths are canonicalized, bounded and checked against
+symlink escape.
 
 It also coordinates storage, `PublicationRegistry` and collaboration without coupling their adapters. When an actor publishes an owned artifact, the service idempotently prepares a durable mapping from an opaque `PublicationId` to campaign, owner, artifact and permitted audience, writes the collaboration entry under the same request key, then binds the mapping to that entry. Only bound publications resolve; failed writes leave no usable identifier and recovery cannot create a duplicate entry. A reader asks the service to materialize a publication. The service authenticates the session, resolves the durable record, checks campaign and audience, and then performs a campaign-scoped trusted-service read from storage. That read path is inaccessible to agents and is accepted only with an authorization receipt bound to the artifact and purpose. Agents never receive a transferable storage capability, and a raw artifact reference or copied identifier never bypasses server-side authorization. `QuarantinedArtifact` is a separate, unusable type and cannot be snapshotted, published, submitted or staged for compute; only an approved isolated extractor may admit derived output as an ordinary artifact.
 

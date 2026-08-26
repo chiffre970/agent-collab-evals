@@ -337,7 +337,15 @@ interface ArtifactService:
   authorize_owned(trusted_service_context, session_transport, ref: ArtifactRef, purpose) -> OwnedArtifactAuthorization
 ```
 
-This application service is the only general-purpose agent-facing path for moving bytes between a workspace and `StorageBackend`; compute, evaluation and quarantine extraction use separately authorized internal paths. `snapshot` and `publish` derive campaign, actor and collaboration scope from the session; no caller-supplied scope can widen visibility. `snapshot` canonicalizes bounded workspace paths, rejects symlink escape and writes an immutable actor-owned artifact. `materialize` writes only into the caller's workspace after verifying either ownership of an `ArtifactRef` or audience access to a `PublicationId`.
+This application service is the only general-purpose agent-facing path for
+moving bytes between a workspace and `StorageBackend`; compute, evaluation and
+quarantine extraction use separately authorized internal paths. `snapshot` and
+`publish` derive campaign, actor, workspace root and collaboration scope from
+the session; no caller-supplied scope or root can widen access. `snapshot`
+canonicalizes bounded workspace paths, rejects symlink escape and writes an
+immutable actor-owned artifact. `materialize` writes only into the caller's
+session-bound workspace after verifying either ownership of an `ArtifactRef`
+or audience access to a `PublicationId`.
 
 For publication, the service proves ownership, prepares a durable opaque record in `PublicationRegistry`, places that identifier in a collaboration entry, and binds the record to the successfully written `EntryId`. A failed collaboration write is aborted; an unbound or aborted identifier never resolves. Every materialization is reauthorized from the caller's authenticated session, after which the service creates a purpose- and artifact-bound `ArtifactReadAuthorization` for the trusted storage read. The identifier is not a bearer capability. Preparation, entry creation and binding use one idempotency key; recovery either binds the matching durable entry or aborts the preparation, never invents a second publication. The service contains no recommendation, task-allocation or artifact-merging policy.
 
@@ -428,7 +436,19 @@ interface ComputeBroker:
 
 `ComputeJobRequest` names actor-owned admitted `ArtifactRef` inputs, a declared command and expected output paths. `ComputeBroker` derives actor and campaign from the session transport, obtains purpose-bound ownership authorization from `ArtifactService`, rejects quarantined inputs, stages the inputs as a read-only `ImmutableInputBundle`, then enforces command allowlists, exclusive leases, concurrency and the actor's fixed GPU-time quota. The backend returns declared output files to the broker; the broker stores them as new actor-owned artifacts and exposes their references in `ExecutionResult`. Infrastructure credentials remain behind the broker. An actor can observe only its own handles and terminal coarse status; it cannot inspect another actor's request, schedule, cache state or output. `running`, queue position and estimated-start fields are intentionally absent.
 
-In both peer conditions, each actor has the same fixed, non-transferable GPU-time allocation and fixed-duration slots from the frozen `DeterministicActorSchedule`, matched by actor ordinal across paired runs. An actor's exploratory jobs and visible evaluations run only in its own slots and both charge its `cloud_gpu_seconds` and the organisation envelope. Unused time idles; jobs never borrow or shift another actor's slot. Before a candidate is accepted, `SubmissionRegistry` uses `reserve_visible_evaluation` to reserve its declared worst-case measurement duration and atomically fails admission if the submitting actor lacks quota or a legal slot. Status remains `accepted` until the scheduled release boundary even if backend execution ends earlier. Thus actor-visible admission and release do not depend on peer demand.
+In both peer conditions, each actor has the same fixed, non-transferable GPU-time
+allocation and fixed-duration slots from the frozen
+`DeterministicActorSchedule`, matched by actor ordinal across paired runs. An
+actor's exploratory jobs and visible evaluations run only in its own slots and
+both charge its `cloud_gpu_seconds` and the organisation envelope. Unused time
+idles; jobs never borrow or shift another actor's slot. Before a candidate is
+accepted, `SubmissionRegistry` uses `reserve_visible_evaluation` to reserve its
+declared worst-case measurement duration. If the submitting actor lacks quota
+or a legal slot, the provisional admission remains unaccepted and safely
+retryable or is explicitly rejected by the registered recovery policy. Status
+remains `accepted` until the scheduled release boundary even if backend
+execution ends earlier. Thus actor-visible admission and release do not depend
+on peer demand.
 
 Only one agent experiment or evaluator measurement may hold a GPU lease at a time. Hidden measurements begin only after the agent-visible phase closes and follow a separate condition-blind evaluator schedule and measurement account; their GPU seconds are reported as study overhead, not treatment-budget consumption. Scored execution follows the `MeasurementProtocol`: restore the declared image and clean state, record relevant device and software state, perform fixed warmup, run the frozen repetitions in the frozen order, and bracket candidate measurements with reference canaries. Canary drift beyond tolerance triggers the predeclared retry or invalidation rule, never an ad hoc condition-specific decision. Each reservation, slot, reset, lease, repetition, canary, release and result-release boundary emits a receipt.
 
@@ -496,6 +516,14 @@ transport, artifact and purpose rather than only to a reusable service name.
 
 The V0 local adapter may use JSONL, SQLite and content-addressed files. It guarantees monotonic event sequence numbers, immutable artifact hashes, atomic snapshots and campaign-scoped export.
 
+The executable local slice implements a race-resistant single-file subset of
+workspace snapshot and materialization. It traverses every directory through
+non-following file descriptors, accepts only regular files and creates outputs
+without replacement. The artifact service derives the workspace root from the
+authenticated session's server-side binding; an agent cannot supply or change
+that root. Campaign sealing revalidates all blob sizes and digests, binds a
+canonical final manifest and rejects every subsequent artifact write.
+
 Storage records evidence but does not infer validity or enforce budgets. Its authorization layer enforces campaign and owner visibility; guessing a digest does not reveal existence or metadata. Agent-facing reads and writes use `ArtifactService`. `describe_owned` and `get_owned_artifact` require the server-derived owner. `get_artifact_for_service` accepts only a non-exportable trusted-service identity plus a server-held `ArtifactReadAuthorization` bound to campaign, artifact, purpose and authorization decision; it records the read and rejects use outside that binding. `ArtifactService` issues such authorization only after an ownership or active-publication audience check. Storage never accepts `PublicationId`, never promotes visibility automatically and never exposes this service path to an agent sandbox.
 
 ## Evaluator port
@@ -504,12 +532,19 @@ Storage records evidence but does not infer validity or enforce budgets. Its aut
 interface Evaluator:
   capabilities() -> EvaluatorCapabilities
   validate(candidate: ArtifactRef, variant: VariantRef) -> ValidationResult
-  visible_evaluate(candidate: ArtifactRef, variant: VariantRef, reservation: EvaluationReservation) -> VisibleResult
-  hidden_evaluate(candidate: ArtifactRef, variant: VariantRef, reservation: EvaluationReservation) -> HiddenResult
-  default_outcome(spec: DefaultOutcomeSpec, variant: VariantRef) -> EvaluationOutcome
+  visible_evaluate(candidate, reservation?, evaluation_key) -> EvaluationReceipt
+  hidden_evaluate(candidate, reservation, evaluation_key) -> EvaluationReceipt
+  resolve(receipt, candidate, reservation?, scope) -> EvaluationResult
 ```
 
-The evaluator receives immutable artifacts, frozen variant data and an evaluation resource lease. It does not receive the experimental condition, agent identities or collaboration trace.
+The evaluator receives immutable artifacts, frozen variant data and an
+evaluation resource lease. It does not receive the experimental condition,
+agent identities or collaboration trace. Evaluation jobs are idempotent by a
+server-derived key. Results remain in an evaluator-owned evidence ledger; the
+submission registry stores only opaque receipts. Receipt resolution rechecks
+the evaluator profile, candidate digest, scope, reservation binding and result
+evidence against evaluator authority rather than trusting a score document in
+the submission database.
 
 Visible evaluation may be invoked only through the submission service and an actor-owned `EvaluationReservation`. Its worst-case GPU duration is reserved before candidate admission, runs in the submitting actor's deterministic slots, charges the same actor and organisation `cloud_gpu_seconds`, and is released at the frozen slot boundary. Its result is visible only to the submitting actor unless that actor explicitly publishes it in `peer_collab`. Hidden evaluation is authorized only after submission closure and final selection and uses a separate evaluator reservation/account. Evaluator measurements on shared hardware use exclusive compute leases and the same frozen reset, warmup, repetition and canary protocol.
 
@@ -517,16 +552,58 @@ Visible evaluation may be invoked only through the submission service and an act
 
 ```text
 interface SubmissionRegistry:
-  initialize(campaign_run_id, job_id, default_outcome: DefaultOutcomeSpec, policy: OutcomePolicy) -> void
+  initialize(campaign_run_id, job_id, reference_artifact, reference_visible_receipt, policy) -> void
   submit(session_transport, job_id, artifact: ArtifactRef, metadata) -> CandidateReceipt
   visible_result(session_transport, receipt) -> pending | VisibleResult | EvaluationFailure
   close(campaign_run_id, job_id?) -> SubmissionSet
-  select(submissions: SubmissionSet, policy: OutcomePolicy) -> SelectionResult
+  select(submissions: SubmissionSet) -> SelectionResult
+  evaluate_hidden(selection_receipt: SelectionReceipt, reservation) -> HiddenResult
 ```
 
-The agent-facing submission methods derive campaign and actor from the session transport and verify that `job_id` belongs to that campaign. Before admitting a candidate, the registry calls `ArtifactService.authorize_owned` for submission, rejects a `PublicationId`, quarantined object, unowned artifact or cross-campaign reference, and reserves the public evaluator's worst-case GPU duration from the same actor. Ownership, candidate-cap and compute-reservation checks commit atomically; rejection consumes neither a candidate slot nor GPU quota. Submissions are immutable. `visible_result` returns `pending` until the registered release boundary even if evaluation completes or fails early. Candidate existence, artifact metadata and public feedback are actor-private while work remains open; `peer_isolated` actors cannot enumerate or infer one another's submissions. Each peer has the same fixed, non-transferable submission and compute allowance, so another actor cannot consume its capacity or cause a quota rejection. The registry may see all submissions for neutral post-closure selection but never turns aggregation into an agent-visible channel.
+The agent-facing submission methods derive campaign and actor from the session
+transport and verify that `job_id` belongs to that campaign. The registry calls
+`ArtifactService.authorize_owned` for submission and rejects a `PublicationId`,
+quarantined object, unowned artifact or cross-campaign reference. Because the
+submission and compute ledgers are independent adapters, admission uses a
+durable state machine instead of claiming a cross-database atomic transaction.
+It first commits an immutable provisional candidate, obtains an idempotent,
+artifact-bound compute reservation, and then marks the candidate admitted.
+Retries recover the same provisional candidate and reservation, including a
+cancelled compensation record. Closure rejects provisional candidates and
+orphaned reservations. Submissions are immutable. `visible_result` returns
+`pending` until the registered release boundary even if evaluation completes or
+fails early. Candidate existence, artifact metadata and public feedback are
+actor-private while work remains open; `peer_isolated` actors cannot enumerate
+or infer one another's submissions. Each peer has the same fixed,
+non-transferable submission and compute allowance, so another actor cannot
+consume its capacity or cause a quota rejection. The registry may see all
+submissions for neutral post-closure selection but never turns aggregation into
+an agent-visible channel.
 
-Limits and the neutral selector are identical across conditions. Each peer submission must stand alone; the registry never merges artifacts. `SelectionResult` contains either the best eligible candidate under the campaign's normalized public ordering and deterministic tie-break, or its declared default/failure outcome. A campaign-provided reference candidate participates like any other system-owned candidate. The same fallback and selector over `peer_isolated` and `peer_collab` are required for the communication estimand.
+Limits and the neutral selector are identical across conditions. Each peer
+submission must stand alone; the registry never merges artifacts. The registry
+recomputes the neutral selection from evaluator-owned receipts, persists it,
+and returns an opaque `SelectionReceipt`. Hidden evaluation accepts only that
+receipt and recomputes the selection before reserving hidden compute.
+`SelectionResult` contains either the best eligible candidate under the
+campaign's normalized public ordering and deterministic tie-break, or its
+declared reference outcome. The reference is a registered immutable artifact
+with a separate visible evaluation receipt. Whether a candidate or the
+reference wins, the selected artifact always receives a new hidden evaluation;
+visible and hidden scores are never treated as interchangeable. The same
+fallback and selector over `peer_isolated` and `peer_collab` are required for
+the communication estimand.
+
+The executable fake slice persists provisional admission, candidate-to-compute
+bindings, evaluator receipts and authoritative selections. It refuses closure
+unless every visible reservation corresponds to exactly one admitted candidate
+and has a matching terminal evaluation state. It withholds completed results
+until the actor's explicit release boundary, selects only after closure and
+uses a separately accounted hidden reservation for every selected artifact.
+The fake evaluator owns a separate durable receipt ledger and deterministically
+reconstructs its evidence during receipt resolution. This proves orchestration,
+retry and integrity behavior without claiming that the fake evaluator is an
+untrusted compute backend.
 
 ## Budget gateway
 
@@ -690,7 +767,11 @@ Before the first confirmatory pilot, tests must prove:
 - Compute staging rejects unowned or mutable inputs, mounts the accepted bundle read-only and records declared outputs as new artifacts owned by the submitting actor.
 - `QuarantinedArtifact` is rejected by artifact publication/materialization, compute, submission and evaluation; only the approved isolated extraction path can produce a separately admitted artifact with recorded lineage.
 - The deterministic schedule supplies matched fixed-duration slots by actor ordinal in both peer arms. Unused time idles, cross-actor borrowing fails, and callers receive terminal coarse status/results only at their own fixed release boundary regardless of peer demand.
-- Candidate admission atomically reserves the public evaluator's worst-case GPU duration from the submitting actor; exploratory compute and public evaluation use only that actor's slots and quota. Hidden evaluation starts after closure under a separate evaluator schedule/account.
+- Candidate admission uses a recoverable provisional-to-reserved state machine
+  to bind the public evaluator's worst-case GPU duration from the submitting
+  actor. Exploratory compute and public evaluation use only that actor's slots
+  and quota. Hidden evaluation starts after closure under a separate evaluator
+  schedule/account.
 - GPU measurements hold exclusive leases and deterministically apply reset, warmup, repetition and canary rules.
 - Controlled web access rejects redirect and DNS-rebinding attempts to private or metadata addresses, sanitizes allowed text, and keeps binary or active content quarantined unless an approved isolated extractor produces separately admitted output.
 - Every settled provider response is reconciled with observational harness telemetry.

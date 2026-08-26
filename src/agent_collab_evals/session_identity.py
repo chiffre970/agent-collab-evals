@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 from .collaboration import SessionContext, SessionTransport
 from .domain import AgentIdentity, SessionHandle
@@ -15,6 +16,7 @@ class SessionIdentityRegistry:
         self._lock = threading.Lock()
         self._bindings: dict[int, tuple[object, SessionContext]] = {}
         self._sessions: dict[str, tuple[str, int]] = {}
+        self._workspaces: dict[int, Path] = {}
 
     def bind(
         self, actor: AgentIdentity, session: SessionHandle
@@ -43,6 +45,37 @@ class SessionIdentityRegistry:
             raise PermissionError("unknown or expired session transport")
         return binding[1]
 
+    def assign_workspace(
+        self, transport: SessionTransport, workspace_root: Path
+    ) -> None:
+        """Bind one server-selected workspace root to an active session."""
+
+        context = self.resolve(transport)
+        root = workspace_root.resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError("session workspace root must be a directory")
+        identity_key = id(transport._identity)
+        with self._lock:
+            binding = self._bindings.get(identity_key)
+            if binding is None or binding[0] is not transport._identity:
+                raise PermissionError("unknown or expired session transport")
+            existing = self._workspaces.get(identity_key)
+            if existing is not None and existing != root:
+                raise ValueError(
+                    f"session {context.session_id} workspace is already assigned"
+                )
+            self._workspaces[identity_key] = root
+
+    def workspace(self, transport: SessionTransport) -> Path:
+        """Resolve the server-selected workspace for an active session."""
+
+        self.resolve(transport)
+        with self._lock:
+            root = self._workspaces.get(id(transport._identity))
+        if root is None:
+            raise PermissionError("session has no assigned workspace")
+        return root
+
     def revoke(self, transport: SessionTransport) -> None:
         with self._lock:
             binding = self._bindings.get(id(transport._identity))
@@ -54,3 +87,4 @@ class SessionIdentityRegistry:
                 raise RuntimeError("session identity index is inconsistent")
             del self._bindings[id(transport._identity)]
             del self._sessions[context.session_id]
+            self._workspaces.pop(id(transport._identity), None)
