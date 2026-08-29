@@ -138,7 +138,7 @@ def _server_command(candidate: dict[str, Any]) -> tuple[str, ...]:
     command = [
         "vllm",
         "serve",
-        MODEL_ID,
+        _pinned_model_snapshot_path(),
         "--revision",
         MODEL_REVISION,
         "--served-model-name",
@@ -168,6 +168,13 @@ def _server_command(candidate: dict[str, Any]) -> tuple[str, ...]:
         command.append("--enforce-eager")
     command.append("--disable-log-stats")
     return tuple(command)
+
+
+def _pinned_model_snapshot_path() -> str:
+    """Return the immutable-revision cache path used by scored functions."""
+
+    repository = MODEL_ID.replace("/", "--")
+    return f"{HF_CACHE_PATH}/hub/models--{repository}/snapshots/{MODEL_REVISION}"
 
 
 def _bounded_integer(

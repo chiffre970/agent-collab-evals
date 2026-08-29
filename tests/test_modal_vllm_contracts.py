@@ -66,7 +66,11 @@ class ModalVllmContractTests(unittest.TestCase):
             )
         )
         command = MODAL_VLLM._server_command(candidate)
-        self.assertEqual(command[:3], ("vllm", "serve", MODAL_VLLM.MODEL_ID))
+        self.assertEqual(
+            command[:3],
+            ("vllm", "serve", MODAL_VLLM._pinned_model_snapshot_path()),
+        )
+        self.assertIn(MODAL_VLLM.MODEL_REVISION, command[2])
         self.assertNotIn("python", command)
         self.assertEqual(command.count("--stream-interval"), 1)
 

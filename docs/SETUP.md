@@ -390,7 +390,10 @@ blocks external networking, mounts the populated Hugging Face model cache
 read-only and cannot access the evaluator evidence Volume. A separate trusted
 function validates and persists the bounded compressed evidence bundle. Run the
 authenticated smoke check first whenever the pinned model cache might not be
-populated; a scored run fails closed rather than downloading missing data.
+populated; a scored run fails closed rather than downloading missing data. The
+scored command addresses the exact revision directory in the local cache. It
+does not ask the offline Hugging Face resolver to enumerate optional repository
+metadata, and the candidate cannot choose or alter this path.
 
 After the cache is populated, run the bounded hardened-boundary conformance
 instead of a full benchmark repetition:

@@ -275,6 +275,12 @@ smallest useful seams before adding the runtime and collaboration machinery.
   manifest that disables compute and has no profiles or requests.
 - The full local suite passes with `ResourceWarning` reporting enabled; all
   SQLite connections opened by tests and adapters are explicitly closed.
+- The bounded live hardened-function conformance passed on 2026-08-29. The
+  scored Modal L4 function used the fixed revision-addressed local model path,
+  blocked external networking, mounted the model cache read-only, received no
+  secret and had no evidence-volume mount. Separate trusted persistence and
+  digest-resolved collection also passed. The calibration ledger records the
+  app, evidence root and receipt digests.
 
 ## Not implemented
 
@@ -289,11 +295,11 @@ The following remain gates, not implied capabilities:
    filesystem and process-resource enforcement. The target environment needs a
    pinned kernel- or container-level adapter and equivalent conformance proof.
 2. Promotion of the development Modal compute adapter to a registered backend,
-   including the bounded live boundary proof, final container and capability
-   policy, fixed actor-slot scheduler integration and registered evidence
-   retention. Durable run authority, spend authorization and mandatory compute
-   reconciliation now pass locally. The current adapter accepts only validated
-   declarative serving candidates; it does not execute arbitrary
+   including the final container and capability policy, fixed actor-slot
+   scheduler integration and registered evidence retention. The bounded live
+   boundary proof now passes; durable run authority, spend authorization and
+   mandatory compute reconciliation pass locally. The current adapter accepts
+   only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
 3. The production evaluator path for public and hidden measurements, including
    the remaining correctness, stability and shortcut gates and complete
@@ -322,18 +328,18 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. The durable development compute state machine,
 frozen run authority, durable spend authorization, pinned Modal transport and
 visible evaluator composition are implemented and tested without live spend.
-The hardened command, secret, network, model-cache and evidence boundaries have
-not yet received a live Modal conformance run. The first bounded live reference
-dispatch and collection remain a deliberate, separately authorized development
-check. Confirmatory retention and the hidden gates remain later
-platform-service work.
+The hardened command, secret, network, model-cache and evidence boundaries now
+pass a bounded live Modal conformance run. The first complete development
+reference dispatch through the durable execution backend remains a deliberate,
+separately authorized check. Confirmatory retention and the hidden gates remain
+later platform-service work.
 
 ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
 nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem and process-resource
-enforcement remain scored-run gates. After the bounded development dispatch
-passes, the next gate is registered compute/evaluator promotion with hidden
-workload separation, followed by complete resolved-run manifests and
-four-condition scheduling. No live multi-condition model run is authorized
-yet.
+enforcement remain scored-run gates. The next gate is one complete development
+dispatch and collection through the durable backend, then registered
+compute/evaluator promotion with hidden workload separation, followed by
+complete resolved-run manifests and four-condition scheduling. No live
+multi-condition model run is authorized yet.

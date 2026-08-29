@@ -222,7 +222,38 @@ candidate calibration.
 The dedicated `--security-conformance` path performs this proof with one short
 served-generation request plus the pre- and post-canaries. It uses the same
 hardened scored function and separate persistence function without running the
-full nine-point benchmark. Its receipt remains pending.
+full nine-point benchmark.
+
+## 2026-08-29: hardened Modal boundary conformance
+
+The bounded conformance passed in Modal app
+`ap-0GqUrJYPvaFQqRZDlHyt68`. The scored L4 function had external networking
+blocked, mounted the model cache read-only, received no secret and had no
+evaluator-evidence mount. After the candidate process exited, a separate
+trusted function persisted the bounded bundle to the evaluator-owned Volume;
+the collector resolved and verified every digest.
+
+The first two restricted attempts, `ap-0Md9qCxGojrCuZe9gDCeql` and
+`ap-Q4gV3KBt6SYJoxY5vXZZ59`, failed closed before model startup. The current
+Hugging Face offline resolver required three repository-documentation files
+that vLLM's successful authenticated cache warm-up did not fetch. The fix does
+not relax the boundary: evaluator code now supplies vLLM the fixed local cache
+path for the pinned revision instead of asking the offline resolver to
+re-enumerate the repository. Candidate input cannot change that path. An
+authenticated smoke in `ap-R58aaEAiRZuJ1SWbXIfU84` had already proved that
+the exact cached runtime files start stock vLLM 0.21.0 on an L4.
+
+The passing receipt binds evaluator script
+`sha256:939e867fbfa29be4642a7d5f68b656dac64a32d2b1de675b7ec48694204e671b`,
+remote receipt
+`sha256:a33e61a1472729bee9dc53db580c71b3280bc06fb064f7b4d651a7684b93cbb3`
+and raw response
+`sha256:52006566eeca2b670ad8cedd714eb6c3ee12dae7448c0defac6f4c3916abdb3c`.
+The evidence root is
+`security-conformance/e2ffcbb6f73641edb2832fa18dbb8614`. Server startup
+took 258.352 seconds, the one-case evaluation took 104 milliseconds and total
+function-body time was 263.223 seconds. This is development conformance
+evidence, not a scored result or registered-study qualification.
 
 ## 2026-08-17: valid non-reference sensitivity series
 
