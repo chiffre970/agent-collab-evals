@@ -224,6 +224,50 @@ class ModalVllmContractTests(unittest.TestCase):
         finally:
             MODAL_VLLM.evidence_volume = original_volume
 
+    def test_isolated_staging_pointer_is_digest_resolved(self) -> None:
+        root = "model-serving/abc/repetition-0001-attempt-01"
+        prefix = f"{root}/evidence"
+        raw = b'{"result":"ok"}'
+        receipt = {"ok": True, "candidate_id": "candidate"}
+        receipt_bytes = MODAL_VLLM._stable_json_bytes(receipt)
+        receipt_digest = "sha256:" + hashlib.sha256(receipt_bytes).hexdigest()
+        evidence = {
+            "schema_version": "modal-evaluator-evidence/v0alpha1",
+            "volume_name": MODAL_VLLM.STAGING_VOLUME_NAME,
+            "root": root,
+            "remote_receipt_digest": receipt_digest,
+            "raw_digests": {
+                "point.json": "sha256:" + hashlib.sha256(raw).hexdigest()
+            },
+        }
+        volume = _ReadOnlyVolume(
+            {
+                f"{prefix}/manifest.json": MODAL_VLLM._stable_json_bytes(
+                    evidence
+                ),
+                f"{prefix}/remote-receipt.json": receipt_bytes,
+                f"{prefix}/raw/point.json": raw,
+            }
+        )
+        pointer = {
+            "schema_version": "modal-evaluator-staging-pointer/v0alpha1",
+            "volume_name": MODAL_VLLM.STAGING_VOLUME_NAME,
+            "root": root,
+            "remote_receipt_digest": receipt_digest,
+        }
+
+        loaded_receipt, loaded, observed = MODAL_VLLM._collect_volume_evidence(
+            volume,
+            pointer,
+            expected_root=root,
+            expected_volume_name=MODAL_VLLM.STAGING_VOLUME_NAME,
+            path_prefix=prefix,
+        )
+
+        self.assertEqual(loaded_receipt, receipt)
+        self.assertEqual(loaded, {"point.json": raw})
+        self.assertEqual(observed, evidence)
+
 
 if __name__ == "__main__":
     unittest.main()

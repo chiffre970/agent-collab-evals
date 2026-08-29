@@ -182,9 +182,14 @@ bounded vLLM settings from a fixed allowlist. The evaluator constructs the
 executable, model identity, revision, loopback address, port and fixed flags.
 The scored Modal function receives no Hugging Face secret, blocks external
 networking and mounts the populated model cache read-only. It does not mount
-the evaluator evidence Volume. After the server exits, a bounded,
-digest-verified result bundle crosses the function-result boundary and a
-separate trusted function persists it to evaluator-owned storage.
+the durable evaluator evidence Volume. Each invocation receives only an
+evaluator-issued subpath of a staging Volume; it cannot see another
+invocation's staging data. The evaluator stops the candidate process before it
+writes raw results to that subpath and syncs them. Only a small digest pointer
+crosses the restricted function-result boundary. A trusted collector resolves
+and verifies the staged bytes, then a separate trusted function persists them
+to evaluator-owned durable storage. Preexisting or conflicting staged content
+fails closed.
 
 Agents reach it only through the compute capability broker, which owns allowlists, fixed per-actor quotas, immutable input/output staging, exclusive device leases, timeouts and credential isolation. Agent experiments and public evaluator measurements run only in the submitting actor's fixed-duration slots under one frozen `DeterministicActorSchedule`, matched by actor ordinal across the peer conditions. GPU seconds for both count against that actor and the organisation envelope. Slots are non-transferable: unused time remains idle, work cannot borrow another actor's slot, and terminal status or results are released only at the slot's scheduled boundary. Admission therefore depends only on the caller's own allocation and schedule, not competing peer demand. Public-evaluation admission reserves its declared worst-case duration before the candidate is accepted. The tool exposes only coarse state for the caller's own job (`accepted`, `complete` or `failed`), never queue contents, another actor's demand or backend timing.
 

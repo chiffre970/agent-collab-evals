@@ -387,13 +387,28 @@ Candidate and provider choices are committed profile or command inputs, not
 Candidate manifests contain typed vLLM settings, not executable commands. The
 scored GPU function constructs the fixed vLLM command, receives no secret,
 blocks external networking, mounts the populated Hugging Face model cache
-read-only and cannot access the evaluator evidence Volume. A separate trusted
-function validates and persists the bounded compressed evidence bundle. Run the
+read-only and cannot access the durable evaluator evidence Volume. It receives
+only an evaluator-issued subpath of a staging Volume. After the candidate
+process stops, evaluator code writes and syncs raw results there and returns a
+small digest pointer. A trusted collector validates the staged bytes, and a
+separate trusted function copies them into durable evaluator storage. Run the
 authenticated smoke check first whenever the pinned model cache might not be
 populated; a scored run fails closed rather than downloading missing data. The
 scored command addresses the exact revision directory in the local cache. It
 does not ask the offline Hugging Face resolver to enumerate optional repository
-metadata, and the candidate cannot choose or alter this path.
+metadata, and the candidate cannot choose or alter either path.
+
+Before a full GPU repetition, verify the large-result path without GPU spend:
+
+```bash
+.venv/bin/modal run -e dev \
+  campaigns/model_serving_v0/reference/modal_vllm.py \
+  --staging-probe \
+  --output-path tmp/calibration/modal-staging-conformance.json
+```
+
+This sends a 4 MiB low-compressibility JSON artifact through isolated staging,
+trusted readback and durable persistence. It fails unless every digest resolves.
 
 After the cache is populated, run the bounded hardened-boundary conformance
 instead of a full benchmark repetition:
@@ -408,9 +423,9 @@ instead of a full benchmark repetition:
 This billable check starts the pinned server once and sends one short quality
 request between the existing pre- and post-canaries. It exercises the scored
 function's blocked external network, read-only model cache, absent secret,
-absent evidence mount and separate durable evidence-persistence function. It
-does not run the nine-point throughput benchmark and is not scoreable study
-evidence.
+absent durable evidence mount, isolated staging subpath and separate durable
+evidence-persistence function. It does not run the nine-point throughput
+benchmark and is not scoreable study evidence.
 
 Dispatch is billable and requires an explicit spend flag:
 
@@ -454,14 +469,14 @@ git status --ignored --short
 ### Durable evaluator evidence
 
 Formal calibration calls write raw benchmark files and their remote receipt to
-the evaluator-owned Modal Volume
-`agent-collab-evals-evaluator-evidence-v2` before returning a small result.
-The GPU function has restricted Modal API access and returns only a bounded,
-compressed, digest-bound evidence bundle. A separate restricted persistence
-function commits that bundle through the writable v2 Volume mount. The trusted
-local collector downloads every file, verifies its digest, publishes the
-normalized receipt once and keeps the existing ignored local bundle only as a
-convenience mirror.
+an invocation-isolated subpath of
+`agent-collab-evals-evaluator-staging-v2` after the candidate server exits. The
+GPU function has restricted Modal API access and returns only a digest-bound
+pointer. The trusted local collector downloads and verifies every staged file,
+then a separate restricted function commits the complete bundle to
+`agent-collab-evals-evaluator-evidence-v2`. The collector verifies the durable
+copy, publishes the normalized receipt once and keeps the existing ignored
+local bundle only as a convenience mirror.
 
 Verify this path without allocating a GPU:
 

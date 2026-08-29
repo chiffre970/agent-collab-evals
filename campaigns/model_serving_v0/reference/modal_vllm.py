@@ -43,8 +43,10 @@ FUNCTION_TIMEOUT_SECONDS = 1800
 BENCHMARK_RESULT_ROOT = Path("/tmp/reference-benchmark")
 EVIDENCE_VOLUME_NAME = "agent-collab-evals-evaluator-evidence-v2"
 EVIDENCE_MOUNT_PATH = Path("/evaluator-evidence")
+STAGING_VOLUME_NAME = "agent-collab-evals-evaluator-staging-v2"
+STAGING_MOUNT_PATH = Path("/evaluator-staging")
 _HEX = set("0123456789abcdef")
-MAX_INLINE_EVIDENCE_BYTES = 512 * 1024
+MAX_COMPRESSED_EVIDENCE_BYTES = 8 * 1024 * 1024
 MAX_UNCOMPRESSED_EVIDENCE_BYTES = 16 * 1024 * 1024
 
 app = modal.App(APP_NAME)
@@ -69,6 +71,9 @@ vllm_cache = modal.Volume.from_name(
 )
 evidence_volume = modal.Volume.from_name(
     EVIDENCE_VOLUME_NAME, create_if_missing=True, version=2
+)
+staging_volume = modal.Volume.from_name(
+    STAGING_VOLUME_NAME, create_if_missing=True, version=2
 )
 huggingface_secret = modal.Secret.from_name(
     "huggingface-secret", required_keys=["HF_TOKEN"]
@@ -882,7 +887,9 @@ def benchmark_serving_repetition(
         "canary_after": canary_after,
         "point_receipts": point_receipts,
     }
-    return _encode_evidence_bundle(remote_receipt, raw_results)
+    return _stage_evaluator_evidence(
+        benchmark_spec["evidence_root"], remote_receipt, raw_results
+    )
 
 
 @app.function(
@@ -980,7 +987,48 @@ def quality_serving_repetition(
         "canary_after": canary_after,
         "case_receipts": case_receipts,
     }
-    return _encode_evidence_bundle(remote_receipt, raw_results)
+    return _stage_evaluator_evidence(
+        quality_spec["evidence_root"], remote_receipt, raw_results
+    )
+
+
+@app.function(
+    image=modal.Image.debian_slim(),
+    retries=0,
+    block_network=True,
+    restrict_modal_access=True,
+    single_use_containers=True,
+    timeout=120,
+)
+def probe_staged_evidence(evidence_root: str, size_bytes: int) -> dict[str, Any]:
+    """Prove large evidence staging without a GPU, secret, or API access."""
+
+    if not 2 * 1024 * 1024 < size_bytes <= 4 * 1024 * 1024:
+        raise ValueError("staging probe size is out of range")
+    prefix = b'{"payload":"'
+    suffix = b'"}\n'
+    payload_bytes = size_bytes - len(prefix) - len(suffix)
+    blocks: list[bytes] = []
+    counter = 0
+    remaining = payload_bytes
+    while remaining:
+        block = hashlib.sha256(
+            f"staging-probe:{counter}".encode("ascii")
+        ).hexdigest().encode("ascii")
+        blocks.append(block[:remaining])
+        remaining -= min(remaining, len(block))
+        counter += 1
+    content = prefix + b"".join(blocks) + suffix
+    return _stage_evaluator_evidence(
+        evidence_root,
+        {
+            "ok": True,
+            "probe": "isolated-staging-large-result",
+            "size_bytes": len(content),
+            "content_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+        },
+        {"large-probe.json": content},
+    )
 
 
 @app.function(
@@ -1043,6 +1091,53 @@ def _persist_remote_evidence(
 ) -> dict[str, Any]:
     """Commit raw evidence to the evaluator Volume before returning metadata."""
 
+    destination = EVIDENCE_MOUNT_PATH.joinpath(
+        *PurePosixPath(evidence_root).parts
+    )
+    return _persist_evidence_at(
+        destination,
+        sync_root=EVIDENCE_MOUNT_PATH,
+        volume_name=EVIDENCE_VOLUME_NAME,
+        evidence_root=evidence_root,
+        remote_receipt=remote_receipt,
+        raw_results=raw_results,
+    )
+
+
+def _stage_evaluator_evidence(
+    evidence_root: str,
+    remote_receipt: dict[str, Any],
+    raw_results: dict[str, bytes],
+) -> dict[str, Any]:
+    """Write scored output after server exit to its isolated staging subpath."""
+
+    manifest = _persist_evidence_at(
+        STAGING_MOUNT_PATH / "evidence",
+        sync_root=STAGING_MOUNT_PATH,
+        volume_name=STAGING_VOLUME_NAME,
+        evidence_root=evidence_root,
+        remote_receipt=remote_receipt,
+        raw_results=raw_results,
+    )
+    return {
+        "schema_version": "modal-evaluator-staging-pointer/v0alpha1",
+        "volume_name": STAGING_VOLUME_NAME,
+        "root": evidence_root,
+        "remote_receipt_digest": manifest["remote_receipt_digest"],
+    }
+
+
+def _persist_evidence_at(
+    destination: Path,
+    *,
+    sync_root: Path,
+    volume_name: str,
+    evidence_root: str,
+    remote_receipt: dict[str, Any],
+    raw_results: dict[str, bytes],
+) -> dict[str, Any]:
+    """Persist a complete evidence directory without using the Modal API."""
+
     _validate_evidence_root(evidence_root)
     raw_digests: dict[str, str] = {}
     for filename, content in sorted(raw_results.items()):
@@ -1053,12 +1148,11 @@ def _persist_remote_evidence(
     receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
     manifest = {
         "schema_version": "modal-evaluator-evidence/v0alpha1",
-        "volume_name": EVIDENCE_VOLUME_NAME,
+        "volume_name": volume_name,
         "root": evidence_root,
         "remote_receipt_digest": receipt_digest,
         "raw_digests": raw_digests,
     }
-    destination = EVIDENCE_MOUNT_PATH.joinpath(*PurePosixPath(evidence_root).parts)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         _verify_persisted_evidence(
@@ -1085,7 +1179,7 @@ def _persist_remote_evidence(
 
             shutil.rmtree(staging, ignore_errors=True)
         subprocess.run(
-            ["sync", str(EVIDENCE_MOUNT_PATH)],
+            ["sync", str(sync_root)],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -1156,8 +1250,8 @@ def _encode_evidence_bundle(
     if len(uncompressed) > MAX_UNCOMPRESSED_EVIDENCE_BYTES:
         raise RuntimeError("evaluator evidence exceeds the uncompressed limit")
     compressed = zlib.compress(uncompressed, level=9)
-    if len(compressed) > MAX_INLINE_EVIDENCE_BYTES:
-        raise RuntimeError("compressed evaluator evidence exceeds the inline limit")
+    if len(compressed) > MAX_COMPRESSED_EVIDENCE_BYTES:
+        raise RuntimeError("compressed evaluator evidence exceeds the transfer limit")
     return {
         "schema_version": "modal-evaluator-inline-bundle/v0alpha1",
         "compression": "zlib",
@@ -1185,7 +1279,7 @@ def _decode_evidence_bundle(
         bundle["schema_version"] != "modal-evaluator-inline-bundle/v0alpha1"
         or bundle["compression"] != "zlib"
         or not isinstance(compressed, bytes)
-        or len(compressed) > MAX_INLINE_EVIDENCE_BYTES
+        or len(compressed) > MAX_COMPRESSED_EVIDENCE_BYTES
         or bundle["compressed_digest"]
         != f"sha256:{hashlib.sha256(compressed).hexdigest()}"
     ):
@@ -1244,6 +1338,22 @@ def _evidence_pointer(evidence: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _scored_function_with_staging(
+    function: Any, evidence_root: str, *, include_model_cache: bool = True
+) -> Any:
+    """Bind one scored invocation to only its evaluator-issued staging path."""
+
+    _validate_evidence_root(evidence_root)
+    volumes = {
+        str(STAGING_MOUNT_PATH): staging_volume.with_mount_options(
+            sub_path="/" + evidence_root
+        )
+    }
+    if include_model_cache:
+        volumes[HF_CACHE_PATH] = model_cache.with_mount_options(read_only=True)
+    return function.with_options(volumes=volumes)
+
+
 def _ensure_durable_evidence(
     result: dict[str, Any], *, evidence_root: str
 ) -> dict[str, Any]:
@@ -1251,22 +1361,65 @@ def _ensure_durable_evidence(
         raise RuntimeError("remote evaluator result must be an object")
     if result.get("schema_version") == "modal-evaluator-evidence-pointer/v0alpha1":
         return result
+    if result.get("schema_version") == "modal-evaluator-staging-pointer/v0alpha1":
+        remote_receipt, raw_results, _ = _collect_volume_evidence(
+            staging_volume,
+            result,
+            expected_root=evidence_root,
+            expected_volume_name=STAGING_VOLUME_NAME,
+            path_prefix=f"{evidence_root}/evidence",
+            visibility_timeout_seconds=30,
+        )
+        result = _encode_evidence_bundle(remote_receipt, raw_results)
     return persist_evaluator_evidence.remote(evidence_root, result)
 
 
 def _collect_remote_evidence(
     pointer: dict[str, Any], *, expected_root: str
 ) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
-    if not isinstance(pointer, dict) or set(pointer) != {
+    return _collect_volume_evidence(
+        evidence_volume,
+        pointer,
+        expected_root=expected_root,
+        expected_volume_name=EVIDENCE_VOLUME_NAME,
+        path_prefix=expected_root,
+    )
+
+
+def _collect_volume_evidence(
+    volume: Any,
+    pointer: dict[str, Any],
+    *,
+    expected_root: str,
+    expected_volume_name: str,
+    path_prefix: str,
+    visibility_timeout_seconds: int = 0,
+) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
+    if not isinstance(pointer, dict):
+        raise RuntimeError("remote evidence pointer fields differ")
+    durable_pointer = pointer.get("schema_version") == (
+        "modal-evaluator-evidence-pointer/v0alpha1"
+    )
+    expected_pointer_fields = {
         "schema_version",
         "root",
         "remote_receipt_digest",
-    }:
+    }
+    if not durable_pointer:
+        expected_pointer_fields.add("volume_name")
+    if set(pointer) != expected_pointer_fields:
         raise RuntimeError("remote evidence pointer fields differ")
     if (
         pointer["schema_version"]
-        != "modal-evaluator-evidence-pointer/v0alpha1"
+        not in {
+            "modal-evaluator-evidence-pointer/v0alpha1",
+            "modal-evaluator-staging-pointer/v0alpha1",
+        }
         or pointer["root"] != expected_root
+        or (
+            not durable_pointer
+            and pointer.get("volume_name") != expected_volume_name
+        )
         or not isinstance(pointer["remote_receipt_digest"], str)
         or len(pointer["remote_receipt_digest"]) != 71
         or not pointer["remote_receipt_digest"].startswith("sha256:")
@@ -1283,7 +1436,11 @@ def _collect_remote_evidence(
         "remote_receipt_digest",
         "raw_digests",
     }
-    stored_manifest_bytes = _read_evidence_file(f"{expected_root}/manifest.json")
+    stored_manifest_bytes = _read_volume_file(
+        volume,
+        f"{path_prefix}/manifest.json",
+        wait_seconds=visibility_timeout_seconds,
+    )
     try:
         evidence = json.loads(stored_manifest_bytes)
     except json.JSONDecodeError as error:
@@ -1292,14 +1449,18 @@ def _collect_remote_evidence(
         raise RuntimeError("stored evidence manifest fields differ")
     if (
         evidence["schema_version"] != "modal-evaluator-evidence/v0alpha1"
-        or evidence["volume_name"] != EVIDENCE_VOLUME_NAME
+        or evidence["volume_name"] != expected_volume_name
         or evidence["root"] != expected_root
         or evidence["remote_receipt_digest"]
         != pointer["remote_receipt_digest"]
         or not isinstance(evidence["raw_digests"], dict)
     ):
         raise RuntimeError("stored evidence manifest identity differs")
-    receipt_bytes = _read_evidence_file(f"{expected_root}/remote-receipt.json")
+    receipt_bytes = _read_volume_file(
+        volume,
+        f"{path_prefix}/remote-receipt.json",
+        wait_seconds=visibility_timeout_seconds,
+    )
     receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
     if receipt_digest != evidence["remote_receipt_digest"]:
         raise RuntimeError("stored remote receipt digest differs")
@@ -1318,7 +1479,11 @@ def _collect_remote_evidence(
             or not isinstance(expected_digest, str)
         ):
             raise RuntimeError("stored raw evidence identity is invalid")
-        content = _read_evidence_file(f"{expected_root}/raw/{filename}")
+        content = _read_volume_file(
+            volume,
+            f"{path_prefix}/raw/{filename}",
+            wait_seconds=visibility_timeout_seconds,
+        )
         observed_digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
         if observed_digest != expected_digest:
             raise RuntimeError("stored raw evidence digest differs")
@@ -1327,7 +1492,18 @@ def _collect_remote_evidence(
 
 
 def _read_evidence_file(path: str) -> bytes:
-    return b"".join(evidence_volume.read_file(path))
+    return _read_volume_file(evidence_volume, path)
+
+
+def _read_volume_file(volume: Any, path: str, *, wait_seconds: int = 0) -> bytes:
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            return b"".join(volume.read_file(path))
+        except FileNotFoundError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.25)
 
 
 def _publish_normalized_evidence(
@@ -1365,6 +1541,7 @@ def main(
     collect_only: bool = False,
     collect_timeout_seconds: int = 0,
     evidence_probe: bool = False,
+    staging_probe: bool = False,
     quality_profile_path: str = "campaigns/model_serving_v0/evaluator/quality_calibration.toml",
     quality_workload_path: str = "tmp/evaluator-private/model-serving-quality/workload-v2.json",
     quality_output_root: str = "tmp/evaluator-private/model-serving-quality/results",
@@ -1393,6 +1570,7 @@ def main(
             or collect_only
             or collect_timeout_seconds
             or quality_role
+            or staging_probe
         ):
             raise ValueError("--evidence-probe cannot be combined with measurement flags")
         content = f"evaluator-evidence-probe:{uuid.uuid4().hex}".encode("utf-8")
@@ -1403,6 +1581,22 @@ def main(
         ):
             raise RuntimeError("durable evaluator evidence probe differs")
         print(json.dumps({"ok": True, **result}, indent=2, sort_keys=True))
+        return
+    if staging_probe:
+        if (
+            baseline
+            or quality
+            or security_conformance
+            or allow_gpu_spend
+            or dispatch_only
+            or collect_only
+            or collect_timeout_seconds
+            or quality_role
+        ):
+            raise ValueError(
+                "--staging-probe cannot be combined with measurement flags"
+            )
+        _run_staging_probe(Path(output_path))
         return
     if sum((baseline, quality, security_conformance)) > 1:
         raise ValueError(
@@ -1495,8 +1689,13 @@ def _run_security_conformance(
     quality_spec = _security_conformance_spec(
         candidate, campaign.manifest_digest, conformance_id
     )
-    bundle = quality_serving_repetition.remote(candidate, quality_spec)
-    pointer = _ensure_durable_evidence(bundle, evidence_root=evidence_root)
+    staged_function = _scored_function_with_staging(
+        quality_serving_repetition, evidence_root
+    )
+    staging_pointer = staged_function.remote(candidate, quality_spec)
+    pointer = _ensure_durable_evidence(
+        staging_pointer, evidence_root=evidence_root
+    )
     remote_receipt, raw_results, evidence = _collect_remote_evidence(
         pointer, expected_root=evidence_root
     )
@@ -1520,7 +1719,8 @@ def _run_security_conformance(
             "external_network_blocked": True,
             "model_cache_read_only": True,
             "scored_function_has_secret": False,
-            "scored_function_has_evidence_mount": False,
+            "scored_function_has_durable_evidence_mount": False,
+            "isolated_staging_subpath": True,
             "separate_evidence_persistence": True,
         },
         "timing": remote_receipt.get("timing"),
@@ -1528,6 +1728,57 @@ def _run_security_conformance(
     }
     destination = output_path.resolve()
     _write_json_atomic(destination, report, prefix=".security-conformance-")
+    print(json.dumps(report, indent=2, sort_keys=True))
+    print(f"Receipt: {destination}")
+
+
+def _run_staging_probe(output_path: Path) -> None:
+    """Exercise isolated staging and trusted persistence without GPU spend."""
+
+    probe_id = uuid.uuid4().hex
+    evidence_root = f"preflight-staging/{probe_id}"
+    size_bytes = 4 * 1024 * 1024
+    staged_function = _scored_function_with_staging(
+        probe_staged_evidence,
+        evidence_root,
+        include_model_cache=False,
+    )
+    staging_pointer = staged_function.remote(evidence_root, size_bytes)
+    durable_pointer = _ensure_durable_evidence(
+        staging_pointer, evidence_root=evidence_root
+    )
+    receipt, raw_results, evidence = _collect_remote_evidence(
+        durable_pointer, expected_root=evidence_root
+    )
+    content = raw_results.get("large-probe.json")
+    if (
+        receipt.get("ok") is not True
+        or receipt.get("size_bytes") != size_bytes
+        or not isinstance(content, bytes)
+        or len(content) != size_bytes
+        or receipt.get("content_digest")
+        != "sha256:" + hashlib.sha256(content).hexdigest()
+    ):
+        raise RuntimeError("isolated staging probe evidence differs")
+    report = {
+        "schema_version": "modal-staging-conformance/v0alpha1",
+        "ok": True,
+        "staging_volume": STAGING_VOLUME_NAME,
+        "evidence_volume": EVIDENCE_VOLUME_NAME,
+        "evidence_root": evidence_root,
+        "size_bytes": size_bytes,
+        "remote_receipt_digest": evidence["remote_receipt_digest"],
+        "raw_digests": evidence["raw_digests"],
+        "controls": {
+            "external_network_blocked": True,
+            "modal_api_restricted": True,
+            "secret_present": False,
+            "isolated_staging_subpath": True,
+            "trusted_durable_copy": True,
+        },
+    }
+    destination = output_path.resolve()
+    _write_json_atomic(destination, report, prefix=".staging-conformance-")
     print(json.dumps(report, indent=2, sort_keys=True))
     print(f"Receipt: {destination}")
 
@@ -1763,7 +2014,10 @@ def _run_baseline_repetition(
     except FileNotFoundError:
         if collect_only:
             raise RuntimeError("no durable Modal dispatch exists for this attempt")
-        function_call = benchmark_serving_repetition.spawn(candidate, benchmark_spec)
+        staged_function = _scored_function_with_staging(
+            benchmark_serving_repetition, evidence_root
+        )
+        function_call = staged_function.spawn(candidate, benchmark_spec)
         dispatch_record = {
             **dispatch_identity,
             "function_call_id": function_call.object_id,
@@ -2238,7 +2492,10 @@ def _run_quality_repetition(
     except FileNotFoundError:
         if collect_only:
             raise RuntimeError("no durable Modal quality dispatch exists")
-        function_call = quality_serving_repetition.spawn(candidate, quality_spec)
+        staged_function = _scored_function_with_staging(
+            quality_serving_repetition, evidence_root
+        )
+        function_call = staged_function.spawn(candidate, quality_spec)
         dispatch_record = {
             **dispatch_identity,
             "function_call_id": function_call.object_id,

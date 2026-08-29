@@ -255,8 +255,11 @@ smallest useful seams before adding the runtime and collaboration machinery.
   only typed, bounded, allowlisted vLLM settings, and the evaluator constructs
   the fixed command. Scored GPU functions receive no secret, block external
   networking, mount the populated model cache read-only and do not mount the
-  evaluator evidence Volume. A separate trusted function persists a bounded,
-  compressed and digest-verified evidence bundle after candidate execution.
+  durable evaluator evidence Volume. Each invocation sees only its
+  evaluator-issued staging subpath. After the candidate process stops, the
+  evaluator syncs complete raw evidence there and returns a small digest
+  pointer. A trusted collector verifies the staged bytes, and a separate
+  trusted function copies them to durable evaluator storage.
 - Concurrent evaluation callers treat registered, dispatching and dispatched
   work as nonterminal. An in-progress observation leaves the candidate and its
   reservation untouched. Dispatch evidence is independently resolved and
@@ -281,6 +284,13 @@ smallest useful seams before adding the runtime and collaboration machinery.
   secret and had no evidence-volume mount. Separate trusted persistence and
   digest-resolved collection also passed. The calibration ledger records the
   app, evidence root and receipt digests.
+- The first durable full-reference dispatch exposed and then closed two
+  integration failures without admitting a score. The transport now detaches
+  the ephemeral Modal app around its spawned function and can reconcile a
+  terminal infrastructure failure without success-only scoring evidence. A
+  second run completed the benchmark but proved that restricted functions
+  cannot use Modal's large-result blob upload. A CPU-only 4 MiB conformance now
+  proves the replacement isolated-staging and trusted-copy path end to end.
 
 ## Not implemented
 
@@ -338,8 +348,9 @@ ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
 nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem and process-resource
-enforcement remain scored-run gates. The next gate is one complete development
-dispatch and collection through the durable backend, then registered
-compute/evaluator promotion with hidden workload separation, followed by
-complete resolved-run manifests and four-condition scheduling. No live
-multi-condition model run is authorized yet.
+enforcement remain scored-run gates. The next gate remains one complete
+development dispatch and collection through the durable backend using the
+newly qualified staging path, then registered compute/evaluator promotion with
+hidden workload separation, followed by complete resolved-run manifests and
+four-condition scheduling. No live multi-condition model run is authorized
+yet.

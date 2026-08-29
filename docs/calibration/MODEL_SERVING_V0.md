@@ -207,11 +207,12 @@ not safe for agent-authored candidates and is retired for future runs.
 
 Candidate schema v0alpha2 removes executable argv. It accepts only typed,
 bounded vLLM settings from a fixed allowlist, and evaluator code constructs the
-complete command. Future scored GPU functions receive no secret, block external
+complete command. Scored GPU functions receive no secret, block external
 networking, mount the prepopulated model cache read-only and do not mount the
-evaluator evidence Volume. They return a size-bounded, compressed,
-digest-verified result bundle. A separate trusted restricted function persists
-that bundle to the evaluator Volume after the candidate server exits.
+durable evaluator evidence Volume. The initial correction returned a bounded,
+compressed result bundle to a separate trusted persistence function. The
+2026-08-29 staging correction below supersedes that large-result transport
+without weakening the other controls.
 
 This correction changes the campaign and evaluator-script digests. Historical
 calibration results remain development evidence for the earlier build and are
@@ -254,6 +255,46 @@ The evidence root is
 took 258.352 seconds, the one-case evaluation took 104 milliseconds and total
 function-body time was 263.223 seconds. This is development conformance
 evidence, not a scored result or registered-study qualification.
+
+## 2026-08-29: durable dispatch and large-evidence correction
+
+The first full dispatch through the durable compute backend used run
+`modal-development-reference-v2-20260829` and function call
+`fc-01M16CY51E42D19PC499WQE15H`. The transport recorded the external call but
+the enclosing ephemeral Modal app was not detached, so Modal stopped the child
+before useful work. The terminal `RemoteError` is retained and reconciled as an
+invalid infrastructure run. Because no authoritative runtime receipt exists,
+accounting conservatively charges the full 1,800-second reservation. No score
+was admitted.
+
+Transport profile v0alpha3 adds Modal's `--detach` lifecycle and binds that
+choice into the profile digest. It also admits a tightly validated terminal
+infrastructure-failure document without requiring success-only durable scoring
+evidence. Run `modal-development-reference-v3-20260829`, function call
+`fc-01M16D6BX3E2KQMA4ZJJ3563GP`, then remained live through model startup and
+the complete benchmark. At result serialization, Modal attempted a large-object
+blob upload from the restricted function and correctly returned HTTP 401. App
+`ap-qu5Df0UzYGBWY8zegDMcfz` retains the exact traceback. This run is also
+terminal, invalid and unscored.
+
+Large scored results no longer use the function-result channel. The evaluator
+dynamically mounts only a unique subpath of
+`agent-collab-evals-evaluator-staging-v2`. The candidate process is stopped
+before evaluator code writes and syncs the evidence directory. The restricted
+function returns a small pointer; a trusted collector resolves and verifies
+every staged digest, then invokes the separate trusted durable-persistence
+function. Other staging subpaths and the durable evidence Volume are never
+visible to the scored function.
+
+A CPU-only 4 MiB conformance passed in app
+`ap-A2jD68SKFucWANRN7hi3y5`. Durable evidence root
+`preflight-staging/85f43096b76e4257bd704f8fe526420c` binds remote receipt
+`sha256:e76e143a6398ce421b5a6cb6a0616178fd158ef8b9e1f341ad7700ea255b08b1`
+and raw artifact
+`sha256:a3ebc8b7ababa2914d3336cde5434f5cbe404f8e865cb6a7ce5cd384c6f4ab99`.
+An earlier probe, `ap-AJ4zhGy6uvUMDkCG4UJ5CW`, exposed a transient Volume
+visibility delay after sync; collection now applies a bounded 30-second
+visibility barrier. These are development transport results, not model scores.
 
 ## 2026-08-17: valid non-reference sensitivity series
 
