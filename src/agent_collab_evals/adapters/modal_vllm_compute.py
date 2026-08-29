@@ -176,13 +176,14 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha2",
+                "adapter": "modal-vllm-cli-transport/v0alpha3",
                 "compute_profile_digest": compute_profile_digest,
                 "modal_cli": str(modal_cli.resolve()),
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
+                "app_lifecycle": "detached_until_function_call_terminal",
             }
         )
 
@@ -354,6 +355,7 @@ class ModalVllmCliTransport:
         command = [
             str(self._modal_cli),
             "run",
+            "--detach",
             "-e",
             self._profile.modal_environment,
             str(self._profile.modal_script),
@@ -498,7 +500,50 @@ class ModalVllmEvidenceResolver:
         }
         if any(normalized.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal normalized evidence identity differs")
+        valid = normalized.get("valid") is True
+        dispatch = self._dispatch_record(measurement_id)
+        platform_build = normalized.get("platform_build")
+        if (
+            not isinstance(platform_build, dict)
+            or platform_build.get("git_commit") != dispatch.get("git_commit")
+            or platform_build.get("modal_client_version")
+            != self._profile.modal_client_version
+        ):
+            raise RuntimeError("Modal platform build evidence differs")
         durable_evidence = normalized.get("durable_evidence")
+        if valid:
+            self._validate_durable_evidence(normalized, durable_evidence)
+        elif (
+            not isinstance(normalized.get("failure"), dict)
+            or normalized.get("performance_score") is not None
+        ):
+            raise RuntimeError("Modal terminal failure evidence is invalid")
+        status = (
+            ComputeExecutionStatus.COMPLETE
+            if valid
+            else ComputeExecutionStatus.FAILED
+        )
+        used_seconds = _used_seconds(normalized, request.maximum_seconds)
+        failure = None if valid else _failure(normalized)
+        document = {
+            "schema_version": "compute-execution-evidence/v0alpha1",
+            "request_digest": request.request_digest,
+            "candidate_digest": request.candidate_digest,
+            "candidate_manifest_digest": request.candidate_manifest_digest,
+            "evaluator_profile_digest": request.evaluator_profile_digest,
+            "transport_profile_digest": self._transport_profile_digest,
+            "evidence_profile_digest": self.profile_digest,
+            "external_call_id": external_call_id,
+            "status": status.value,
+            "used_seconds": used_seconds,
+            "failure": failure,
+            "result": normalized,
+        }
+        return canonical_json_bytes(document), status, used_seconds, failure
+
+    def _validate_durable_evidence(
+        self, normalized: Mapping[str, Any], durable_evidence: object
+    ) -> None:
         if not isinstance(durable_evidence, dict):
             raise RuntimeError("Modal durable evidence identity is invalid")
         normalized_digest = durable_evidence.get("normalized_digest")
@@ -525,29 +570,6 @@ class ModalVllmEvidenceResolver:
         )
         if digest_bytes(normalized_bytes) != normalized_digest:
             raise RuntimeError("Modal durable normalized evidence digest differs")
-        valid = normalized.get("valid") is True
-        status = (
-            ComputeExecutionStatus.COMPLETE
-            if valid
-            else ComputeExecutionStatus.FAILED
-        )
-        used_seconds = _used_seconds(normalized, request.maximum_seconds)
-        failure = None if valid else _failure(normalized)
-        document = {
-            "schema_version": "compute-execution-evidence/v0alpha1",
-            "request_digest": request.request_digest,
-            "candidate_digest": request.candidate_digest,
-            "candidate_manifest_digest": request.candidate_manifest_digest,
-            "evaluator_profile_digest": request.evaluator_profile_digest,
-            "transport_profile_digest": self._transport_profile_digest,
-            "evidence_profile_digest": self.profile_digest,
-            "external_call_id": external_call_id,
-            "status": status.value,
-            "used_seconds": used_seconds,
-            "failure": failure,
-            "result": normalized,
-        }
-        return canonical_json_bytes(document), status, used_seconds, failure
 
     def _dispatch_record(self, measurement_id: str) -> Mapping[str, Any]:
         path = (

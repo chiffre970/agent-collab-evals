@@ -120,6 +120,15 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertNotIn("OPENROUTER_API_KEY", environment)
         self.assertNotIn("HF_TOKEN", environment)
 
+    def test_transport_detaches_the_app_around_the_spawned_function(self) -> None:
+        command = self.transport._command(
+            self.state_root / "candidate.json",
+            "measurement",
+            dispatch_only=True,
+        )
+        self.assertEqual(command[1:5], ("run", "--detach", "-e", "dev"))
+        self.assertIn("--dispatch-only", command)
+
     def test_transport_rejects_dispatch_without_spend_authorization(self) -> None:
         root = self.state_root / "unauthorized"
         manifest = FrozenComputeRunManifest.load_or_create(
@@ -178,6 +187,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
                         "repetition": 1,
                         "attempt": 1,
                         "function_call_id": function_call_id,
+                        "git_commit": "f" * 40,
                     }
                 ),
                 encoding="utf-8",
@@ -206,6 +216,10 @@ class ModalComputeAdapterTests(unittest.TestCase):
             "performance_score": {
                 "eligible": True,
                 "scalar_ppm": 1_002_000,
+            },
+            "platform_build": {
+                "git_commit": "f" * 40,
+                "modal_client_version": self.profile.modal_client_version,
             },
             "durable_evidence": {
                 "volume_name": self.profile.evidence_volume,
@@ -242,6 +256,70 @@ class ModalComputeAdapterTests(unittest.TestCase):
         path.write_text(json.dumps(changed), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "script digest differs"):
             ModalVllmComputeProfile.load(path, repository_root=REPOSITORY_ROOT)
+
+    def test_terminal_remote_failure_is_reconcilable_without_scored_evidence(
+        self,
+    ) -> None:
+        measurement_id = _measurement_id(self.request)
+        function_call_id = "fc-terminal-failure"
+        dispatch_path = (
+            self.state_root
+            / "measurements/.dispatch"
+            / measurement_id
+            / "repetition-0001-attempt-01.json"
+        )
+        dispatch_path.parent.mkdir(parents=True)
+        dispatch_path.write_text(
+            json.dumps(
+                {
+                    "measurement_id": measurement_id,
+                    "campaign_manifest_digest": self.campaign.manifest_digest,
+                    "candidate_manifest_digest": (
+                        self.request.candidate_manifest_digest
+                    ),
+                    "repetition": 1,
+                    "attempt": 1,
+                    "function_call_id": function_call_id,
+                    "git_commit": "f" * 40,
+                }
+            ),
+            encoding="utf-8",
+        )
+        failure = {
+            "campaign_manifest_digest": self.campaign.manifest_digest,
+            "candidate_manifest_digest": self.request.candidate_manifest_digest,
+            "modal_function_call_id": function_call_id,
+            "repetition": 1,
+            "attempt": 1,
+            "valid": False,
+            "failure": {
+                "stage": "remote_invocation",
+                "type": "RemoteError",
+                "message": "app stopped",
+            },
+            "platform_build": {
+                "git_commit": "f" * 40,
+                "modal_client_version": self.profile.modal_client_version,
+            },
+            "remote_receipt": None,
+            "performance_score": None,
+        }
+        LocalMeasurementBundleStore(self.state_root / "measurements").save(
+            measurement_id,
+            1,
+            failure,
+            {},
+        )
+
+        pointer, status, used_seconds, message = self.resolver.pointer(
+            self.request, function_call_id
+        )
+
+        self.assertEqual(status, ComputeExecutionStatus.FAILED)
+        self.assertEqual(used_seconds, self.request.maximum_seconds)
+        self.assertIn("RemoteError", message or "")
+        repeated = self.resolver.pointer(self.request, function_call_id)
+        self.assertEqual(repeated[0], pointer)
 
     def test_observed_compute_overrun_is_not_clamped(self) -> None:
         normalized = {"remote_receipt": {"timing": {"function_body_ms": 120_001}}}
