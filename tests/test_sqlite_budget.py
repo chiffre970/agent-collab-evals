@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
@@ -221,7 +222,7 @@ class SqliteBudgetAccountTests(unittest.TestCase):
             with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
                 database = Path(directory) / "budget.sqlite3"
                 account = self._settled_account(database)
-                with sqlite3.connect(database) as connection:
+                with closing(sqlite3.connect(database)) as connection:
                     if ";" in statement:
                         connection.executescript(statement)
                     else:
@@ -237,7 +238,7 @@ class SqliteBudgetAccountTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "budget.sqlite3"
             account = self._settled_account(database)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 row = connection.execute(
                     "SELECT usage_json FROM budget_reservations"
                 ).fetchone()
@@ -264,7 +265,7 @@ class SqliteBudgetAccountTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "budget.sqlite3"
             account = self._settled_account(database)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 row = connection.execute(
                     "SELECT sequence, details_json FROM budget_audit "
                     "WHERE kind = 'reservation.settled'"
@@ -292,7 +293,7 @@ class SqliteBudgetAccountTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "budget.sqlite3"
             account = self._settled_account(database)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.execute(
                     "UPDATE budget_actors SET limit_usd_nanos = 200000"
                 )
@@ -317,7 +318,7 @@ class SqliteBudgetAccountTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "budget.sqlite3"
             account = self._settled_account(database)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection:
                 connection.row_factory = sqlite3.Row
                 row = connection.execute(
                     "SELECT * FROM budget_reservations"

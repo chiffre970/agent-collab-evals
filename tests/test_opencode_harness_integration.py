@@ -11,6 +11,9 @@ from pathlib import Path
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.local_snapshots import LocalCampaignSnapshotStore
+from agent_collab_evals.adapters.no_compute_reconciliation import (
+    NoComputeExecutionReconciler,
+)
 from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
 from agent_collab_evals.adapters.sqlite_collaboration import (
     SqliteCollaborationBackend,
@@ -52,6 +55,12 @@ SANDBOX_PROFILE_PATH = (
 
 def _sandbox() -> DarwinSandboxExec:
     return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
+
+
+def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconciler:
+    return NoComputeExecutionReconciler.from_frozen_manifest(
+        root / f"{campaign_run_id}-compute-run.json", campaign_run_id
+    )
 
 
 class _GatewayHandler(BaseHTTPRequestHandler):
@@ -304,7 +313,10 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     timeout_seconds=30,
                 )
                 first_controller = CampaignController(
-                    first_runtime, event_sink, NoModelBudgetReconciler()
+                    first_runtime,
+                    event_sink,
+                    NoModelBudgetReconciler(),
+                    _no_compute(root, "opencode-integration"),
                 )
                 handle = first_controller.start(spec)
                 first_controller.deliver(
@@ -328,7 +340,10 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     timeout_seconds=30,
                 )
                 second_controller = CampaignController(
-                    second_runtime, event_sink, NoModelBudgetReconciler()
+                    second_runtime,
+                    event_sink,
+                    NoModelBudgetReconciler(),
+                    _no_compute(root, "opencode-integration"),
                 )
                 resumed = second_controller.resume(store.load("opencode-integration"))
                 second_controller.deliver(
@@ -413,6 +428,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     runtime,
                     LocalEventSink(root / "events"),
                     NoModelBudgetReconciler(),
+                    _no_compute(root, "opencode-peer-integration"),
                 )
                 handle = controller.start(spec)
                 controller.deliver(
@@ -501,10 +517,11 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     peer_gateway=peer_gateway,
                     timeout_seconds=30,
                 )
-                controller = CampaignController(
+                private_controller = CampaignController(
                     first_runtime,
                     LocalEventSink(root / "events"),
                     NoModelBudgetReconciler(),
+                    _no_compute(root, "matched-peer-private"),
                 )
                 private_spec = OrganisationSpec(
                     campaign_run_id="matched-peer-private",
@@ -513,8 +530,8 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     workspace_root=root / "private-workspaces",
                     model_endpoint=endpoint,
                 )
-                private_handle = controller.start(private_spec)
-                controller.deliver(
+                private_handle = private_controller.start(private_spec)
+                private_controller.deliver(
                     private_handle,
                     Job(
                         "private-job",
@@ -526,7 +543,14 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                 private_snapshot = first_runtime.snapshot(
                     private_handle.organisation
                 )
-                controller.close(private_handle, "private-complete")
+                private_controller.close(private_handle, "private-complete")
+
+                shared_controller = CampaignController(
+                    first_runtime,
+                    LocalEventSink(root / "events"),
+                    NoModelBudgetReconciler(),
+                    _no_compute(root, "matched-peer-shared"),
+                )
 
                 shared_spec = OrganisationSpec(
                     campaign_run_id="matched-peer-shared",
@@ -535,8 +559,8 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     workspace_root=root / "shared-workspaces",
                     model_endpoint=endpoint,
                 )
-                shared_handle = controller.start(shared_spec)
-                controller.deliver(
+                shared_handle = shared_controller.start(shared_spec)
+                shared_controller.deliver(
                     shared_handle,
                     Job(
                         "shared-job-1",
@@ -545,7 +569,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                         {},
                     ),
                 )
-                shared_campaign_snapshot = controller.snapshot(shared_handle)
+                shared_campaign_snapshot = shared_controller.snapshot(shared_handle)
                 first_runtime.suspend(shared_handle.organisation)
 
                 second_runtime = OpenCodeHarnessRuntime(
@@ -561,6 +585,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     second_runtime,
                     LocalEventSink(root / "events-resumed"),
                     NoModelBudgetReconciler(),
+                    _no_compute(root, "matched-peer-shared"),
                 )
                 resumed = resumed_controller.resume(shared_campaign_snapshot)
                 resumed_controller.deliver(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.metadata
 import io
@@ -15,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -28,6 +30,10 @@ IMAGE_REF = "nvidia/cuda:12.9.0-devel-ubuntu22.04"
 IMAGE_DIGEST = "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092"
 PINNED_IMAGE_REF = f"nvidia/cuda@{IMAGE_DIGEST}"
 DEPENDENCY_LOCK = "vllm==0.21.0"
+MODEL_ID = "Qwen/Qwen3-4B"
+MODEL_REVISION = "1cfa9a7208912126459214e8b04321603b3df60c"
+SERVED_MODEL_NAME = "target-model"
+SERVER_PORT = 8000
 
 HF_CACHE_PATH = "/cache/huggingface"
 VLLM_CACHE_PATH = "/cache/vllm"
@@ -38,6 +44,8 @@ BENCHMARK_RESULT_ROOT = Path("/tmp/reference-benchmark")
 EVIDENCE_VOLUME_NAME = "agent-collab-evals-evaluator-evidence-v2"
 EVIDENCE_MOUNT_PATH = Path("/evaluator-evidence")
 _HEX = set("0123456789abcdef")
+MAX_INLINE_EVIDENCE_BYTES = 512 * 1024
+MAX_UNCOMPRESSED_EVIDENCE_BYTES = 16 * 1024 * 1024
 
 app = modal.App(APP_NAME)
 reference_image = (
@@ -65,6 +73,138 @@ evidence_volume = modal.Volume.from_name(
 huggingface_secret = modal.Secret.from_name(
     "huggingface-secret", required_keys=["HF_TOKEN"]
 )
+
+
+def _server_command(candidate: dict[str, Any]) -> tuple[str, ...]:
+    """Build argv from typed vLLM settings; candidates never supply code."""
+
+    if candidate.get("schema_version") != "model-serving-candidate/v0alpha2":
+        raise ValueError("candidate schema is invalid")
+    if candidate.get("model") != {"id": MODEL_ID, "revision": MODEL_REVISION}:
+        raise ValueError("candidate model identity differs")
+    server = candidate.get("server")
+    if not isinstance(server, dict) or set(server) != {
+        "engine",
+        "engine_version",
+        "engine_args",
+        "port",
+        "health_path",
+        "chat_path",
+        "served_model_name",
+        "generation_config",
+    }:
+        raise ValueError("candidate server fields differ")
+    expected_server = {
+        "engine": "vllm",
+        "engine_version": "0.21.0",
+        "port": SERVER_PORT,
+        "health_path": "/health",
+        "chat_path": "/v1/chat/completions",
+        "served_model_name": SERVED_MODEL_NAME,
+        "generation_config": "vllm",
+    }
+    if any(server.get(key) != value for key, value in expected_server.items()):
+        raise ValueError("candidate server identity differs")
+    settings = server.get("engine_args")
+    if not isinstance(settings, dict) or set(settings) != {
+        "dtype",
+        "max_model_len",
+        "gpu_memory_utilization_ppm",
+        "stream_interval",
+        "max_num_seqs",
+        "max_num_batched_tokens",
+        "enforce_eager",
+        "disable_log_stats",
+    }:
+        raise ValueError("candidate vLLM setting fields differ")
+    if settings["dtype"] != "bfloat16":
+        raise ValueError("candidate dtype differs")
+    _bounded_integer(settings, "max_model_len", 4096, 32768)
+    utilization = _bounded_integer(
+        settings, "gpu_memory_utilization_ppm", 100_000, 950_000
+    )
+    _bounded_integer(settings, "stream_interval", 1, 100)
+    for key, minimum, maximum in (
+        ("max_num_seqs", 1, 1024),
+        ("max_num_batched_tokens", 1024, 131072),
+    ):
+        if settings[key] is not None:
+            _bounded_integer(settings, key, minimum, maximum)
+    if type(settings["enforce_eager"]) is not bool:
+        raise ValueError("candidate enforce_eager must be boolean")
+    if settings["disable_log_stats"] is not True:
+        raise ValueError("candidate must disable vLLM log statistics")
+
+    command = [
+        "vllm",
+        "serve",
+        MODEL_ID,
+        "--revision",
+        MODEL_REVISION,
+        "--served-model-name",
+        SERVED_MODEL_NAME,
+        "--generation-config",
+        "vllm",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(SERVER_PORT),
+        "--dtype",
+        str(settings["dtype"]),
+        "--max-model-len",
+        str(settings["max_model_len"]),
+        "--gpu-memory-utilization",
+        _ppm_ratio(utilization),
+        "--stream-interval",
+        str(settings["stream_interval"]),
+    ]
+    for key, flag in (
+        ("max_num_seqs", "--max-num-seqs"),
+        ("max_num_batched_tokens", "--max-num-batched-tokens"),
+    ):
+        if settings[key] is not None:
+            command.extend((flag, str(settings[key])))
+    if settings["enforce_eager"]:
+        command.append("--enforce-eager")
+    command.append("--disable-log-stats")
+    return tuple(command)
+
+
+def _bounded_integer(
+    values: dict[str, Any], key: str, minimum: int, maximum: int
+) -> int:
+    value = values[key]
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise ValueError(f"candidate {key} is out of range")
+    return value
+
+
+def _ppm_ratio(value: int) -> str:
+    whole, fraction = divmod(value, 1_000_000)
+    return f"{whole}.{fraction:06d}".rstrip("0").rstrip(".")
+
+
+def _server_environment(*, offline: bool = False) -> dict[str, str]:
+    allowed = {
+        "PATH",
+        "LD_LIBRARY_PATH",
+        "CUDA_VISIBLE_DEVICES",
+        "NVIDIA_VISIBLE_DEVICES",
+        "NVIDIA_DRIVER_CAPABILITIES",
+        "HOME",
+        "TMPDIR",
+        "HF_HOME",
+        "HUGGINGFACE_HUB_CACHE",
+        "VLLM_CACHE_ROOT",
+        "VLLM_NO_USAGE_STATS",
+    }
+    environment = {
+        key: value for key, value in os.environ.items() if key in allowed
+    }
+    if offline:
+        environment["HF_HUB_OFFLINE"] = "1"
+        environment["TRANSFORMERS_OFFLINE"] = "1"
+    return environment
 
 
 def _read_log_tail(limit: int = 8000) -> str:
@@ -610,7 +750,7 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
     model = candidate["model"]
     server_port = int(server["port"])
     served_model_name = str(server["served_model_name"])
-    server_command = tuple(str(part) for part in server["entrypoint"])
+    server_command = _server_command(candidate)
     installed_vllm = importlib.metadata.version("vllm")
     if installed_vllm != server["engine_version"]:
         raise RuntimeError("installed vLLM does not match the candidate manifest")
@@ -619,6 +759,7 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
     with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
         process = subprocess.Popen(
             server_command,
+            env=_server_environment(),
             stdout=server_log,
             stderr=subprocess.STDOUT,
             text=True,
@@ -647,12 +788,12 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
 
 @app.function(
     image=reference_image,
-    secrets=[huggingface_secret],
-    volumes={HF_CACHE_PATH: model_cache, EVIDENCE_MOUNT_PATH: evidence_volume},
+    volumes={HF_CACHE_PATH: model_cache.with_mount_options(read_only=True)},
     gpu="L4",
     max_containers=1,
     min_containers=0,
     retries=0,
+    block_network=True,
     restrict_modal_access=True,
     single_use_containers=True,
     timeout=FUNCTION_TIMEOUT_SECONDS,
@@ -667,7 +808,7 @@ def benchmark_serving_repetition(
     model = candidate["model"]
     server_port = int(server["port"])
     served_model_name = str(server["served_model_name"])
-    server_command = tuple(str(part) for part in server["entrypoint"])
+    server_command = _server_command(candidate)
     installed_vllm = importlib.metadata.version("vllm")
     if installed_vllm != server["engine_version"]:
         raise RuntimeError("installed vLLM does not match the candidate manifest")
@@ -678,6 +819,7 @@ def benchmark_serving_repetition(
     with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
         process = subprocess.Popen(
             server_command,
+            env=_server_environment(offline=True),
             stdout=server_log,
             stderr=subprocess.STDOUT,
             text=True,
@@ -733,20 +875,17 @@ def benchmark_serving_repetition(
         "canary_after": canary_after,
         "point_receipts": point_receipts,
     }
-    evidence = _persist_remote_evidence(
-        benchmark_spec["evidence_root"], remote_receipt, raw_results
-    )
-    return _evidence_pointer(evidence)
+    return _encode_evidence_bundle(remote_receipt, raw_results)
 
 
 @app.function(
     image=reference_image,
-    secrets=[huggingface_secret],
-    volumes={HF_CACHE_PATH: model_cache, EVIDENCE_MOUNT_PATH: evidence_volume},
+    volumes={HF_CACHE_PATH: model_cache.with_mount_options(read_only=True)},
     gpu="L4",
     max_containers=1,
     min_containers=0,
     retries=0,
+    block_network=True,
     restrict_modal_access=True,
     single_use_containers=True,
     timeout=FUNCTION_TIMEOUT_SECONDS,
@@ -763,7 +902,7 @@ def quality_serving_repetition(
     served_model_name = str(server["served_model_name"])
     if any(value["body"]["model"] != served_model_name for value in requests):
         raise ValueError("quality request changes the served model name")
-    server_command = tuple(str(part) for part in server["entrypoint"])
+    server_command = _server_command(candidate)
     installed_vllm = importlib.metadata.version("vllm")
     if installed_vllm != server["engine_version"]:
         raise RuntimeError("installed vLLM does not match the candidate manifest")
@@ -774,6 +913,7 @@ def quality_serving_repetition(
     with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
         process = subprocess.Popen(
             server_command,
+            env=_server_environment(offline=True),
             stdout=server_log,
             stderr=subprocess.STDOUT,
             text=True,
@@ -833,8 +973,26 @@ def quality_serving_repetition(
         "canary_after": canary_after,
         "case_receipts": case_receipts,
     }
+    return _encode_evidence_bundle(remote_receipt, raw_results)
+
+
+@app.function(
+    image=modal.Image.debian_slim(),
+    volumes={EVIDENCE_MOUNT_PATH: evidence_volume},
+    retries=0,
+    block_network=True,
+    restrict_modal_access=True,
+    single_use_containers=True,
+    timeout=120,
+)
+def persist_evaluator_evidence(
+    evidence_root: str, bundle: dict[str, Any]
+) -> dict[str, str]:
+    """Persist evaluator output in a function that never runs the candidate."""
+
+    remote_receipt, raw_results = _decode_evidence_bundle(bundle)
     evidence = _persist_remote_evidence(
-        quality_spec["evidence_root"], remote_receipt, raw_results
+        evidence_root, remote_receipt, raw_results
     )
     return _evidence_pointer(evidence)
 
@@ -843,6 +1001,7 @@ def quality_serving_repetition(
     image=modal.Image.debian_slim(),
     volumes={EVIDENCE_MOUNT_PATH: evidence_volume},
     retries=0,
+    block_network=True,
     restrict_modal_access=True,
     single_use_containers=True,
     timeout=120,
@@ -877,32 +1036,47 @@ def _persist_remote_evidence(
 ) -> dict[str, Any]:
     """Commit raw evidence to the evaluator Volume before returning metadata."""
 
+    _validate_evidence_root(evidence_root)
+    raw_digests: dict[str, str] = {}
+    for filename, content in sorted(raw_results.items()):
+        if Path(filename).name != filename or not filename.endswith(".json"):
+            raise RuntimeError("invalid raw evidence filename")
+        raw_digests[filename] = f"sha256:{hashlib.sha256(content).hexdigest()}"
+    receipt_bytes = _stable_json_bytes(remote_receipt)
+    receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
+    manifest = {
+        "schema_version": "modal-evaluator-evidence/v0alpha1",
+        "volume_name": EVIDENCE_VOLUME_NAME,
+        "root": evidence_root,
+        "remote_receipt_digest": receipt_digest,
+        "raw_digests": raw_digests,
+    }
     destination = EVIDENCE_MOUNT_PATH.joinpath(*PurePosixPath(evidence_root).parts)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        raise RuntimeError("evaluator evidence destination already exists")
+        _verify_persisted_evidence(
+            destination, manifest, receipt_bytes, raw_results
+        )
+        return manifest
     staging = destination.parent / f".{destination.name}.staging-{uuid.uuid4().hex}"
     raw_root = staging / "raw"
     raw_root.mkdir(parents=True)
     try:
-        raw_digests: dict[str, str] = {}
         for filename, content in sorted(raw_results.items()):
-            if Path(filename).name != filename or not filename.endswith(".json"):
-                raise RuntimeError("invalid raw evidence filename")
-            raw_digests[filename] = f"sha256:{hashlib.sha256(content).hexdigest()}"
             _write_remote_file(raw_root / filename, content)
-        receipt_bytes = _stable_json_bytes(remote_receipt)
-        receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
         _write_remote_file(staging / "remote-receipt.json", receipt_bytes)
-        manifest = {
-            "schema_version": "modal-evaluator-evidence/v0alpha1",
-            "volume_name": EVIDENCE_VOLUME_NAME,
-            "root": evidence_root,
-            "remote_receipt_digest": receipt_digest,
-            "raw_digests": raw_digests,
-        }
         _write_remote_file(staging / "manifest.json", _stable_json_bytes(manifest))
-        os.replace(staging, destination)
+        try:
+            os.replace(staging, destination)
+        except OSError:
+            if not destination.exists():
+                raise
+            _verify_persisted_evidence(
+                destination, manifest, receipt_bytes, raw_results
+            )
+            import shutil
+
+            shutil.rmtree(staging, ignore_errors=True)
         subprocess.run(
             ["sync", str(EVIDENCE_MOUNT_PATH)],
             stdin=subprocess.DEVNULL,
@@ -921,6 +1095,29 @@ def _persist_remote_evidence(
     return manifest
 
 
+def _verify_persisted_evidence(
+    destination: Path,
+    manifest: dict[str, Any],
+    receipt_bytes: bytes,
+    raw_results: dict[str, bytes],
+) -> None:
+    expected_files = {
+        "manifest.json": _stable_json_bytes(manifest),
+        "remote-receipt.json": receipt_bytes,
+        **{f"raw/{name}": content for name, content in raw_results.items()},
+    }
+    actual_paths = {
+        str(path.relative_to(destination))
+        for path in destination.rglob("*")
+        if path.is_file()
+    }
+    if actual_paths != set(expected_files) or any(
+        (destination / name).read_bytes() != content
+        for name, content in expected_files.items()
+    ):
+        raise RuntimeError("evaluator evidence destination already differs")
+
+
 def _write_remote_file(path: Path, content: bytes) -> None:
     with path.open("xb") as target:
         target.write(content)
@@ -937,12 +1134,117 @@ def _stable_json_bytes(value: Any) -> bytes:
     ).encode("utf-8") + b"\n"
 
 
+def _encode_evidence_bundle(
+    remote_receipt: dict[str, Any], raw_results: dict[str, bytes]
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": "modal-evaluator-inline-evidence/v0alpha1",
+        "remote_receipt": remote_receipt,
+        "raw_results_base64": {
+            name: base64.b64encode(content).decode("ascii")
+            for name, content in sorted(raw_results.items())
+        },
+    }
+    uncompressed = _stable_json_bytes(payload)
+    if len(uncompressed) > MAX_UNCOMPRESSED_EVIDENCE_BYTES:
+        raise RuntimeError("evaluator evidence exceeds the uncompressed limit")
+    compressed = zlib.compress(uncompressed, level=9)
+    if len(compressed) > MAX_INLINE_EVIDENCE_BYTES:
+        raise RuntimeError("compressed evaluator evidence exceeds the inline limit")
+    return {
+        "schema_version": "modal-evaluator-inline-bundle/v0alpha1",
+        "compression": "zlib",
+        "compressed": compressed,
+        "compressed_digest": f"sha256:{hashlib.sha256(compressed).hexdigest()}",
+        "uncompressed_digest": (
+            f"sha256:{hashlib.sha256(uncompressed).hexdigest()}"
+        ),
+    }
+
+
+def _decode_evidence_bundle(
+    bundle: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    if not isinstance(bundle, dict) or set(bundle) != {
+        "schema_version",
+        "compression",
+        "compressed",
+        "compressed_digest",
+        "uncompressed_digest",
+    }:
+        raise RuntimeError("inline evaluator evidence fields differ")
+    compressed = bundle["compressed"]
+    if (
+        bundle["schema_version"] != "modal-evaluator-inline-bundle/v0alpha1"
+        or bundle["compression"] != "zlib"
+        or not isinstance(compressed, bytes)
+        or len(compressed) > MAX_INLINE_EVIDENCE_BYTES
+        or bundle["compressed_digest"]
+        != f"sha256:{hashlib.sha256(compressed).hexdigest()}"
+    ):
+        raise RuntimeError("inline evaluator evidence identity differs")
+    decompressor = zlib.decompressobj()
+    uncompressed = decompressor.decompress(
+        compressed, MAX_UNCOMPRESSED_EVIDENCE_BYTES + 1
+    )
+    if (
+        len(uncompressed) > MAX_UNCOMPRESSED_EVIDENCE_BYTES
+        or decompressor.unconsumed_tail
+        or decompressor.unused_data
+        or not decompressor.eof
+        or bundle["uncompressed_digest"]
+        != f"sha256:{hashlib.sha256(uncompressed).hexdigest()}"
+    ):
+        raise RuntimeError("inline evaluator evidence bytes differ")
+    try:
+        payload = json.loads(uncompressed)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("inline evaluator evidence is invalid") from error
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version",
+        "remote_receipt",
+        "raw_results_base64",
+    }:
+        raise RuntimeError("inline evaluator evidence payload fields differ")
+    if (
+        payload["schema_version"]
+        != "modal-evaluator-inline-evidence/v0alpha1"
+        or not isinstance(payload["remote_receipt"], dict)
+        or not isinstance(payload["raw_results_base64"], dict)
+    ):
+        raise RuntimeError("inline evaluator evidence payload is invalid")
+    raw_results: dict[str, bytes] = {}
+    for name, encoded in payload["raw_results_base64"].items():
+        if (
+            not isinstance(name, str)
+            or Path(name).name != name
+            or not name.endswith(".json")
+            or not isinstance(encoded, str)
+        ):
+            raise RuntimeError("inline raw evaluator evidence identity is invalid")
+        try:
+            raw_results[name] = base64.b64decode(encoded, validate=True)
+        except ValueError as error:
+            raise RuntimeError("inline raw evaluator evidence is invalid") from error
+    return payload["remote_receipt"], raw_results
+
+
 def _evidence_pointer(evidence: dict[str, Any]) -> dict[str, str]:
     return {
         "schema_version": "modal-evaluator-evidence-pointer/v0alpha1",
         "root": str(evidence["root"]),
         "remote_receipt_digest": str(evidence["remote_receipt_digest"]),
     }
+
+
+def _ensure_durable_evidence(
+    result: dict[str, Any], *, evidence_root: str
+) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        raise RuntimeError("remote evaluator result must be an object")
+    if result.get("schema_version") == "modal-evaluator-evidence-pointer/v0alpha1":
+        return result
+    return persist_evaluator_evidence.remote(evidence_root, result)
 
 
 def _collect_remote_evidence(
@@ -1045,6 +1347,8 @@ def main(
     output_path: str = "tmp/calibration/model-serving-reference-smoke.json",
     baseline: bool = False,
     quality: bool = False,
+    security_conformance: bool = False,
+    allow_gpu_spend: bool = False,
     candidate_path: str = "campaigns/model_serving_v0/reference/candidate.json",
     repetition: int = 1,
     attempt: int = 1,
@@ -1076,6 +1380,8 @@ def main(
         if (
             baseline
             or quality
+            or security_conformance
+            or allow_gpu_spend
             or dispatch_only
             or collect_only
             or collect_timeout_seconds
@@ -1091,8 +1397,27 @@ def main(
             raise RuntimeError("durable evaluator evidence probe differs")
         print(json.dumps({"ok": True, **result}, indent=2, sort_keys=True))
         return
-    if baseline and quality:
-        raise ValueError("--baseline and --quality are mutually exclusive")
+    if sum((baseline, quality, security_conformance)) > 1:
+        raise ValueError(
+            "--baseline, --quality and --security-conformance are mutually exclusive"
+        )
+    if security_conformance:
+        if not allow_gpu_spend:
+            raise ValueError(
+                "--security-conformance requires --allow-gpu-spend"
+            )
+        if dispatch_only or collect_only or collect_timeout_seconds or quality_role:
+            raise ValueError(
+                "--security-conformance cannot be combined with measurement flags"
+            )
+        _run_security_conformance(
+            candidate,
+            candidate_path=resolved_candidate_path,
+            output_path=Path(output_path),
+        )
+        return
+    if allow_gpu_spend:
+        raise ValueError("--allow-gpu-spend requires --security-conformance")
     if quality:
         _run_quality_repetition(
             candidate,
@@ -1147,6 +1472,95 @@ def main(
         raise
     print(rendered, end="")
     print(f"Receipt: {destination}")
+
+
+def _run_security_conformance(
+    candidate: dict[str, Any], *, candidate_path: Path, output_path: Path
+) -> None:
+    """Exercise the scored isolation and split-persistence boundary once."""
+
+    from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+
+    campaign = ModelServingCampaign.load(candidate_path.parent.parent / "campaign.toml")
+    descriptor = campaign.validate_candidate(candidate_path)
+    conformance_id = uuid.uuid4().hex
+    evidence_root = f"security-conformance/{conformance_id}"
+    quality_spec = _security_conformance_spec(
+        candidate, campaign.manifest_digest, conformance_id
+    )
+    bundle = quality_serving_repetition.remote(candidate, quality_spec)
+    pointer = _ensure_durable_evidence(bundle, evidence_root=evidence_root)
+    remote_receipt, raw_results, evidence = _collect_remote_evidence(
+        pointer, expected_root=evidence_root
+    )
+    if remote_receipt.get("ok") is not True or set(raw_results) != {
+        "security-conformance.json"
+    }:
+        raise RuntimeError("hardened Modal security conformance failed")
+    report = {
+        "schema_version": "modal-security-conformance/v0alpha1",
+        "ok": True,
+        "candidate_id": descriptor.candidate_id,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "evaluator_script_digest": "sha256:"
+        + hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "modal_client_version": importlib.metadata.version("modal"),
+        "evidence_root": evidence_root,
+        "remote_receipt_digest": evidence["remote_receipt_digest"],
+        "raw_digests": evidence["raw_digests"],
+        "controls": {
+            "external_network_blocked": True,
+            "model_cache_read_only": True,
+            "scored_function_has_secret": False,
+            "scored_function_has_evidence_mount": False,
+            "separate_evidence_persistence": True,
+        },
+        "timing": remote_receipt.get("timing"),
+        "environment": remote_receipt.get("environment"),
+    }
+    destination = output_path.resolve()
+    _write_json_atomic(destination, report, prefix=".security-conformance-")
+    print(json.dumps(report, indent=2, sort_keys=True))
+    print(f"Receipt: {destination}")
+
+
+def _security_conformance_spec(
+    candidate: dict[str, Any], campaign_manifest_digest: str, conformance_id: str
+) -> dict[str, Any]:
+    request = {
+        "case_id": "security-conformance",
+        "body": {
+            "model": candidate["server"]["served_model_name"],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Reply with the single word OK.",
+                }
+            ],
+            "seed": 1729,
+            "stream": False,
+            "temperature": 0,
+            "top_p": 1,
+            "top_k": 0,
+            "min_p": 0,
+            "max_tokens": 8,
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+    }
+    return {
+        "campaign_manifest_digest": campaign_manifest_digest,
+        "quality_profile_digest": "sha256:"
+        + hashlib.sha256(b"modal-security-conformance/v1").hexdigest(),
+        "quality_workload_digest": "sha256:"
+        + hashlib.sha256(_stable_json_bytes(request)).hexdigest(),
+        "repetition": 1,
+        "attempt": 1,
+        "evidence_root": f"security-conformance/{conformance_id}",
+        "max_concurrency": 1,
+        "request_timeout_seconds": 120,
+        "requests": [request],
+    }
 
 
 def _run_baseline_repetition(
@@ -1484,8 +1898,11 @@ def _run_baseline_repetition(
             f"serving measurement invocation failed; evidence: {destination}"
         ) from error
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
+    durable_pointer = _ensure_durable_evidence(
+        remote_result, evidence_root=evidence_root
+    )
     remote_result, raw_results, durable_evidence = _collect_remote_evidence(
-        remote_result,
+        durable_pointer,
         expected_root=evidence_root,
     )
     points: list[dict[str, Any]] = []
@@ -1906,8 +2323,11 @@ def _run_quality_repetition(
         destination = store.save(measurement_id, repetition, failure, {}, attempt=attempt)
         raise RuntimeError(f"quality invocation failed; evidence: {destination}") from remote_error
 
+    durable_pointer = _ensure_durable_evidence(
+        remote_result, evidence_root=evidence_root
+    )
     remote_result, raw_results, durable_evidence = _collect_remote_evidence(
-        remote_result, expected_root=evidence_root
+        durable_pointer, expected_root=evidence_root
     )
     expected_remote_identity = {
         "candidate_id": descriptor.candidate_id,

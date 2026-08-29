@@ -434,6 +434,54 @@ interface ComputeBroker:
 
 `ComputeBackend` knows how to operate a cloud GPU, local fake or replay target. It does not know the experimental condition, agent prompts or campaign outcome.
 
+The executable development adapter refines external execution into three
+narrow ports: durable `ComputeBackend` orchestration, a
+`ComputeExecutionTransport` that dispatches and polls one provider call, and a
+`ComputeEvidenceResolver` that independently resolves immutable result bytes.
+Every request has a stable key and digest. The backend commits `registered` and
+then `dispatching` before invoking the transport. A successful call advances to
+`dispatched`; collection alone may advance it to terminal `complete` or
+`failed`. A timeout leaves it `dispatched` and safely collectible.
+
+`FrozenComputeRunManifest` is the external execution authority. It canonically
+binds the campaign, exact request set, transport profile and backend profile.
+The file is created once, loaded against an expected digest and re-read before
+admission and reconciliation. Execution rows store its digest. At closure, the
+backend reconstructs requests from the manifest and requires the ledger key set
+to match exactly, so process restart does not require request replay.
+
+An exception after dispatch begins has an unknowable side-effect boundary, so
+the backend records `ambiguous` and never automatically dispatches that key
+again. Only a transport-specific, positively identified pre-acceptance
+rejection may become `failed` without an external call. Campaign reconciliation
+rejects `registered`, `dispatching`, `dispatched` and `ambiguous` executions and
+re-resolves every terminal evidence pointer. This policy favors invalidating a
+development run over risking duplicate GPU spend or counting unverifiable work.
+
+Collection, resolution and reconciliation also resolve the provider dispatch
+record separately from the execution ledger. They verify its external call ID
+and digest before trusting a terminal result. Observing another caller's
+`registered`, `dispatching` or `dispatched` execution is nonterminal; it never
+fails the candidate or its compute reservation. A caller may retry collection
+under the same idempotency key.
+
+The transport requires a single request-bound `ComputeSpendAuthorization`
+before dispatch. A separately profiled authorization service durably issues the
+authorization against explicit approval evidence and atomically consumes it
+before the provider call. Its ledger binds the frozen run-manifest digest,
+transport profile and exact request digest. Collection requires no new spend
+authority because it can only resolve the recorded external call. Campaign
+closure requires both budget and compute reconciliation gates. The no-compute
+adapter accepts only a frozen manifest that disables compute and declares no
+transport, backend or requests; it cannot be composed with a compute-enabled
+registered run.
+
+Observed function-body duration is retained uncapped. A value above the
+reservation invalidates reconciliation instead of being clamped to the limit.
+Function-body time is operational usage evidence, not an authoritative Modal
+billing receipt; scored cost reporting requires separate provider billing
+evidence.
+
 `ComputeJobRequest` names actor-owned admitted `ArtifactRef` inputs, a declared command and expected output paths. `ComputeBroker` derives actor and campaign from the session transport, obtains purpose-bound ownership authorization from `ArtifactService`, rejects quarantined inputs, stages the inputs as a read-only `ImmutableInputBundle`, then enforces command allowlists, exclusive leases, concurrency and the actor's fixed GPU-time quota. The backend returns declared output files to the broker; the broker stores them as new actor-owned artifacts and exposes their references in `ExecutionResult`. Infrastructure credentials remain behind the broker. An actor can observe only its own handles and terminal coarse status; it cannot inspect another actor's request, schedule, cache state or output. `running`, queue position and estimated-start fields are intentionally absent.
 
 In both peer conditions, each actor has the same fixed, non-transferable GPU-time

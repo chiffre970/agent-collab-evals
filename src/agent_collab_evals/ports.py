@@ -35,6 +35,14 @@ from .domain import (
     OrganisationSpec,
     SessionHandle,
 )
+from .compute_backend import (
+    ComputeEvidencePointer,
+    ComputeExecutionReceipt,
+    ComputeExecutionRequest,
+    ComputeSpendAuthorization,
+    ExternalDispatch,
+    TransportPoll,
+)
 from .evaluation import (
     CandidateReceipt,
     ComputeSnapshot,
@@ -320,15 +328,81 @@ class ComputeBroker(Protocol):
     def snapshot(self, campaign_run_id: str) -> ComputeSnapshot: ...
 
 
-class CandidateEvaluator(Protocol):
+class ComputeExecutionTransport(Protocol):
     @property
     def profile_digest(self) -> str: ...
 
-    @property
-    def visible_used_seconds(self) -> int: ...
+    def dispatch(
+        self, request: ComputeExecutionRequest, candidate: bytes
+    ) -> ExternalDispatch: ...
 
+    def poll(
+        self,
+        request: ComputeExecutionRequest,
+        external_call_id: str,
+        timeout_seconds: int,
+    ) -> TransportPoll: ...
+
+
+class ComputeSpendAuthorizationService(Protocol):
     @property
-    def hidden_used_seconds(self) -> int: ...
+    def profile_digest(self) -> str: ...
+
+    def issue(
+        self,
+        request: ComputeExecutionRequest,
+        transport_profile_digest: str,
+        approval_reference: str,
+    ) -> ComputeSpendAuthorization: ...
+
+    def consume(
+        self,
+        request: ComputeExecutionRequest,
+        transport_profile_digest: str,
+    ) -> ComputeSpendAuthorization: ...
+
+
+class ComputeEvidenceResolver(Protocol):
+    @property
+    def profile_digest(self) -> str: ...
+
+    def resolve_dispatch(
+        self, request: ComputeExecutionRequest, external_call_id: str
+    ) -> bytes: ...
+
+    def resolve(self, pointer: ComputeEvidencePointer) -> bytes: ...
+
+
+class ComputeBackend(Protocol):
+    @property
+    def profile_digest(self) -> str: ...
+
+    def submit(
+        self, request: ComputeExecutionRequest, candidate: bytes
+    ) -> ComputeExecutionReceipt: ...
+
+    def collect(
+        self, request: ComputeExecutionRequest, *, timeout_seconds: int
+    ) -> ComputeExecutionReceipt: ...
+
+    def resolve(
+        self, request: ComputeExecutionRequest
+    ) -> tuple[ComputeExecutionReceipt, Mapping[str, object]]: ...
+
+    def reconcile(
+        self, campaign_run_id: str
+    ) -> tuple[ComputeExecutionReceipt, ...]: ...
+
+
+class ComputeReconciliationGate(Protocol):
+    def reconcile(
+        self, campaign_run_id: str
+    ) -> tuple[ComputeExecutionReceipt, ...]: ...
+
+
+class CandidateEvaluator(Protocol):
+    @property
+    def profile_digest(self) -> str: ...
 
     def visible_evaluate(
         self,
@@ -351,6 +425,8 @@ class CandidateEvaluator(Protocol):
         reservation: EvaluationReservation | None,
         scope: EvaluationScope,
     ) -> EvaluationResult: ...
+
+    def used_seconds(self, receipt: EvaluationReceipt) -> int: ...
 
 
 class SubmissionRegistry(Protocol):

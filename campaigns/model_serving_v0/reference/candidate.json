@@ -1,5 +1,5 @@
 {
-  "schema_version": "model-serving-candidate/v0alpha1",
+  "schema_version": "model-serving-candidate/v0alpha2",
   "candidate_id": "stock-vllm-0.21.0",
   "model": {
     "id": "Qwen/Qwen3-4B",
@@ -17,28 +17,16 @@
   "server": {
     "engine": "vllm",
     "engine_version": "0.21.0",
-    "entrypoint": [
-      "vllm",
-      "serve",
-      "Qwen/Qwen3-4B",
-      "--revision",
-      "1cfa9a7208912126459214e8b04321603b3df60c",
-      "--served-model-name",
-      "target-model",
-      "--generation-config",
-      "vllm",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "8000",
-      "--dtype",
-      "bfloat16",
-      "--max-model-len",
-      "8192",
-      "--gpu-memory-utilization",
-      "0.9",
-      "--disable-log-stats"
-    ],
+    "engine_args": {
+      "dtype": "bfloat16",
+      "max_model_len": 8192,
+      "gpu_memory_utilization_ppm": 900000,
+      "stream_interval": 1,
+      "max_num_seqs": null,
+      "max_num_batched_tokens": null,
+      "enforce_eager": false,
+      "disable_log_stats": true
+    },
     "port": 8000,
     "health_path": "/health",
     "chat_path": "/v1/chat/completions",

@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 from agent_collab_evals.adapters.fake_serving_evaluator import (
@@ -21,6 +22,7 @@ from agent_collab_evals.evaluation import (
     ActorComputeAllocation,
     ComputePlan,
     EvaluationReceipt,
+    EvaluationInProgress,
     EvaluationScope,
     SelectionReceipt,
     SubmissionPolicy,
@@ -341,6 +343,36 @@ class CandidateLifecycleTests(unittest.TestCase):
         self.assertEqual(snapshot.hidden_reserved_seconds, 60)
         self.assertEqual(snapshot.hidden_used_seconds, 4)
 
+    def test_in_progress_evaluation_does_not_fail_candidate_reservation(self) -> None:
+        receipt = self.registry.submit(
+            self.transports[0],
+            self.job_id,
+            self.artifacts[0].ref,
+            "in-progress",
+        )
+        original = self.evaluator.visible_evaluate
+
+        def still_running(*args, **kwargs):  # type: ignore[no-untyped-def]
+            raise EvaluationInProgress("dispatch is still in progress")
+
+        self.evaluator.visible_evaluate = still_running  # type: ignore[method-assign]
+        try:
+            self.registry.evaluate_visible(receipt)
+        finally:
+            self.evaluator.visible_evaluate = original  # type: ignore[method-assign]
+
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
+            state = connection.execute(
+                "SELECT visible_evaluation_receipt, evaluation_failure "
+                "FROM candidates WHERE receipt_id = ?",
+                (receipt.value,),
+            ).fetchone()
+        self.assertEqual(state, (None, None))
+        snapshot = self.compute.snapshot(self.campaign_run_id)
+        self.assertEqual(snapshot.actor_reserved_seconds[self.actors[0].actor_id], 60)
+
+        self.registry.evaluate_visible(receipt)
+
     def test_hidden_evaluation_rejects_forged_or_tampered_selection(self) -> None:
         receipts = tuple(
             self.registry.submit(
@@ -360,7 +392,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             self.registry.evaluate_hidden(
                 SelectionReceipt("selection-" + "0" * 32), reserved_seconds=60
             )
-        with sqlite3.connect(self.root / "submissions.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
             connection.execute(
                 "UPDATE selections SET selection_json = replace("
                 "selection_json, ?, ?) WHERE selection_receipt = ?",
@@ -385,7 +417,7 @@ class CandidateLifecycleTests(unittest.TestCase):
         self.compute.cancel(
             reservation.reservation_id, "simulated interrupted admission"
         )
-        with sqlite3.connect(self.root / "submissions.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
             connection.execute(
                 "UPDATE candidates SET admission_status = 'provisional', "
                 "reservation_id = NULL WHERE receipt_id = ?",
@@ -449,7 +481,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             for call in calls:
                 call.result()
 
-        with sqlite3.connect(self.root / "evaluator.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "evaluator.sqlite3")) as connection:
             count = connection.execute(
                 "SELECT COUNT(*) FROM evaluation_receipts "
                 "WHERE evaluation_key = ?",
@@ -468,7 +500,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             "result-integrity",
         )
         self.registry.evaluate_visible(receipt)
-        with sqlite3.connect(self.root / "submissions.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
             connection.execute(
                 "UPDATE candidates SET visible_evaluation_receipt = ? "
                 "WHERE receipt_id = ?",
@@ -486,7 +518,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             "evaluator-integrity",
         )
         self.registry.evaluate_visible(receipt)
-        with sqlite3.connect(self.root / "evaluator.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "evaluator.sqlite3")) as connection:
             connection.execute(
                 "UPDATE evaluation_receipts SET result_json = ? "
                 "WHERE evaluation_key = ?",
@@ -523,7 +555,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             "tamper-check",
         )
         self.registry.evaluate_visible(receipt)
-        with sqlite3.connect(self.root / "compute.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "compute.sqlite3")) as connection:
             connection.execute(
                 "UPDATE compute_plans SET organisation_limit_seconds = 999"
             )
@@ -531,12 +563,12 @@ class CandidateLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "differs from its authority"):
             self.compute.snapshot(self.campaign_run_id)
 
-        with sqlite3.connect(self.root / "compute.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "compute.sqlite3")) as connection:
             connection.execute(
                 "UPDATE compute_plans SET organisation_limit_seconds = 120"
             )
             connection.commit()
-        with sqlite3.connect(self.root / "submissions.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
             connection.execute(
                 "UPDATE submission_jobs SET policy_json = ?",
                 (
@@ -558,7 +590,7 @@ class CandidateLifecycleTests(unittest.TestCase):
             "artifact-tamper",
         )
         self.registry.evaluate_visible(receipt)
-        with sqlite3.connect(self.root / "submissions.sqlite3") as connection:
+        with closing(sqlite3.connect(self.root / "submissions.sqlite3")) as connection:
             connection.execute(
                 "UPDATE candidates SET artifact_digest = 'tampered' "
                 "WHERE receipt_id = ?",

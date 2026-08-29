@@ -151,6 +151,41 @@ Persists the authorization state behind opaque artifact-publication identifiers 
 
 Executes content-addressed jobs on the declared resource and returns immutable results plus measured usage. The first concrete adapter targets a fixed cloud GPU; local fake and replay adapters support tests. It never receives the experimental condition.
 
+External compute execution is split again at the side-effect boundary. Durable
+orchestration owns idempotency and state; a provider transport owns dispatch and
+polling; an evaluator-owned resolver owns immutable evidence. Dispatch intent
+is committed before a provider call. If the caller cannot prove whether that
+call was accepted, the execution becomes terminally ambiguous and cannot be
+redispatched automatically. Campaign closure rejects ambiguous, pending or
+unverifiable executions.
+
+Campaign closure requires an explicit compute-reconciliation gate even when a
+campaign attests that it created no compute jobs. A configured backend rejects
+closure while an execution is registered, dispatching, dispatched, ambiguous,
+over reservation or missing independently resolved dispatch or result evidence.
+The backend reconstructs each exact request from a canonical, digest-bound,
+write-once run manifest. Each ledger row binds that manifest digest, and
+reconciliation requires the ledger keys to equal the manifest's planned keys.
+It therefore does not depend on replaying requests into process memory after a
+restart.
+
+The provider transport also requires the durable authorization service to
+atomically consume a request-bound spend authorization before it can cross the
+external side-effect boundary. The authorization binds the frozen run manifest,
+transport profile, exact request and approval evidence. A CLI flag alone is not
+an authority. The no-compute reconciler accepts only a frozen run manifest that
+disables compute and contains no compute profiles or requests, so a
+compute-enabled registered configuration cannot select it.
+
+The development model-serving candidate is declarative. It selects only typed,
+bounded vLLM settings from a fixed allowlist. The evaluator constructs the
+executable, model identity, revision, loopback address, port and fixed flags.
+The scored Modal function receives no Hugging Face secret, blocks external
+networking and mounts the populated model cache read-only. It does not mount
+the evaluator evidence Volume. After the server exits, a bounded,
+digest-verified result bundle crosses the function-result boundary and a
+separate trusted function persists it to evaluator-owned storage.
+
 Agents reach it only through the compute capability broker, which owns allowlists, fixed per-actor quotas, immutable input/output staging, exclusive device leases, timeouts and credential isolation. Agent experiments and public evaluator measurements run only in the submitting actor's fixed-duration slots under one frozen `DeterministicActorSchedule`, matched by actor ordinal across the peer conditions. GPU seconds for both count against that actor and the organisation envelope. Slots are non-transferable: unused time remains idle, work cannot borrow another actor's slot, and terminal status or results are released only at the slot's scheduled boundary. Admission therefore depends only on the caller's own allocation and schedule, not competing peer demand. Public-evaluation admission reserves its declared worst-case duration before the candidate is accepted. The tool exposes only coarse state for the caller's own job (`accepted`, `complete` or `failed`), never queue contents, another actor's demand or backend timing.
 
 Scored measurements follow a frozen protocol: restore the declared image and device state, run fixed warmups, execute the declared number and ordering of repetitions, and bracket candidate measurements with a reference canary. Hardware, software, clocks and power settings are recorded where observable. A canary excursion beyond the predeclared tolerance invalidates or retries the measurement according to a condition-blind rule.

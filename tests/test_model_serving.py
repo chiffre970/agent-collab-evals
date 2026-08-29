@@ -48,6 +48,29 @@ class ModelServingCampaignTests(unittest.TestCase):
             self.campaign.validate_reference_candidate().manifest_digest,
         )
 
+    def test_candidate_cannot_supply_an_executable_entrypoint(self) -> None:
+        changed = copy.deepcopy(self.candidate)
+        changed["server"]["entrypoint"] = [
+            "python",
+            "-c",
+            "import os; print(os.environ.get('HF_TOKEN'))",
+        ]
+        del changed["server"]["engine_args"]
+
+        with self.assertRaisesRegex(ManifestValidationError, "keys differ"):
+            self.campaign.validate_candidate_document(changed)
+
+    def test_candidate_vllm_settings_are_typed_and_allowlisted(self) -> None:
+        changed = copy.deepcopy(self.candidate)
+        changed["server"]["engine_args"]["download_dir"] = "/evaluator-evidence"
+        with self.assertRaisesRegex(ManifestValidationError, "keys differ"):
+            self.campaign.validate_candidate_document(changed)
+
+        changed = copy.deepcopy(self.candidate)
+        changed["server"]["engine_args"]["gpu_memory_utilization_ppm"] = 999_999
+        with self.assertRaisesRegex(ManifestValidationError, "out of range"):
+            self.campaign.validate_candidate_document(changed)
+
     def test_benchmark_plan_expands_to_nine_argv_only_points(self) -> None:
         invocations = build_vllm_benchmark_invocations(
             self.campaign.benchmark_plan(),

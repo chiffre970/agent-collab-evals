@@ -22,6 +22,10 @@ class EvaluationReservationStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class EvaluationInProgress(RuntimeError):
+    """The idempotent evaluation exists but has not reached terminal state."""
+
+
 @dataclass(frozen=True, slots=True)
 class ActorComputeAllocation:
     campaign_run_id: str

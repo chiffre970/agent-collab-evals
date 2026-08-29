@@ -58,6 +58,18 @@ class CliTests(unittest.TestCase):
             self.assertTrue(report["selection_receipt"].startswith("selection-"))
             self.assertTrue(report["storage_seal_digest"].startswith("sha256:"))
 
+    def test_modal_compute_dispatch_requires_explicit_spend_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(RuntimeError, "allow-gpu-spend"):
+                main(
+                    [
+                        "modal-compute-development",
+                        "--dispatch",
+                        "--state-root",
+                        temporary,
+                    ]
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -104,7 +104,24 @@ The repository now contains the first scenario-shaped vertical slice:
 - evaluator-owned durable raw and normalized evidence for the performance and
   quality calibration series; and
 - a private Modal vLLM adapter that can run either an API canary or one
-  isolated nine-point reference/candidate repetition on one L4.
+  isolated nine-point reference/candidate repetition on one L4;
+- a declarative candidate contract whose typed, allowlisted vLLM settings are
+  converted to argv by the evaluator. Candidates cannot provide an executable,
+  model path, network destination, secret, or evidence path;
+- a provider-neutral, durable compute-execution state machine that records
+  dispatch intent before the external call, fails closed on ambiguous dispatch,
+  resolves terminal evidence independently and reconciles every execution at
+  campaign close. Its authority is reconstructed from a frozen, digest-bound
+  run manifest after restart;
+- a durable compute-spend authorization service that binds an approval to one
+  run manifest, transport profile and exact request, then atomically consumes
+  it before dispatch; and
+- a pinned development transport that composes that state machine with the
+  existing Modal/vLLM adapter and a visible-only candidate evaluator. Its model,
+  campaign, runtime, environment and evidence Volume are profile inputs rather
+  than environment variables. Scored GPU functions have no secret, block
+  external networking, mount model data read-only and hand a bounded evidence
+  bundle to a separate trusted persistence function.
 
 The serving evaluator design also incorporates the documented lesson from
 Hugging Face's Fast Gemma Challenge: teacher-forced perplexity alone is not
@@ -125,8 +142,11 @@ This is calibration infrastructure, not a completed experimental platform.
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
 publication and storage gates now pass, as do the development provider-route,
 cache-isolation, sandbox, budget-reconciliation and fake candidate-lifecycle
-proofs. A real untrusted compute/evaluator backend, registered profiles,
-research brokerage and four-condition execution remain explicit later gates. See
+proofs. The real single-repetition Modal adapter now also passes its durable
+execution, restart-reconciliation and spend-authorization contracts against a
+fake transport without GPU spend. Live Modal boundary conformance, registered
+compute and evaluator promotion, hidden evaluation, research brokerage and
+four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents

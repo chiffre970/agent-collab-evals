@@ -8,6 +8,9 @@ from pathlib import Path
 
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.local_events import LocalEventSink
+from agent_collab_evals.adapters.no_compute_reconciliation import (
+    NoComputeExecutionReconciler,
+)
 from agent_collab_evals.adapters.opencode_harness import (
     OpenCodeHarnessRuntime,
     OpenCodeRuntimeProfile,
@@ -43,6 +46,12 @@ SANDBOX_PROFILE_PATH = (
 
 def _sandbox() -> DarwinSandboxExec:
     return DarwinSandboxExec(SandboxProfile.load(SANDBOX_PROFILE_PATH))
+
+
+def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconciler:
+    return NoComputeExecutionReconciler.from_frozen_manifest(
+        root / f"{campaign_run_id}-compute-run.json", campaign_run_id
+    )
 
 
 def _budget_account(
@@ -166,7 +175,10 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     timeout_seconds=30,
                 )
                 controller = CampaignController(
-                    runtime, LocalEventSink(root / "events"), account
+                    runtime,
+                    LocalEventSink(root / "events"),
+                    account,
+                    _no_compute(root, campaign_run_id),
                 )
                 handle = controller.start(
                     OrganisationSpec(
@@ -248,7 +260,9 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     process_sandbox=_sandbox(),
                     timeout_seconds=30,
                 )
-                controller = CampaignController(runtime, events, account)
+                controller = CampaignController(
+                    runtime, events, account, _no_compute(root, campaign_run_id)
+                )
                 handle = controller.start(
                     OrganisationSpec(
                         campaign_run_id=campaign_run_id,

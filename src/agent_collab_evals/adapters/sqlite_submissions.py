@@ -14,6 +14,7 @@ from ..collaboration import SessionTransport
 from ..evaluation import (
     CandidateReceipt,
     CandidateRecord,
+    EvaluationInProgress,
     EvaluationReceipt,
     EvaluationReservation,
     EvaluationReservationStatus,
@@ -263,6 +264,8 @@ class SqliteSubmissionRegistry:
                 reservation,
                 EvaluationScope.VISIBLE,
             )
+        except EvaluationInProgress:
+            return
         except Exception as error:
             reason = f"{type(error).__name__}:{error}"
             with suppress(Exception):
@@ -283,7 +286,8 @@ class SqliteSubmissionRegistry:
             return
 
         self._compute.complete(
-            str(row["reservation_id"]), self._evaluator.visible_used_seconds
+            str(row["reservation_id"]),
+            self._evaluator.used_seconds(evaluation_receipt),
         )
         with self._transaction() as connection:
             current = self._candidate_row(connection, receipt)
@@ -487,6 +491,8 @@ class SqliteSubmissionRegistry:
                 reservation,
                 EvaluationScope.HIDDEN,
             )
+        except EvaluationInProgress:
+            raise
         except Exception as error:
             self._compute.fail(
                 reservation.reservation_id,
@@ -494,7 +500,8 @@ class SqliteSubmissionRegistry:
             )
             raise
         self._compute.complete(
-            reservation.reservation_id, self._evaluator.hidden_used_seconds
+            reservation.reservation_id,
+            self._evaluator.used_seconds(evaluation_receipt),
         )
         with self._transaction() as connection:
             inserted = connection.execute(

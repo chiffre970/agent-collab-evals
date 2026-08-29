@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "model-serving-candidate/v0alpha1",
+  "$id": "model-serving-candidate/v0alpha2",
   "title": "Model serving candidate",
   "type": "object",
   "additionalProperties": false,
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "model-serving-candidate/v0alpha1"
+      "const": "model-serving-candidate/v0alpha2"
     },
     "candidate_id": {
       "type": "string",
@@ -59,7 +59,7 @@
       "required": [
         "engine",
         "engine_version",
-        "entrypoint",
+        "engine_args",
         "port",
         "health_path",
         "chat_path",
@@ -69,10 +69,39 @@
       "properties": {
         "engine": {"type": "string", "minLength": 1},
         "engine_version": {"type": "string", "minLength": 1},
-        "entrypoint": {
-          "type": "array",
-          "minItems": 1,
-          "items": {"type": "string", "minLength": 1}
+        "engine_args": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dtype",
+            "max_model_len",
+            "gpu_memory_utilization_ppm",
+            "stream_interval",
+            "max_num_seqs",
+            "max_num_batched_tokens",
+            "enforce_eager",
+            "disable_log_stats"
+          ],
+          "properties": {
+            "dtype": {"const": "bfloat16"},
+            "max_model_len": {"type": "integer", "minimum": 4096, "maximum": 32768},
+            "gpu_memory_utilization_ppm": {"type": "integer", "minimum": 100000, "maximum": 950000},
+            "stream_interval": {"type": "integer", "minimum": 1, "maximum": 100},
+            "max_num_seqs": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1, "maximum": 1024}
+              ]
+            },
+            "max_num_batched_tokens": {
+              "oneOf": [
+                {"type": "null"},
+                {"type": "integer", "minimum": 1024, "maximum": 131072}
+              ]
+            },
+            "enforce_eager": {"type": "boolean"},
+            "disable_log_stats": {"const": true}
+          }
         },
         "port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "health_path": {"type": "string", "pattern": "^/"},

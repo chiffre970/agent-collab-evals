@@ -376,6 +376,71 @@ evaluator therefore uses vLLM's in-container monotonic benchmark timer for
 goodput and latency, while retaining client and function-body durations only
 for operations and cost analysis.
 
+### Durable development compute path
+
+The development composition wraps the same evaluator in a durable execution
+state machine. Its committed profile fixes the campaign, evaluator script,
+Modal client, `dev` environment, evidence Volume and one public repetition.
+Candidate and provider choices are committed profile or command inputs, not
+`.env` settings.
+
+Candidate manifests contain typed vLLM settings, not executable commands. The
+scored GPU function constructs the fixed vLLM command, receives no secret,
+blocks external networking, mounts the populated Hugging Face model cache
+read-only and cannot access the evaluator evidence Volume. A separate trusted
+function validates and persists the bounded compressed evidence bundle. Run the
+authenticated smoke check first whenever the pinned model cache might not be
+populated; a scored run fails closed rather than downloading missing data.
+
+After the cache is populated, run the bounded hardened-boundary conformance
+instead of a full benchmark repetition:
+
+```bash
+.venv/bin/modal run -e dev \
+  campaigns/model_serving_v0/reference/modal_vllm.py \
+  --security-conformance --allow-gpu-spend \
+  --output-path tmp/calibration/modal-security-conformance.json
+```
+
+This billable check starts the pinned server once and sends one short quality
+request between the existing pre- and post-canaries. It exercises the scored
+function's blocked external network, read-only model cache, absent secret,
+absent evidence mount and separate durable evidence-persistence function. It
+does not run the nine-point throughput benchmark and is not scoreable study
+evidence.
+
+Dispatch is billable and requires an explicit spend flag:
+
+```bash
+collab-evals modal-compute-development \
+  --dispatch --allow-gpu-spend \
+  --run-id modal-development-reference-v1
+```
+
+The CLI first freezes the exact compute request and transport/backend profiles
+in `compute-run-manifest.json`. A separate SQLite authorization service records
+the approval digest and issues a request-, transport- and manifest-bound spend
+authorization. The Modal transport atomically consumes that authorization
+before invoking the CLI. Calling the transport without an issued authorization,
+or trying to reuse one, fails before invoking Modal.
+
+The underlying formal evaluator requires a clean Git worktree. After dispatch,
+collect the same external call without authorizing another allocation:
+
+```bash
+collab-evals modal-compute-development \
+  --collect --collect-timeout-seconds 30 \
+  --run-id modal-development-reference-v1
+```
+
+Repeat collection as needed. A timeout remains pending. An ambiguous dispatch
+fails closed and is never retried under the same execution key. The command is
+visible-only, runs one development repetition and is not a registered or
+confirmatory study. Use `--candidate` and a new `--run-id` for an explicitly
+chosen candidate; never reuse a run ID for different bytes. Collection and
+close-time reconciliation reconstruct authority from the frozen run manifest;
+they do not require the dispatching process to replay the request first.
+
 Verify the local installation with:
 
 ```bash
@@ -388,10 +453,12 @@ git status --ignored --short
 Formal calibration calls write raw benchmark files and their remote receipt to
 the evaluator-owned Modal Volume
 `agent-collab-evals-evaluator-evidence-v2` before returning a small result.
-The GPU function has restricted Modal API access and commits through the v2
-Volume mount. The trusted local collector downloads every file, verifies its
-digest, publishes the normalized receipt once and keeps the existing ignored
-local bundle only as a convenience mirror.
+The GPU function has restricted Modal API access and returns only a bounded,
+compressed, digest-bound evidence bundle. A separate restricted persistence
+function commits that bundle through the writable v2 Volume mount. The trusted
+local collector downloads every file, verifies its digest, publishes the
+normalized receipt once and keeps the existing ignored local bundle only as a
+convenience mirror.
 
 Verify this path without allocating a GPU:
 

@@ -177,6 +177,21 @@ class FakeModelServingEvaluator:
             raise RuntimeError("evaluation receipt identity differs from its evidence")
         return expected_result
 
+    def used_seconds(self, receipt: EvaluationReceipt) -> int:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT scope FROM evaluation_receipts WHERE receipt_id = ?",
+                (receipt.value,),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("evaluation receipt is not held by this evaluator")
+        scope = EvaluationScope(str(row["scope"]))
+        return (
+            self.visible_used_seconds
+            if scope is EvaluationScope.VISIBLE
+            else self.hidden_used_seconds
+        )
+
     def _issue(
         self,
         candidate: bytes,

@@ -15,7 +15,7 @@ from ..domain import Job, MaterializedJobs
 
 
 CAMPAIGN_SCHEMA = "model-serving-campaign/v0alpha1"
-CANDIDATE_SCHEMA = "model-serving-candidate/v0alpha1"
+CANDIDATE_SCHEMA = "model-serving-candidate/v0alpha2"
 _REVISION = re.compile(r"[0-9a-f]{40}")
 _IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 
@@ -449,26 +449,18 @@ class ModelServingCampaign:
             raise ManifestValidationError("reference CUDA image digest mismatch")
         if build["dependency_lock"] != f"vllm=={reference['vllm_version']}":
             raise ManifestValidationError("reference dependency lock mismatch")
-
-        entrypoint = server["entrypoint"]
-        if entrypoint[:3] != ["vllm", "serve", self.target_model_id]:
-            raise ManifestValidationError("reference entrypoint must serve the target model")
-        required_flags = {
-            "--revision": self.target_model_revision,
-            "--served-model-name": str(reference["served_model_name"]),
-            "--generation-config": str(reference["generation_config"]),
-            "--port": str(server["port"]),
+        expected_engine_args = {
+            "dtype": "bfloat16",
+            "max_model_len": 8192,
+            "gpu_memory_utilization_ppm": 900_000,
+            "stream_interval": 1,
+            "max_num_seqs": None,
+            "max_num_batched_tokens": None,
+            "enforce_eager": False,
+            "disable_log_stats": True,
         }
-        for flag, expected in required_flags.items():
-            if entrypoint.count(flag) != 1:
-                raise ManifestValidationError(
-                    f"reference entrypoint must contain exactly one {flag}"
-                )
-            index = entrypoint.index(flag)
-            if index + 1 == len(entrypoint) or entrypoint[index + 1] != expected:
-                raise ManifestValidationError(
-                    f"reference entrypoint has an invalid {flag} value"
-                )
+        if server["engine_args"] != expected_engine_args:
+            raise ManifestValidationError("reference vLLM settings differ")
         return descriptor
 
     @staticmethod
@@ -541,7 +533,7 @@ class ModelServingCampaign:
             {
                 "engine",
                 "engine_version",
-                "entrypoint",
+                "engine_args",
                 "port",
                 "health_path",
                 "chat_path",
@@ -558,24 +550,28 @@ class ModelServingCampaign:
             raise ManifestValidationError("candidate engine and version must be strings")
         engine = engine_value
         engine_version = engine_version_value
-        if not _IDENTIFIER.fullmatch(engine) or not engine_version.strip():
-            raise ManifestValidationError("candidate engine and version are required")
-        entrypoint = server["entrypoint"]
-        if not isinstance(entrypoint, list) or not entrypoint or any(
-            not isinstance(part, str) or not part.strip() or "\x00" in part
-            for part in entrypoint
-        ):
-            raise ManifestValidationError("candidate entrypoint must be argv strings")
+        reference = self._mapping(self.raw, "reference")
+        if engine != "vllm" or engine_version != reference["vllm_version"]:
+            raise ManifestValidationError("candidate must use the pinned vLLM engine")
+        if build != {
+            "image_ref": reference["cuda_image"],
+            "image_digest": reference["cuda_image_digest"],
+            "dependency_lock": f"vllm=={reference['vllm_version']}",
+        }:
+            raise ManifestValidationError("candidate build differs from the pinned build")
+        engine_args = self._mapping(server, "engine_args")
+        self._validate_engine_args(engine_args)
         port = server["port"]
-        if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
-            raise ManifestValidationError("candidate server port is invalid")
-        for key in ("health_path", "chat_path"):
-            if not isinstance(server[key], str) or not server[key].startswith("/"):
-                raise ManifestValidationError(f"candidate.server.{key} must be a path")
-        if server["served_model_name"] != self.raw["reference"]["served_model_name"]:
+        if type(port) is not int or port != 8000:
+            raise ManifestValidationError("candidate server port must be 8000")
+        if server["health_path"] != "/health":
+            raise ManifestValidationError("candidate health path differs")
+        if server["chat_path"] != "/v1/chat/completions":
+            raise ManifestValidationError("candidate chat path differs")
+        if server["served_model_name"] != reference["served_model_name"]:
             raise ManifestValidationError("candidate changes the served model name")
-        if server["generation_config"] not in {"vllm", "explicit"}:
-            raise ManifestValidationError("candidate generation configuration is ambiguous")
+        if server["generation_config"] != reference["generation_config"]:
+            raise ManifestValidationError("candidate changes generation configuration")
 
         return CandidateDescriptor(
             candidate_id=candidate_id,
@@ -583,6 +579,48 @@ class ModelServingCampaign:
             engine_version=engine_version,
             manifest_digest=digest_value(candidate),
         )
+
+    @staticmethod
+    def _validate_engine_args(engine_args: Mapping[str, Any]) -> None:
+        ModelServingCampaign._exact_keys(
+            engine_args,
+            {
+                "dtype",
+                "max_model_len",
+                "gpu_memory_utilization_ppm",
+                "stream_interval",
+                "max_num_seqs",
+                "max_num_batched_tokens",
+                "enforce_eager",
+                "disable_log_stats",
+            },
+            "candidate.server.engine_args",
+        )
+        if engine_args["dtype"] != "bfloat16":
+            raise ManifestValidationError("candidate dtype must be bfloat16")
+        integer_ranges = {
+            "max_model_len": (4096, 32768),
+            "gpu_memory_utilization_ppm": (100_000, 950_000),
+            "stream_interval": (1, 100),
+        }
+        for key, (minimum, maximum) in integer_ranges.items():
+            value = engine_args[key]
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ManifestValidationError(f"candidate {key} is out of range")
+        optional_ranges = {
+            "max_num_seqs": (1, 1024),
+            "max_num_batched_tokens": (1024, 131072),
+        }
+        for key, (minimum, maximum) in optional_ranges.items():
+            value = engine_args[key]
+            if value is not None and (
+                type(value) is not int or not minimum <= value <= maximum
+            ):
+                raise ManifestValidationError(f"candidate {key} is out of range")
+        if type(engine_args["enforce_eager"]) is not bool:
+            raise ManifestValidationError("candidate enforce_eager must be boolean")
+        if engine_args["disable_log_stats"] is not True:
+            raise ManifestValidationError("candidate must disable vLLM log statistics")
 
     @staticmethod
     def _validate_manifest(raw: Mapping[str, Any]) -> None:

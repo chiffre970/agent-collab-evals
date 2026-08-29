@@ -9,6 +9,9 @@ from agent_collab_evals.adapters.fake_harness import FakeHarnessRuntime
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.local_snapshots import LocalCampaignSnapshotStore
 from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
+from agent_collab_evals.adapters.no_compute_reconciliation import (
+    NoComputeExecutionReconciler,
+)
 from agent_collab_evals.budget import BudgetReconciliation
 from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
 from agent_collab_evals.domain import (
@@ -20,6 +23,12 @@ from agent_collab_evals.domain import (
 
 def _job(job_id: str) -> Job:
     return Job(job_id, f"mission for {job_id}", f"sha256:{job_id}", {})
+
+
+def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconciler:
+    return NoComputeExecutionReconciler.from_frozen_manifest(
+        root / f"{campaign_run_id}-compute-run.json", campaign_run_id
+    )
 
 
 class CampaignControllerTests(unittest.TestCase):
@@ -67,7 +76,10 @@ class CampaignControllerTests(unittest.TestCase):
 
             second_runtime = FakeHarnessRuntime()
             second = CampaignController(
-                second_runtime, events, NoModelBudgetReconciler()
+                second_runtime,
+                events,
+                NoModelBudgetReconciler(),
+                _no_compute(root, "durable-run"),
             )
             resumed = second.resume(store.load("durable-run"))
             self.assertEqual(resumed.sessions, handle.sessions)
@@ -88,6 +100,7 @@ class CampaignControllerTests(unittest.TestCase):
                     "campaign.resumed",
                     "job.delivered",
                     "campaign.budget_reconciled",
+                    "campaign.compute_reconciled",
                     "campaign.closed",
                 ],
             )
@@ -163,7 +176,12 @@ class CampaignControllerTests(unittest.TestCase):
             root = Path(directory)
             runtime = FakeHarnessRuntime()
             events = LocalEventSink(root / "events")
-            controller = CampaignController(runtime, events, InvalidBudget())
+            controller = CampaignController(
+                runtime,
+                events,
+                InvalidBudget(),
+                _no_compute(root, "invalid-budget"),
+            )
             handle = controller.start(
                 self._spec("invalid-budget", CoordinationCondition.SOLO)
             )
@@ -178,6 +196,58 @@ class CampaignControllerTests(unittest.TestCase):
                 ["campaign.started", "campaign.invalid"],
             )
 
+    def test_close_requires_compute_reconciliation_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = FakeHarnessRuntime()
+            controller = CampaignController(
+                runtime,
+                LocalEventSink(Path(directory) / "events"),
+                NoModelBudgetReconciler(),
+            )
+            handle = controller.start(
+                self._spec("missing-compute-gate", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError, "requires a configured compute reconciliation gate"
+            ):
+                controller.close(handle, "complete")
+
+            self.assertEqual(handle.status.value, "active")
+
+    def test_compute_reconciliation_failure_invalidates_campaign(self) -> None:
+        class InvalidCompute:
+            def reconcile(self, campaign_run_id: str):  # type: ignore[no-untyped-def]
+                raise RuntimeError("pending external execution")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = LocalEventSink(root / "events")
+            controller = CampaignController(
+                FakeHarnessRuntime(),
+                events,
+                NoModelBudgetReconciler(),
+                InvalidCompute(),
+            )
+            handle = controller.start(
+                self._spec("invalid-compute", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaisesRegex(
+                CampaignCloseRejected, "compute reconciliation failed"
+            ):
+                controller.close(handle, "complete")
+
+            self.assertEqual(handle.status.value, "invalid")
+            self.assertEqual(
+                [event["kind"] for event in events.read("invalid-compute")],
+                [
+                    "campaign.started",
+                    "campaign.budget_reconciled",
+                    "campaign.invalid",
+                ],
+            )
+
     def test_close_rejects_reconciliation_for_another_campaign(self) -> None:
         class WrongCampaignBudget:
             def reconcile(self, campaign_run_id: str) -> BudgetReconciliation:
@@ -187,7 +257,10 @@ class CampaignControllerTests(unittest.TestCase):
             root = Path(directory)
             events = LocalEventSink(root / "events")
             controller = CampaignController(
-                FakeHarnessRuntime(), events, WrongCampaignBudget()
+                FakeHarnessRuntime(),
+                events,
+                WrongCampaignBudget(),
+                _no_compute(root, "budget-mismatch"),
             )
             handle = controller.start(
                 self._spec("budget-mismatch", CoordinationCondition.SOLO)

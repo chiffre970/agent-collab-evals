@@ -19,7 +19,12 @@ from .domain import (
     SessionHandle,
     top_level_actor_count,
 )
-from .ports import BudgetReconciliationGate, EventSink, HarnessRuntime
+from .ports import (
+    BudgetReconciliationGate,
+    ComputeReconciliationGate,
+    EventSink,
+    HarnessRuntime,
+)
 
 
 @dataclass(slots=True)
@@ -33,7 +38,7 @@ class CampaignHandle:
 
 
 class CampaignCloseRejected(RuntimeError):
-    """The stopped campaign failed mandatory budget reconciliation."""
+    """The stopped campaign failed a mandatory reconciliation gate."""
 
     def __init__(
         self,
@@ -54,10 +59,12 @@ class CampaignController:
         harness: HarnessRuntime,
         events: EventSink,
         budget_reconciliation: BudgetReconciliationGate | None = None,
+        compute_reconciliation: ComputeReconciliationGate | None = None,
     ) -> None:
         self._harness = harness
         self._events = events
         self._budget_reconciliation = budget_reconciliation
+        self._compute_reconciliation = compute_reconciliation
 
     def start(self, spec: OrganisationSpec) -> CampaignHandle:
         actor_count = top_level_actor_count(spec.condition, spec.organisation_size)
@@ -169,6 +176,10 @@ class CampaignController:
             raise RuntimeError(
                 "campaign close requires a configured budget reconciliation gate"
             )
+        if self._compute_reconciliation is None:
+            raise RuntimeError(
+                "campaign close requires a configured compute reconciliation gate"
+            )
         final_snapshot = self._harness.stop(handle.organisation, reason)
         try:
             reconciliation = self._budget_reconciliation.reconcile(
@@ -217,6 +228,34 @@ class CampaignController:
             handle.spec.campaign_run_id,
             "campaign.budget_reconciled",
             reconciliation.evidence(),
+        )
+        try:
+            compute_receipts = self._compute_reconciliation.reconcile(
+                handle.spec.campaign_run_id
+            )
+        except Exception as error:
+            handle.status = CampaignStatus.INVALID
+            self._events.append(
+                handle.spec.campaign_run_id,
+                "campaign.invalid",
+                {
+                    "reason": "compute_reconciliation_failed",
+                    "error_type": type(error).__name__,
+                    "delivered_job_count": len(handle.delivered_job_ids),
+                },
+            )
+            raise CampaignCloseRejected(
+                "campaign compute reconciliation failed",
+                final_snapshot,
+                reconciliation,
+            ) from error
+        self._events.append(
+            handle.spec.campaign_run_id,
+            "campaign.compute_reconciled",
+            {
+                "execution_count": len(compute_receipts),
+                "execution_ids": [receipt.execution_id for receipt in compute_receipts],
+            },
         )
         handle.status = CampaignStatus.CLOSED
         self._events.append(

@@ -189,11 +189,40 @@ each Volume object by name, verifies every digest, performs normalization and
 publishes the normalized receipt once. The local atomic bundle remains a
 convenience mirror rather than the sole evidence copy.
 
+This paragraph records the 2026-08-17 calibration implementation. The
+2026-08-28 security correction below supersedes that implementation for future
+runs; it does not rewrite the retained historical evidence.
+
 A non-GPU restricted-function probe passed in Modal app
 `ap-8tDBUJu3ItYsSJoA0v0fn6`: write, v2 Volume sync, trusted readback and digest
 verification all succeeded. Candidate calibration restarts under a new
 evaluator-issued measurement-series ID so the two immutable invalid attempts
 are neither deleted nor overwritten.
+
+## 2026-08-28: scored-function security correction
+
+The earlier GPU function mounted the writable evidence Volume and received the
+Hugging Face secret while starting candidate-supplied argv. That boundary is
+not safe for agent-authored candidates and is retired for future runs.
+
+Candidate schema v0alpha2 removes executable argv. It accepts only typed,
+bounded vLLM settings from a fixed allowlist, and evaluator code constructs the
+complete command. Future scored GPU functions receive no secret, block external
+networking, mount the prepopulated model cache read-only and do not mount the
+evaluator evidence Volume. They return a size-bounded, compressed,
+digest-verified result bundle. A separate trusted restricted function persists
+that bundle to the evaluator Volume after the candidate server exits.
+
+This correction changes the campaign and evaluator-script digests. Historical
+calibration results remain development evidence for the earlier build and are
+not silently relabeled. A new bounded live conformance run must verify the
+read-only cache, blocked-network and split-persistence path before further
+candidate calibration.
+
+The dedicated `--security-conformance` path performs this proof with one short
+served-generation request plus the pre- and post-canaries. It uses the same
+hardened scored function and separate persistence function without running the
+full nine-point benchmark. Its receipt remains pending.
 
 ## 2026-08-17: valid non-reference sensitivity series
 

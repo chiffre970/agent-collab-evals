@@ -237,6 +237,44 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - `collab-evals fake-candidate-lifecycle` executes two owned candidates through
   admission, public evaluation, release, selection, hidden evaluation and
   storage sealing. It uses no GPU or model API.
+- A provider-neutral `ComputeBackend` execution contract now separates durable
+  orchestration, external dispatch and evaluator-owned evidence resolution.
+  Its SQLite adapter records dispatch intent before the side effect, permits
+  only one dispatcher across processes, retains pending work across collection
+  timeouts, refuses to redispatch an ambiguous outcome and revalidates terminal
+  evidence during close-time reconciliation.
+- A pinned development transport composes this contract with the existing
+  Modal/vLLM evaluator. It launches one declared candidate repetition in a
+  single-use L4 function, passes only a minimal Modal CLI environment and binds
+  the campaign, candidate, Modal client, evaluator script and evidence Volume
+  to digests. A visible-only evaluator maps the resulting performance score and
+  measured function-body use into the existing candidate lifecycle. Tests use
+  a fake transport and local digest-verified evidence, so they incur no GPU
+  spend.
+- Candidate manifests no longer contain executable argv. The V0 schema accepts
+  only typed, bounded, allowlisted vLLM settings, and the evaluator constructs
+  the fixed command. Scored GPU functions receive no secret, block external
+  networking, mount the populated model cache read-only and do not mount the
+  evaluator evidence Volume. A separate trusted function persists a bounded,
+  compressed and digest-verified evidence bundle after candidate execution.
+- Concurrent evaluation callers treat registered, dispatching and dispatched
+  work as nonterminal. An in-progress observation leaves the candidate and its
+  reservation untouched. Dispatch evidence is independently resolved and
+  checked during collection, resolution and reconciliation. Observed execution
+  time is not clamped, so an overrun remains visible and invalidates closure.
+- The Modal transport now requires an unused request- and profile-bound spend
+  authorization before dispatch. A separate SQLite authorization service
+  durably issues and atomically consumes the authorization against the frozen
+  run manifest, transport profile, request digest and approval evidence.
+- Compute reconciliation now reconstructs exact requests from a canonical,
+  digest-bound, write-once run manifest after restart. Ledger rows bind the
+  manifest digest, and closure rejects missing or extra planned executions.
+  No request replay into process memory is required.
+- Campaign closure requires a separate compute reconciliation gate in addition
+  to budget reconciliation. The no-compute adapter accepts only a frozen run
+  manifest that disables compute and has no profiles or requests.
+- The full local suite passes with `ResourceWarning` reporting enabled; all
+  SQLite connections opened by tests and adapters are explicitly closed.
 
 ## Not implemented
 
@@ -250,15 +288,19 @@ The following remain gates, not implied capabilities:
    the current development network policy with gateway-specific local-service,
    filesystem and process-resource enforcement. The target environment needs a
    pinned kernel- or container-level adapter and equivalent conformance proof.
-2. A real `ComputeBackend` adapter that launches untrusted candidates in a
-   registered isolated environment, plus the research broker. The current
-   compute implementation proves durable allocation and lifecycle enforcement
-   with a fake evaluator; it does not execute candidate code.
+2. Promotion of the development Modal compute adapter to a registered backend,
+   including the bounded live boundary proof, final container and capability
+   policy, fixed actor-slot scheduler integration and registered evidence
+   retention. Durable run authority, spend authorization and mandatory compute
+   reconciliation now pass locally. The current adapter accepts only validated
+   declarative serving candidates; it does not execute arbitrary
+   candidate-supplied commands. The research broker is also not implemented.
 3. The production evaluator path for public and hidden measurements, including
    the remaining correctness, stability and shortcut gates and complete
    confirmatory evidence retention. Neutral selection and result-release
    enforcement pass locally, and the calibration Volume path is durable, but
-   they are not yet composed with untrusted launch as a registered service.
+   they are not yet composed with registered Modal execution and a hidden
+   workload as a production service.
 4. Four-condition scheduling, registered manifests, combined platform audit
    export and the
    preregistered statistical analysis.
@@ -277,14 +319,21 @@ confirmatory policy.
 
 The direct-vLLM sensitivity gate and the paired generation-quality calibration
 are complete. Raw calibration evidence is durably mirrored to the
-evaluator-owned Modal Volume. Confirmatory retention, untrusted launch, and the
-remaining hidden gates remain later platform-service work.
+evaluator-owned Modal Volume. The durable development compute state machine,
+frozen run authority, durable spend authorization, pinned Modal transport and
+visible evaluator composition are implemented and tested without live spend.
+The hardened command, secret, network, model-cache and evidence boundaries have
+not yet received a live Modal conformance run. The first bounded live reference
+dispatch and collection remain a deliberate, separately authorized development
+check. Confirmatory retention and the hidden gates remain later
+platform-service work.
 
 ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
 nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem and process-resource
-enforcement remain scored-run gates. The next gate is a registered isolated
-`ComputeBackend` that runs the existing Modal evaluator contract through this
-lifecycle, followed by complete resolved-run manifests and four-condition
-scheduling. No live multi-condition model run is authorized yet.
+enforcement remain scored-run gates. After the bounded development dispatch
+passes, the next gate is registered compute/evaluator promotion with hidden
+workload separation, followed by complete resolved-run manifests and
+four-condition scheduling. No live multi-condition model run is authorized
+yet.

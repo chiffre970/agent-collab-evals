@@ -13,12 +13,27 @@ from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_artifact_storage import LocalArtifactStorage
 from .adapters.local_events import LocalEventSink
 from .adapters.local_snapshots import LocalCampaignSnapshotStore
+from .adapters.modal_vllm_compute import (
+    ModalVllmCliTransport,
+    ModalVllmComputeProfile,
+    ModalVllmEvidenceResolver,
+)
 from .adapters.no_model_budget import NoModelBudgetReconciler
+from .adapters.no_compute_reconciliation import NoComputeExecutionReconciler
+from .adapters.sqlite_compute_spend import (
+    SqliteComputeSpendAuthorizationService,
+)
 from .adapters.sqlite_compute import SqliteComputeBroker
+from .adapters.sqlite_execution_backend import SqliteComputeBackend
 from .adapters.sqlite_submissions import SqliteSubmissionRegistry
 from .artifacts import ArtifactStoragePolicy
 from .campaigns.model_serving import ModelServingCampaign
-from .canonical import digest_value
+from .canonical import digest_bytes, digest_value
+from .compute_backend import (
+    ComputeExecutionRequest,
+    ComputeExecutionStatus,
+    FrozenComputeRunManifest,
+)
 from .controller import CampaignController
 from .domain import (
     AgentIdentity,
@@ -30,12 +45,16 @@ from .evaluation import (
     ActorComputeAllocation,
     ComputePlan,
     SubmissionPolicy,
+    EvaluationScope,
 )
 from .service_identity import ServiceIdentityRegistry
 from .session_identity import SessionIdentityRegistry
 
 
 DEFAULT_CAMPAIGN = Path("campaigns/model_serving_v0/campaign.toml")
+DEFAULT_MODAL_COMPUTE_PROFILE = Path(
+    "config/compute/modal-vllm-development.json"
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -66,6 +85,28 @@ def _parser() -> argparse.ArgumentParser:
         "--state-root", type=Path, default=Path("tmp/fake-candidate-lifecycle")
     )
     lifecycle.add_argument("--run-id")
+
+    modal_compute = subparsers.add_parser(
+        "modal-compute-development",
+        help="dispatch or collect one explicitly billable Modal evaluator repetition",
+    )
+    modal_compute.add_argument(
+        "--profile", type=Path, default=DEFAULT_MODAL_COMPUTE_PROFILE
+    )
+    modal_compute.add_argument(
+        "--candidate",
+        type=Path,
+        default=Path("campaigns/model_serving_v0/reference/candidate.json"),
+    )
+    modal_compute.add_argument(
+        "--state-root", type=Path, default=Path("tmp/modal-compute-development")
+    )
+    modal_compute.add_argument("--run-id", default="modal-development-reference-v1")
+    action = modal_compute.add_mutually_exclusive_group(required=True)
+    action.add_argument("--dispatch", action="store_true")
+    action.add_argument("--collect", action="store_true")
+    modal_compute.add_argument("--collect-timeout-seconds", type=int, default=0)
+    modal_compute.add_argument("--allow-gpu-spend", action="store_true")
     return parser
 
 
@@ -100,12 +141,23 @@ def _fake_solo(
     materialized = campaign.materialize(task_seed)
     campaign_run_id = run_id or f"fake-solo-{uuid.uuid4().hex}"
     resolved_state_root = state_root.resolve()
+    compute_authority = FrozenComputeRunManifest.load_or_create(
+        resolved_state_root / campaign_run_id / "compute-run-manifest.json",
+        campaign_run_id=campaign_run_id,
+        compute_enabled=False,
+        transport_profile_digest=None,
+        backend_profile_digest=None,
+        requests=(),
+    )
 
     events = LocalEventSink(resolved_state_root / "events")
     snapshots = LocalCampaignSnapshotStore(resolved_state_root / "snapshots")
     first_harness = FakeHarnessRuntime()
     first_controller = CampaignController(
-        first_harness, events, NoModelBudgetReconciler()
+        first_harness,
+        events,
+        NoModelBudgetReconciler(),
+        NoComputeExecutionReconciler(compute_authority),
     )
     handle = first_controller.start(
         OrganisationSpec(
@@ -121,7 +173,10 @@ def _fake_solo(
     snapshots.save(first_controller.snapshot(handle))
 
     resumed_controller = CampaignController(
-        FakeHarnessRuntime(), events, NoModelBudgetReconciler()
+        FakeHarnessRuntime(),
+        events,
+        NoModelBudgetReconciler(),
+        NoComputeExecutionReconciler(compute_authority),
     )
     resumed = resumed_controller.resume(snapshots.load(campaign_run_id))
     result = resumed_controller.close(resumed, "fake vertical slice complete")
@@ -283,6 +338,127 @@ def _fake_candidate_lifecycle(
     }
 
 
+def _modal_compute_development(arguments: argparse.Namespace) -> dict[str, object]:
+    repository_root = Path(__file__).resolve().parents[2]
+    profile = ModalVllmComputeProfile.load(
+        arguments.profile.resolve(), repository_root=repository_root
+    )
+    campaign = ModelServingCampaign.load(profile.campaign_manifest)
+    candidate_path = arguments.candidate.resolve()
+    candidate = candidate_path.read_bytes()
+    descriptor = campaign.validate_candidate(candidate_path)
+    state_root = arguments.state_root.resolve() / arguments.run_id
+    request = ComputeExecutionRequest(
+        execution_key=f"development:{descriptor.candidate_id}",
+        campaign_run_id=arguments.run_id,
+        reservation_id=(
+            "development-"
+            + digest_value(
+                {
+                    "run_id": arguments.run_id,
+                    "candidate": descriptor.manifest_digest,
+                }
+            )[7:39]
+        ),
+        scope=EvaluationScope.VISIBLE,
+        candidate_digest=digest_bytes(candidate),
+        candidate_manifest_digest=descriptor.manifest_digest,
+        evaluator_profile_digest=profile.evaluator_profile_digest,
+        maximum_seconds=campaign.measurement_profile().repetition_timeout_seconds,
+    )
+    if arguments.dispatch and not arguments.allow_gpu_spend:
+        raise RuntimeError("--dispatch requires --allow-gpu-spend")
+    authorization_profile_digest = (
+        SqliteComputeSpendAuthorizationService.profile_digest_for()
+    )
+    transport_profile_digest = ModalVllmCliTransport.profile_digest_for(
+        profile.digest,
+        repository_root / ".venv/bin/modal",
+        authorization_profile_digest,
+    )
+    evidence_profile_digest = ModalVllmEvidenceResolver.profile_digest_for(
+        profile.digest
+    )
+    backend_profile_digest = SqliteComputeBackend.profile_digest_for(
+        transport_profile_digest, evidence_profile_digest
+    )
+    run_manifest = FrozenComputeRunManifest.load_or_create(
+        state_root / "compute-run-manifest.json",
+        campaign_run_id=arguments.run_id,
+        compute_enabled=True,
+        transport_profile_digest=transport_profile_digest,
+        backend_profile_digest=backend_profile_digest,
+        requests=(request,),
+    )
+    spend_authorizations = SqliteComputeSpendAuthorizationService(
+        state_root / "compute-spend.sqlite3", run_manifest
+    )
+    transport = ModalVllmCliTransport(
+        profile,
+        repository_root,
+        state_root,
+        repository_root / ".venv/bin/modal",
+        spend_authorizations,
+    )
+    resolver = ModalVllmEvidenceResolver(
+        profile, repository_root, state_root, transport.profile_digest
+    )
+    backend = SqliteComputeBackend(
+        state_root / "executions.sqlite3", transport, resolver, run_manifest
+    )
+    if arguments.dispatch:
+        authorization = spend_authorizations.issue(
+            request,
+            transport.profile_digest,
+            "explicit_cli_allow_gpu_spend",
+        )
+        receipt = backend.submit(request, candidate)
+        result = None
+    else:
+        receipt = backend.collect(
+            request, timeout_seconds=arguments.collect_timeout_seconds
+        )
+        result = None
+        if receipt.status in {
+            ComputeExecutionStatus.COMPLETE,
+            ComputeExecutionStatus.FAILED,
+        } and receipt.evidence is not None:
+            _, evidence = backend.resolve(request)
+            normalized = evidence["result"]
+            assert isinstance(normalized, dict)
+            performance = normalized.get("performance_score")
+            result = {
+                "valid": normalized.get("valid"),
+                "performance_score": performance,
+                "durable_evidence": normalized.get("durable_evidence"),
+            }
+    return {
+        "ok": receipt.status not in {
+            ComputeExecutionStatus.AMBIGUOUS,
+            ComputeExecutionStatus.FAILED,
+        },
+        "development_only": True,
+        "gpu_spend_authorized": bool(
+            arguments.dispatch and arguments.allow_gpu_spend
+        ),
+        "spend_authorization_id": (
+            authorization.authorization_id if arguments.dispatch else None
+        ),
+        "compute_run_manifest_digest": run_manifest.manifest_digest,
+        "campaign_run_id": arguments.run_id,
+        "candidate_id": descriptor.candidate_id,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "compute_profile_digest": profile.digest,
+        "backend_profile_digest": backend.profile_digest,
+        "execution_id": receipt.execution_id,
+        "execution_status": receipt.status.value,
+        "external_call_id": receipt.external_call_id,
+        "used_seconds": receipt.used_seconds,
+        "failure": receipt.failure,
+        "result": result,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "validate-scenario":
@@ -300,6 +476,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.state_root,
             arguments.run_id,
         )
+    elif arguments.command == "modal-compute-development":
+        output = _modal_compute_development(arguments)
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))
