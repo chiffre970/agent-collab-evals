@@ -389,6 +389,13 @@ smallest useful seams before adding the runtime and collaboration machinery.
   hidden-performance job. The composite admits only after all three phases
   resolve, reports the hidden performance criterion, sums 81 uncapped simulated
   seconds and independently reconciles all eight planned compute executions.
+- The `modal_hidden_phase_compute.py` preflight provides one fail-closed
+  operator path for the remaining bounded live qualifications. It accepts only
+  correctness or performance, resolves a digest-pinned private bundle, creates
+  the phase-specific Modal and evaluator profiles, freezes the sole compute
+  request, requires a durable approval-bound spend authorization, and reports
+  a result only after terminal compute reconciliation. Adding the command does
+  not authorize or perform a billable run.
 
 ## Not implemented
 
