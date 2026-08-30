@@ -293,7 +293,10 @@ class ComputeQualityRepetitionBackend:
         role: str,
         repetition: int,
     ) -> Mapping[str, object]:
-        record = evidence.get("quality_evaluation")
+        result = evidence.get("result")
+        if not isinstance(result, Mapping) or set(result) != {"quality_evaluation"}:
+            raise RuntimeError("quality compute result envelope differs")
+        record = result.get("quality_evaluation")
         if not isinstance(record, Mapping) or set(record) != {
             "schema_version",
             "campaign_manifest_digest",

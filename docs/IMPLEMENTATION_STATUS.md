@@ -343,7 +343,10 @@ smallest useful seams before adding the runtime and collaboration machinery.
   backend profile and accepts only normalized evidence carrying the exact
   campaign, hidden bundle, quality profile, workload, candidate and repetition
   identity. Retry and restart recover the same execution and opaque receipt;
-  accounting uses the backend's uncapped duration.
+  accounting uses the backend's uncapped duration. An integration test now runs
+  this adapter through the real `SqliteComputeBackend`, its frozen run manifest,
+  fixed standard evidence envelope, dispatch-evidence verification and
+  close-time reconciliation rather than relying only on a permissive fake.
 
 ## Not implemented
 

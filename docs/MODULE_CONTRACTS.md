@@ -663,6 +663,9 @@ profile, hidden bundle, quality profile and workload. The compute evidence must
 resolve to a normalized quality run under that exact identity. The adapter
 stores only an opaque receipt and compute execution binding, reports the
 backend's uncapped measured duration and rejects a backend-profile change.
+The normalized `quality_evaluation` record is nested under the standard
+compute-evidence `result` object; campaign adapters may not invent a parallel
+top-level evidence schema.
 
 Each serving-performance execution also carries an explicit performance
 profile digest. The trusted collector constructs benchmark invocations from

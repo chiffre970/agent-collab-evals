@@ -10,15 +10,21 @@ from agent_collab_evals.adapters.compute_quality_backend import (
     ComputeQualityRepetitionBackend,
     ComputeQualityRepetitionProfile,
 )
+from agent_collab_evals.adapters.sqlite_execution_backend import (
+    SqliteComputeBackend,
+)
 from agent_collab_evals.artifacts import ArtifactRef
 from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
 from agent_collab_evals.campaigns.serving_quality import QualityPolicy
-from agent_collab_evals.canonical import digest_value
+from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes, digest_value
 from agent_collab_evals.compute_backend import (
     ComputeEvidencePointer,
     ComputeExecutionReceipt,
     ComputeExecutionRequest,
     ComputeExecutionStatus,
+    ExternalDispatch,
+    FrozenComputeRunManifest,
+    TransportPoll,
 )
 from agent_collab_evals.evaluation import (
     EvaluationReservation,
@@ -52,21 +58,27 @@ class _QualityComputeBackend:
             else CAMPAIGN_DIGEST
         )
         return self._receipt(request), {
-            "quality_evaluation": {
-                "schema_version": "serving-quality-compute-evidence/v0alpha1",
-                "campaign_manifest_digest": campaign_digest,
-                "hidden_workload_manifest_digest": HIDDEN_DIGEST,
-                "quality_profile_digest": QUALITY_PROFILE_DIGEST,
-                "quality_workload_digest": QUALITY_WORKLOAD_DIGEST,
-                "candidate_digest": request.candidate_digest,
-                "candidate_manifest_digest": request.candidate_manifest_digest,
-                "role": role,
-                "repetition": repetition,
-                "run": {
+            "result": {
+                "quality_evaluation": {
+                    "schema_version": (
+                        "serving-quality-compute-evidence/v0alpha1"
+                    ),
+                    "campaign_manifest_digest": campaign_digest,
+                    "hidden_workload_manifest_digest": HIDDEN_DIGEST,
+                    "quality_profile_digest": QUALITY_PROFILE_DIGEST,
+                    "quality_workload_digest": QUALITY_WORKLOAD_DIGEST,
+                    "candidate_digest": request.candidate_digest,
+                    "candidate_manifest_digest": (
+                        request.candidate_manifest_digest
+                    ),
                     "role": role,
                     "repetition": repetition,
-                    "evidence": "normalized-fake",
-                },
+                    "run": {
+                        "role": role,
+                        "repetition": repetition,
+                        "evidence": "normalized-fake",
+                    },
+                }
             }
         }
 
@@ -86,6 +98,99 @@ class _QualityComputeBackend:
             ),
             used_seconds=17,
             failure=None,
+        )
+
+
+class _DurableQualityEvidence:
+    def __init__(self) -> None:
+        self.profile_digest = digest_value({"evidence": "quality-integration-v1"})
+        self.documents: dict[str, bytes] = {}
+        self.dispatches: dict[str, bytes] = {}
+
+    def resolve(self, pointer: ComputeEvidencePointer) -> bytes:
+        return self.documents[pointer.locator]
+
+    def resolve_dispatch(
+        self, request: ComputeExecutionRequest, external_call_id: str
+    ) -> bytes:
+        return self.dispatches[external_call_id]
+
+
+class _DurableQualityTransport:
+    def __init__(self, evidence: _DurableQualityEvidence) -> None:
+        self.profile_digest = digest_value({"transport": "quality-integration-v1"})
+        self.evidence = evidence
+        self.dispatch_count = 0
+
+    def dispatch(
+        self, request: ComputeExecutionRequest, candidate: bytes
+    ) -> ExternalDispatch:
+        self.dispatch_count += 1
+        call_id = "fc-" + request.request_digest[7:23]
+        dispatch = canonical_json_bytes(
+            {
+                "request_digest": request.request_digest,
+                "candidate_digest": digest_bytes(candidate),
+                "external_call_id": call_id,
+            }
+        )
+        self.evidence.dispatches[call_id] = dispatch
+        return ExternalDispatch(call_id, digest_bytes(dispatch))
+
+    def poll(
+        self,
+        request: ComputeExecutionRequest,
+        external_call_id: str,
+        timeout_seconds: int,
+    ) -> TransportPoll:
+        role = request.execution_key.rsplit(":", 1)[1]
+        repetition = int(request.execution_key.rsplit(":", 2)[1])
+        document = {
+            "schema_version": "compute-execution-evidence/v0alpha1",
+            "request_digest": request.request_digest,
+            "candidate_digest": request.candidate_digest,
+            "candidate_manifest_digest": request.candidate_manifest_digest,
+            "evaluator_profile_digest": request.evaluator_profile_digest,
+            "transport_profile_digest": self.profile_digest,
+            "evidence_profile_digest": self.evidence.profile_digest,
+            "external_call_id": external_call_id,
+            "status": "complete",
+            "used_seconds": 17,
+            "failure": None,
+            "result": {
+                "quality_evaluation": {
+                    "schema_version": (
+                        "serving-quality-compute-evidence/v0alpha1"
+                    ),
+                    "campaign_manifest_digest": CAMPAIGN_DIGEST,
+                    "hidden_workload_manifest_digest": HIDDEN_DIGEST,
+                    "quality_profile_digest": QUALITY_PROFILE_DIGEST,
+                    "quality_workload_digest": QUALITY_WORKLOAD_DIGEST,
+                    "candidate_digest": request.candidate_digest,
+                    "candidate_manifest_digest": (
+                        request.candidate_manifest_digest
+                    ),
+                    "role": role,
+                    "repetition": repetition,
+                    "run": {
+                        "role": role,
+                        "repetition": repetition,
+                        "evidence": "normalized-integration",
+                    },
+                }
+            },
+        }
+        content = canonical_json_bytes(document)
+        pointer = ComputeEvidencePointer(
+            f"quality/{request.request_digest[7:]}.json",
+            digest_bytes(content),
+        )
+        self.evidence.documents[pointer.locator] = content
+        return TransportPoll(
+            ComputeExecutionStatus.COMPLETE,
+            pointer,
+            17,
+            None,
         )
 
 
@@ -177,6 +282,79 @@ class ComputeQualityRepetitionBackendTests(unittest.TestCase):
             ),
             run,
         )
+
+    def test_composes_with_real_durable_compute_envelope_and_reconciliation(
+        self,
+    ) -> None:
+        evidence = _DurableQualityEvidence()
+        transport = _DurableQualityTransport(evidence)
+        durable_profile_digest = SqliteComputeBackend.profile_digest_for(
+            transport.profile_digest, evidence.profile_digest
+        )
+        profile = ComputeQualityRepetitionProfile(
+            profile_id="hidden-quality-durable-integration-v0",
+            campaign_manifest_digest=CAMPAIGN_DIGEST,
+            hidden_workload_manifest_digest=HIDDEN_DIGEST,
+            quality_profile_digest=QUALITY_PROFILE_DIGEST,
+            quality_workload_digest=QUALITY_WORKLOAD_DIGEST,
+            compute_execution_profile_digest=durable_profile_digest,
+            repetitions=3,
+            maximum_collection_seconds=300,
+        )
+        key = "hidden:durable:quality:1:reference"
+        descriptor = CAMPAIGN.validate_reference_candidate()
+        request = ComputeExecutionRequest(
+            execution_key=key,
+            campaign_run_id=self.reservation.campaign_run_id,
+            reservation_id=self.reservation.reservation_id,
+            scope=EvaluationScope.HIDDEN,
+            candidate_digest=digest_bytes(self.candidate),
+            candidate_manifest_digest=descriptor.manifest_digest,
+            evaluator_profile_digest=profile.digest,
+            maximum_seconds=self.reservation.reserved_seconds,
+        )
+        manifest = FrozenComputeRunManifest.load_or_create(
+            self.root / "durable-compute-manifest.json",
+            campaign_run_id=self.reservation.campaign_run_id,
+            compute_enabled=True,
+            transport_profile_digest=transport.profile_digest,
+            backend_profile_digest=durable_profile_digest,
+            requests=(request,),
+        )
+        durable = SqliteComputeBackend(
+            self.root / "durable-executions.sqlite3",
+            transport,
+            evidence,
+            manifest,
+        )
+        adapter = ComputeQualityRepetitionBackend(
+            self.root / "durable-quality.sqlite3",
+            CAMPAIGN,
+            profile,
+            durable,
+        )
+
+        receipt = adapter.evaluate(
+            self.candidate,
+            self.reservation,
+            key,
+            role="reference",
+            repetition=1,
+        )
+        run = adapter.resolve(
+            receipt,
+            self.candidate,
+            self.reservation,
+            role="reference",
+            repetition=1,
+        )
+
+        self.assertEqual(run["evidence"], "normalized-integration")
+        self.assertEqual(adapter.used_seconds(receipt), 17)
+        self.assertEqual(transport.dispatch_count, 1)
+        reconciled = durable.reconcile(self.reservation.campaign_run_id)
+        self.assertEqual(len(reconciled), 1)
+        self.assertEqual(reconciled[0].status, ComputeExecutionStatus.COMPLETE)
 
     def test_role_repetition_scope_and_evidence_identity_fail_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "key differs"):
