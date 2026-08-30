@@ -167,12 +167,21 @@ class ModalVllmCliTransport:
         state_root: Path,
         modal_cli: Path,
         spend_authorization: ComputeSpendAuthorizationService,
+        *,
+        evaluator_profile_digest: str | None = None,
     ) -> None:
         self._profile = profile
         self._repository_root = repository_root.resolve()
         self._state_root = state_root.resolve()
         self._modal_cli = modal_cli.resolve()
         self._spend_authorization = spend_authorization
+        self._evaluator_profile_digest = (
+            evaluator_profile_digest or profile.evaluator_profile_digest
+        )
+        if not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", self._evaluator_profile_digest
+        ):
+            raise ValueError("Modal evaluator profile digest is invalid")
         if not self._modal_cli.is_file():
             raise ValueError("Modal CLI path does not exist")
         self._campaign = ModelServingCampaign.load(profile.campaign_manifest)
@@ -322,9 +331,7 @@ class ModalVllmCliTransport:
     def _prepare_request(
         self, request: ComputeExecutionRequest, candidate: bytes
     ) -> Path:
-        if request.evaluator_profile_digest != (
-            self._profile.evaluator_profile_digest
-        ):
+        if request.evaluator_profile_digest != self._evaluator_profile_digest:
             raise ValueError("compute request uses another evaluator profile")
         if digest_bytes(candidate) != request.candidate_digest:
             raise ValueError("candidate bytes differ from the compute request")
