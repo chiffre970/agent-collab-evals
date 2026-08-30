@@ -357,6 +357,7 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
         "campaign_manifest_digest",
         "measurement_profile_digest",
         "scoring_profile_digest",
+        "performance_profile_digest",
         "repetition",
         "attempt",
         "evidence_root",
@@ -387,6 +388,7 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
         "campaign_manifest_digest",
         "measurement_profile_digest",
         "scoring_profile_digest",
+        "performance_profile_digest",
     ):
         value = spec[key]
         if not isinstance(value, str) or not value.startswith("sha256:"):
@@ -868,6 +870,9 @@ def benchmark_serving_repetition(
             "measurement_profile_digest"
         ],
         "scoring_profile_digest": benchmark_spec["scoring_profile_digest"],
+        "performance_profile_digest": benchmark_spec[
+            "performance_profile_digest"
+        ],
         "repetition": benchmark_spec["repetition"],
         "attempt": benchmark_spec["attempt"],
         "started_at": started_at,
@@ -1536,6 +1541,7 @@ def main(
     repetition: int = 1,
     attempt: int = 1,
     baseline_output_root: str = "tmp/calibration/model-serving-reference",
+    performance_profile_path: str = "campaigns/model_serving_v0/workloads/public/profile.toml",
     measurement_id: str = "",
     dispatch_only: bool = False,
     collect_only: bool = False,
@@ -1642,6 +1648,7 @@ def main(
             repetition=repetition,
             attempt=attempt,
             output_root=Path(baseline_output_root),
+            performance_profile_path=Path(performance_profile_path),
             measurement_id_override=measurement_id,
             dispatch_only=dispatch_only,
             collect_only=collect_only,
@@ -1828,6 +1835,7 @@ def _run_baseline_repetition(
     repetition: int,
     attempt: int,
     output_root: Path,
+    performance_profile_path: Path,
     measurement_id_override: str,
     dispatch_only: bool,
     collect_only: bool,
@@ -1838,8 +1846,11 @@ def _run_baseline_repetition(
     from agent_collab_evals.adapters.local_measurements import (
         LocalMeasurementBundleStore,
     )
-    from agent_collab_evals.canonical import load_json
-    from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+    from agent_collab_evals.canonical import digest_file, load_json
+    from agent_collab_evals.campaigns.model_serving import (
+        ModelServingCampaign,
+        load_benchmark_plan,
+    )
     from agent_collab_evals.campaigns.serving_benchmark import (
         build_vllm_benchmark_invocations,
     )
@@ -1856,6 +1867,14 @@ def _run_baseline_repetition(
     campaign = ModelServingCampaign.load(campaign_path)
     profile = campaign.measurement_profile()
     scoring = campaign.scoring_profile()
+    resolved_performance_profile = performance_profile_path.resolve(strict=True)
+    performance_profile_digest = digest_file(resolved_performance_profile)
+    plan = load_benchmark_plan(resolved_performance_profile)
+    scoring.validate_against(
+        plan,
+        measurement_profile_digest=profile.digest,
+        measurement_repetitions=profile.repetitions,
+    )
     if not 1 <= repetition <= profile.repetitions:
         raise ValueError(
             f"repetition must be between 1 and {profile.repetitions}"
@@ -1889,7 +1908,8 @@ def _run_baseline_repetition(
     derived_measurement_id = (
         f"{score_role}-{descriptor.candidate_id}-"
         f"{profile.digest.removeprefix('sha256:')[:8]}-"
-        f"{scoring.digest.removeprefix('sha256:')[:8]}"
+        f"{scoring.digest.removeprefix('sha256:')[:8]}-"
+        f"{performance_profile_digest.removeprefix('sha256:')[:8]}"
     )
     measurement_id = measurement_id_override or derived_measurement_id
     store = LocalMeasurementBundleStore(output_root)
@@ -1957,7 +1977,7 @@ def _run_baseline_repetition(
         f"{campaign.target_model_revision}"
     )
     invocations = build_vllm_benchmark_invocations(
-        campaign.benchmark_plan(),
+        plan,
         base_url=f"http://127.0.0.1:{candidate['server']['port']}",
         model_source=model_source,
         served_model_name=str(candidate["server"]["served_model_name"]),
@@ -1974,6 +1994,7 @@ def _run_baseline_repetition(
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
         "scoring_profile_digest": scoring.digest,
+        "performance_profile_digest": performance_profile_digest,
         "repetition": repetition,
         "attempt": attempt,
         "evidence_root": evidence_root,
@@ -2000,6 +2021,7 @@ def _run_baseline_repetition(
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
         "scoring_profile_digest": scoring.digest,
+        "performance_profile_digest": performance_profile_digest,
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
         "evidence_root": evidence_root,
@@ -2123,6 +2145,7 @@ def _run_baseline_repetition(
             "campaign_manifest_digest": campaign.manifest_digest,
             "measurement_profile_digest": profile.digest,
             "scoring_profile_digest": scoring.digest,
+            "performance_profile_digest": performance_profile_digest,
             "candidate_manifest_digest": descriptor.manifest_digest,
             "candidate_id": descriptor.candidate_id,
             "platform_build": {
@@ -2169,7 +2192,6 @@ def _run_baseline_repetition(
     points: list[dict[str, Any]] = []
     goodput_replays = []
     parse_errors: list[str] = []
-    plan = campaign.benchmark_plan()
     for invocation in invocations:
         raw = raw_results.get(invocation.result_file.name)
         if raw is None:
@@ -2219,6 +2241,7 @@ def _run_baseline_repetition(
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
         "scoring_profile_digest": scoring.digest,
+        "performance_profile_digest": performance_profile_digest,
         "repetition": repetition,
         "attempt": attempt,
     }
@@ -2286,6 +2309,7 @@ def _run_baseline_repetition(
         "campaign_manifest_digest": campaign.manifest_digest,
         "measurement_profile_digest": profile.digest,
         "scoring_profile_digest": scoring.digest,
+        "performance_profile_digest": performance_profile_digest,
         "candidate_manifest_digest": descriptor.manifest_digest,
         "candidate_id": descriptor.candidate_id,
         "platform_build": {

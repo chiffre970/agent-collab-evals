@@ -7,7 +7,6 @@ import json
 import os
 import re
 import tempfile
-import tomllib
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -21,7 +20,7 @@ from ..canonical import (
     load_json,
     parse_json,
 )
-from .model_serving import BenchmarkPlan
+from .model_serving import BenchmarkPlan, ManifestValidationError, load_benchmark_plan
 
 
 HIDDEN_WORKLOAD_SCHEMA = "model-serving-hidden-workload/v0alpha1"
@@ -365,17 +364,15 @@ def _validate_correctness(path: Path) -> None:
 
 def _validate_performance(path: Path, public_plan: BenchmarkPlan) -> None:
     try:
-        with path.open("rb") as source:
-            value = tomllib.load(source)
-    except tomllib.TOMLDecodeError as error:
+        hidden = load_benchmark_plan(path)
+    except ManifestValidationError as error:
         raise HiddenWorkloadError("hidden performance profile is invalid") from error
-    expected = tomllib.loads(_performance_bytes(public_plan, public_plan.seed).decode())
-    if not isinstance(value.get("seed"), int) or isinstance(value["seed"], bool):
-        raise HiddenWorkloadError("hidden performance seed is invalid")
-    if value["seed"] == public_plan.seed:
+    if hidden.seed == public_plan.seed:
         raise HiddenWorkloadError("hidden performance seed matches public data")
-    expected["seed"] = value["seed"]
-    if value != expected:
+    if (
+        hidden.metric_percentiles != public_plan.metric_percentiles
+        or hidden.buckets != public_plan.buckets
+    ):
         raise HiddenWorkloadError("hidden performance shape differs from public plan")
 
 

@@ -614,6 +614,11 @@ the lane profile; accepting a coherently rewritten local manifest is forbidden.
 Owner-only file modes are defense in depth and do not substitute for the
 registered sandbox's filesystem boundary.
 
+Each serving-performance execution also carries an explicit performance
+profile digest. The trusted collector constructs benchmark invocations from
+that exact profile, and the digest is retained in dispatch, remote and
+normalized evidence. A transport default is not an experiment authority.
+
 ## Submission registry
 
 ```text

@@ -371,64 +371,7 @@ class ModelServingCampaign:
         profile_path = self._member(
             self.root, str(self.raw["workload"]["public_profile"])
         )
-        with profile_path.open("rb") as source:
-            profile = tomllib.load(source)
-        if profile.get("schema_version") != "serving-workload/v0alpha1":
-            raise ManifestValidationError("unsupported public workload schema")
-        self._exact_keys(
-            profile,
-            {"schema_version", "seed", "metric_percentiles", "buckets"},
-            "public workload",
-        )
-        seed = profile.get("seed")
-        if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
-            raise ManifestValidationError("workload seed must be non-negative")
-        percentiles = tuple(profile.get("metric_percentiles", []))
-        if (
-            not percentiles
-            or any(
-                not isinstance(value, int)
-                or isinstance(value, bool)
-                or not 1 <= value <= 100
-                for value in percentiles
-            )
-            or tuple(sorted(set(percentiles))) != percentiles
-        ):
-            raise ManifestValidationError(
-                "metric percentiles must be unique ascending integers from 1 to 100"
-            )
-        buckets: list[BenchmarkBucket] = []
-        seen: set[str] = set()
-        for item in profile.get("buckets", []):
-            if not isinstance(item, dict):
-                raise ManifestValidationError("workload bucket must be a mapping")
-            self._exact_keys(
-                item,
-                {"id", "input_tokens", "output_tokens", "request_rates", "num_prompts"},
-                "workload bucket",
-            )
-            bucket_id = str(item.get("id", ""))
-            if not _IDENTIFIER.fullmatch(bucket_id) or bucket_id in seen:
-                raise ManifestValidationError("invalid or duplicate workload bucket id")
-            seen.add(bucket_id)
-            bucket = BenchmarkBucket(
-                bucket_id=bucket_id,
-                input_tokens=self._positive_int(item, "input_tokens"),
-                output_tokens=self._positive_int(item, "output_tokens"),
-                request_rates=tuple(item.get("request_rates", [])),
-                num_prompts=self._positive_int(item, "num_prompts"),
-            )
-            if not bucket.request_rates or any(
-                not isinstance(rate, int) or isinstance(rate, bool) or rate < 1
-                for rate in bucket.request_rates
-            ):
-                raise ManifestValidationError(
-                    f"bucket {bucket_id} has invalid request rates"
-                )
-            buckets.append(bucket)
-        if not buckets:
-            raise ManifestValidationError("at least one workload bucket is required")
-        return BenchmarkPlan(seed, percentiles, tuple(buckets))
+        return load_benchmark_plan(profile_path)
 
     def validate_candidate(self, candidate_path: Path) -> CandidateDescriptor:
         return self.validate_candidate_document(self._load_candidate(candidate_path))
@@ -816,3 +759,69 @@ class ModelServingCampaign:
         if amount <= 0:
             raise ManifestValidationError(f"{key} must be positive")
         return amount
+
+
+def load_benchmark_plan(profile_path: Path) -> BenchmarkPlan:
+    """Load a public or evaluator-private serving workload profile."""
+
+    try:
+        with profile_path.resolve(strict=True).open("rb") as source:
+            profile = tomllib.load(source)
+    except tomllib.TOMLDecodeError as error:
+        raise ManifestValidationError("serving workload is not valid TOML") from error
+    if profile.get("schema_version") != "serving-workload/v0alpha1":
+        raise ManifestValidationError("unsupported serving workload schema")
+    ModelServingCampaign._exact_keys(
+        profile,
+        {"schema_version", "seed", "metric_percentiles", "buckets"},
+        "serving workload",
+    )
+    seed = profile.get("seed")
+    if not isinstance(seed, int) or isinstance(seed, bool) or seed < 0:
+        raise ManifestValidationError("workload seed must be non-negative")
+    percentiles = tuple(profile.get("metric_percentiles", []))
+    if (
+        not percentiles
+        or any(
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 1 <= value <= 100
+            for value in percentiles
+        )
+        or tuple(sorted(set(percentiles))) != percentiles
+    ):
+        raise ManifestValidationError(
+            "metric percentiles must be unique ascending integers from 1 to 100"
+        )
+    buckets: list[BenchmarkBucket] = []
+    seen: set[str] = set()
+    for item in profile.get("buckets", []):
+        if not isinstance(item, dict):
+            raise ManifestValidationError("workload bucket must be a mapping")
+        ModelServingCampaign._exact_keys(
+            item,
+            {"id", "input_tokens", "output_tokens", "request_rates", "num_prompts"},
+            "workload bucket",
+        )
+        bucket_id = str(item.get("id", ""))
+        if not _IDENTIFIER.fullmatch(bucket_id) or bucket_id in seen:
+            raise ManifestValidationError("invalid or duplicate workload bucket id")
+        seen.add(bucket_id)
+        bucket = BenchmarkBucket(
+            bucket_id=bucket_id,
+            input_tokens=ModelServingCampaign._positive_int(item, "input_tokens"),
+            output_tokens=ModelServingCampaign._positive_int(item, "output_tokens"),
+            request_rates=tuple(item.get("request_rates", [])),
+            num_prompts=ModelServingCampaign._positive_int(item, "num_prompts"),
+        )
+        if not bucket.request_rates or any(
+            not isinstance(rate, int) or isinstance(rate, bool) or rate < 1
+            for rate in bucket.request_rates
+        ):
+            raise ManifestValidationError(
+                f"bucket {bucket_id} has invalid request rates"
+            )
+        buckets.append(bucket)
+    if not buckets:
+        raise ManifestValidationError("at least one workload bucket is required")
+    return BenchmarkPlan(seed, percentiles, tuple(buckets))

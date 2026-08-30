@@ -47,6 +47,39 @@ def _quality_spec() -> dict[str, object]:
     }
 
 
+def _benchmark_spec() -> dict[str, object]:
+    invocations = []
+    for index in range(9):
+        filename = f"point-{index}.json"
+        invocations.append(
+            {
+                "bucket_id": f"bucket-{index}",
+                "request_rate": index + 1,
+                "result_filename": filename,
+                "argv": [
+                    "vllm",
+                    "bench",
+                    "serve",
+                    "--result-dir",
+                    str(MODAL_VLLM.BENCHMARK_RESULT_ROOT),
+                    "--result-filename",
+                    filename,
+                ],
+            }
+        )
+    return {
+        "campaign_manifest_digest": "sha256:" + "1" * 64,
+        "measurement_profile_digest": "sha256:" + "2" * 64,
+        "scoring_profile_digest": "sha256:" + "3" * 64,
+        "performance_profile_digest": "sha256:" + "4" * 64,
+        "repetition": 1,
+        "attempt": 1,
+        "evidence_root": "model-serving/abc/repetition-0001-attempt-01",
+        "point_timeout_seconds": 300,
+        "invocations": invocations,
+    }
+
+
 class _ReadOnlyVolume:
     def __init__(self, files: dict[str, bytes]) -> None:
         self.files = files
@@ -167,6 +200,20 @@ class ModalVllmContractTests(unittest.TestCase):
         changed["evidence_root"] = "../outside"
         with self.assertRaisesRegex(ValueError, "evidence root"):
             MODAL_VLLM._validate_quality_spec(changed)
+
+    def test_benchmark_spec_requires_the_performance_profile_digest(self) -> None:
+        valid = _benchmark_spec()
+        self.assertEqual(len(MODAL_VLLM._validate_benchmark_spec(valid)), 9)
+
+        changed = copy.deepcopy(valid)
+        changed.pop("performance_profile_digest")
+        with self.assertRaisesRegex(ValueError, "fields differ"):
+            MODAL_VLLM._validate_benchmark_spec(changed)
+
+        changed = copy.deepcopy(valid)
+        changed["performance_profile_digest"] = "mutable"
+        with self.assertRaisesRegex(ValueError, "performance_profile_digest"):
+            MODAL_VLLM._validate_benchmark_spec(changed)
 
     def test_quality_spec_rejects_nonfinite_or_out_of_range_sampling(self) -> None:
         for key, value in (

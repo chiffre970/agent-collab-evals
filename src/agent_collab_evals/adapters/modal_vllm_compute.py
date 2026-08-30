@@ -45,6 +45,8 @@ class ModalVllmComputeProfile:
     modal_script_digest: str
     campaign_manifest: Path
     campaign_manifest_digest: str
+    performance_profile: Path
+    performance_profile_digest: str
     repetition: int
     attempt: int
     maximum_collection_seconds: int
@@ -69,6 +71,8 @@ class ModalVllmComputeProfile:
             "modal_script_digest",
             "campaign_manifest",
             "campaign_manifest_digest",
+            "performance_profile",
+            "performance_profile_digest",
             "repetition",
             "attempt",
             "maximum_collection_seconds",
@@ -86,11 +90,21 @@ class ModalVllmComputeProfile:
         campaign_manifest = _repository_member(
             repository_root, document["campaign_manifest"]
         )
+        performance_profile = _repository_member(
+            repository_root, document["performance_profile"]
+        )
         if digest_file(modal_script) != document["modal_script_digest"]:
             raise ValueError("Modal evaluator script digest differs")
         campaign = ModelServingCampaign.load(campaign_manifest)
         if campaign.manifest_digest != document["campaign_manifest_digest"]:
             raise ValueError("Modal campaign manifest digest differs")
+        if digest_file(performance_profile) != document["performance_profile_digest"]:
+            raise ValueError("Modal performance profile digest differs")
+        if (
+            document["performance_profile_digest"]
+            != campaign.transitive_digests["public_profile"]
+        ):
+            raise ValueError("development Modal profile must use public performance")
         if importlib.metadata.version("modal") != document["modal_client_version"]:
             raise ValueError("installed Modal client differs from the profile")
         for key in ("profile_id", "modal_environment", "evidence_volume"):
@@ -114,6 +128,8 @@ class ModalVllmComputeProfile:
             modal_script_digest=str(document["modal_script_digest"]),
             campaign_manifest=campaign_manifest,
             campaign_manifest_digest=str(document["campaign_manifest_digest"]),
+            performance_profile=performance_profile,
+            performance_profile_digest=str(document["performance_profile_digest"]),
             repetition=document["repetition"],
             attempt=document["attempt"],
             maximum_collection_seconds=maximum_collection_seconds,
@@ -133,6 +149,7 @@ class ModalVllmComputeProfile:
                 "adapter": "modal-vllm-development-evaluator/v0alpha1",
                 "compute_profile_digest": self.digest,
                 "campaign_manifest_digest": campaign.manifest_digest,
+                "performance_profile_digest": self.performance_profile_digest,
                 "measurement_profile_digest": campaign.measurement_profile().digest,
                 "scoring_profile_digest": campaign.scoring_profile().digest,
                 "repetitions": 1,
@@ -232,6 +249,7 @@ class ModalVllmCliTransport:
         expected = {
             "measurement_id": measurement_id,
             "campaign_manifest_digest": self._campaign.manifest_digest,
+            "performance_profile_digest": self._profile.performance_profile_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
             "repetition": self._profile.repetition,
             "attempt": self._profile.attempt,
@@ -368,6 +386,8 @@ class ModalVllmCliTransport:
             str(self._profile.attempt),
             "--baseline-output-root",
             str(self._state_root / "measurements"),
+            "--performance-profile-path",
+            str(self._profile.performance_profile),
             "--measurement-id",
             measurement_id,
         ]
@@ -443,6 +463,7 @@ class ModalVllmEvidenceResolver:
         expected = {
             "measurement_id": measurement_id,
             "campaign_manifest_digest": self._profile.campaign_manifest_digest,
+            "performance_profile_digest": self._profile.performance_profile_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
             "repetition": self._profile.repetition,
             "attempt": self._profile.attempt,
@@ -493,6 +514,7 @@ class ModalVllmEvidenceResolver:
             raise RuntimeError("Modal normalized evidence is invalid")
         expected = {
             "campaign_manifest_digest": self._profile.campaign_manifest_digest,
+            "performance_profile_digest": self._profile.performance_profile_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
             "modal_function_call_id": external_call_id,
             "repetition": self._profile.repetition,

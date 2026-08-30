@@ -116,6 +116,10 @@ class ModalComputeAdapterTests(unittest.TestCase):
             self.profile.campaign_manifest_digest,
             self.campaign.manifest_digest,
         )
+        self.assertEqual(
+            self.profile.performance_profile_digest,
+            self.campaign.transitive_digests["public_profile"],
+        )
         environment = _minimal_modal_environment()
         self.assertNotIn("OPENROUTER_API_KEY", environment)
         self.assertNotIn("HF_TOKEN", environment)
@@ -128,6 +132,10 @@ class ModalComputeAdapterTests(unittest.TestCase):
         )
         self.assertEqual(command[1:5], ("run", "--detach", "-e", "dev"))
         self.assertIn("--dispatch-only", command)
+        profile_index = command.index("--performance-profile-path")
+        self.assertEqual(
+            command[profile_index + 1], str(self.profile.performance_profile)
+        )
 
     def test_transport_rejects_dispatch_without_spend_authorization(self) -> None:
         root = self.state_root / "unauthorized"
@@ -181,6 +189,9 @@ class ModalComputeAdapterTests(unittest.TestCase):
                     {
                         "measurement_id": measurement_id,
                         "campaign_manifest_digest": self.campaign.manifest_digest,
+                        "performance_profile_digest": self.campaign.transitive_digests[
+                            "public_profile"
+                        ],
                         "candidate_manifest_digest": (
                             self.request.candidate_manifest_digest
                         ),
@@ -204,6 +215,9 @@ class ModalComputeAdapterTests(unittest.TestCase):
 
         normalized = {
             "campaign_manifest_digest": self.campaign.manifest_digest,
+            "performance_profile_digest": self.campaign.transitive_digests[
+                "public_profile"
+            ],
             "candidate_manifest_digest": self.request.candidate_manifest_digest,
             "modal_function_call_id": function_call_id,
             "repetition": 1,
@@ -257,6 +271,13 @@ class ModalComputeAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "script digest differs"):
             ModalVllmComputeProfile.load(path, repository_root=REPOSITORY_ROOT)
 
+        changed = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        changed["performance_profile_digest"] = "sha256:" + "0" * 64
+        path = self.state_root / "changed-workload-profile.json"
+        path.write_text(json.dumps(changed), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "performance profile digest differs"):
+            ModalVllmComputeProfile.load(path, repository_root=REPOSITORY_ROOT)
+
     def test_terminal_remote_failure_is_reconcilable_without_scored_evidence(
         self,
     ) -> None:
@@ -274,6 +295,9 @@ class ModalComputeAdapterTests(unittest.TestCase):
                 {
                     "measurement_id": measurement_id,
                     "campaign_manifest_digest": self.campaign.manifest_digest,
+                    "performance_profile_digest": self.campaign.transitive_digests[
+                        "public_profile"
+                    ],
                     "candidate_manifest_digest": (
                         self.request.candidate_manifest_digest
                     ),
@@ -287,6 +311,9 @@ class ModalComputeAdapterTests(unittest.TestCase):
         )
         failure = {
             "campaign_manifest_digest": self.campaign.manifest_digest,
+            "performance_profile_digest": self.campaign.transitive_digests[
+                "public_profile"
+            ],
             "candidate_manifest_digest": self.request.candidate_manifest_digest,
             "modal_function_call_id": function_call_id,
             "repetition": 1,

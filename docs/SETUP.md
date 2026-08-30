@@ -435,6 +435,11 @@ collab-evals modal-compute-development \
   --run-id modal-development-reference-v1
 ```
 
+The pinned compute profile supplies the public performance workload explicitly;
+the runner records its digest throughout dispatch and result evidence. Do not
+override that path for a durable development run. Hidden performance will use
+a separate profile bound to the registered private-bundle digest.
+
 The CLI first freezes the exact compute request and transport/backend profiles
 in `compute-run-manifest.json`. A separate SQLite authorization service records
 the approval digest and issues a request-, transport- and manifest-bound spend
