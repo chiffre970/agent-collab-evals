@@ -91,6 +91,17 @@ class _ReadOnlyVolume:
             raise FileNotFoundError(path) from error
 
 
+class _EventuallyVisibleVolume:
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self.files = files
+        self.reads: dict[str, int] = {}
+
+    def read_file(self, path: str):
+        reads = self.reads.get(path, 0)
+        self.reads[path] = reads + 1
+        yield b"" if reads == 0 else self.files[path]
+
+
 class ModalVllmContractTests(unittest.TestCase):
     def test_server_command_is_built_from_typed_settings(self) -> None:
         candidate = json.loads(
@@ -314,6 +325,50 @@ class ModalVllmContractTests(unittest.TestCase):
         self.assertEqual(loaded_receipt, receipt)
         self.assertEqual(loaded, {"point.json": raw})
         self.assertEqual(observed, evidence)
+
+    def test_staging_collection_retries_empty_visible_files(self) -> None:
+        root = "model-serving/abc/repetition-0001-attempt-01"
+        prefix = f"{root}/evidence"
+        raw = b'{"result":"ok"}'
+        receipt = {"ok": True, "candidate_id": "candidate"}
+        receipt_bytes = MODAL_VLLM._stable_json_bytes(receipt)
+        receipt_digest = "sha256:" + hashlib.sha256(receipt_bytes).hexdigest()
+        evidence = {
+            "schema_version": "modal-evaluator-evidence/v0alpha1",
+            "volume_name": MODAL_VLLM.STAGING_VOLUME_NAME,
+            "root": root,
+            "remote_receipt_digest": receipt_digest,
+            "raw_digests": {
+                "point.json": "sha256:" + hashlib.sha256(raw).hexdigest()
+            },
+        }
+        volume = _EventuallyVisibleVolume(
+            {
+                f"{prefix}/manifest.json": MODAL_VLLM._stable_json_bytes(evidence),
+                f"{prefix}/remote-receipt.json": receipt_bytes,
+                f"{prefix}/raw/point.json": raw,
+            }
+        )
+        pointer = {
+            "schema_version": "modal-evaluator-staging-pointer/v0alpha1",
+            "volume_name": MODAL_VLLM.STAGING_VOLUME_NAME,
+            "root": root,
+            "remote_receipt_digest": receipt_digest,
+        }
+
+        loaded_receipt, loaded, observed = MODAL_VLLM._collect_volume_evidence(
+            volume,
+            pointer,
+            expected_root=root,
+            expected_volume_name=MODAL_VLLM.STAGING_VOLUME_NAME,
+            path_prefix=prefix,
+            visibility_timeout_seconds=1,
+        )
+
+        self.assertEqual(loaded_receipt, receipt)
+        self.assertEqual(loaded, {"point.json": raw})
+        self.assertEqual(observed, evidence)
+        self.assertTrue(all(reads == 2 for reads in volume.reads.values()))
 
 
 if __name__ == "__main__":

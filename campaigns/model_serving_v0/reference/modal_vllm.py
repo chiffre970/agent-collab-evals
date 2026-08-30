@@ -1465,6 +1465,7 @@ def _collect_volume_evidence(
         volume,
         f"{path_prefix}/remote-receipt.json",
         wait_seconds=visibility_timeout_seconds,
+        expected_digest=evidence["remote_receipt_digest"],
     )
     receipt_digest = f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}"
     if receipt_digest != evidence["remote_receipt_digest"]:
@@ -1488,6 +1489,7 @@ def _collect_volume_evidence(
             volume,
             f"{path_prefix}/raw/{filename}",
             wait_seconds=visibility_timeout_seconds,
+            expected_digest=expected_digest,
         )
         observed_digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
         if observed_digest != expected_digest:
@@ -1500,15 +1502,30 @@ def _read_evidence_file(path: str) -> bytes:
     return _read_volume_file(evidence_volume, path)
 
 
-def _read_volume_file(volume: Any, path: str, *, wait_seconds: int = 0) -> bytes:
+def _read_volume_file(
+    volume: Any,
+    path: str,
+    *,
+    wait_seconds: int = 0,
+    expected_digest: str | None = None,
+) -> bytes:
     deadline = time.monotonic() + wait_seconds
     while True:
         try:
-            return b"".join(volume.read_file(path))
+            content = b"".join(volume.read_file(path))
         except FileNotFoundError:
             if time.monotonic() >= deadline:
                 raise
             time.sleep(0.25)
+            continue
+        observed_digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+        if content and (
+            expected_digest is None or observed_digest == expected_digest
+        ):
+            return content
+        if time.monotonic() >= deadline:
+            return content
+        time.sleep(0.25)
 
 
 def _publish_normalized_evidence(
