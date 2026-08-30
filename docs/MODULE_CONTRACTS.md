@@ -614,6 +614,26 @@ the lane profile; accepting a coherently rewritten local manifest is forbidden.
 Owner-only file modes are defense in depth and do not substitute for the
 registered sandbox's filesystem boundary.
 
+The hidden serving outcome is the fail-closed composition of exactly three
+registered phases in fixed order: correctness, reference-relative quality and
+performance. Each phase profile binds its evaluator authority, private workload
+digest and positive integer GPU-second allowance. The allowances exactly
+partition the outer hidden reservation. Phase reservations are derived
+deterministically from that outer reservation, and a retry must recover the same
+phase receipts. Eligibility requires all three phase gates; only an eligible
+outcome carries the performance phase's integer criterion into downstream
+analysis. A failed gate produces criterion zero while retaining the performance
+measurement as evaluator-private diagnostic evidence.
+
+The composite receipt binds the campaign evaluator profile, candidate,
+selection-scoped reservation and all three evaluator-owned phase receipts.
+Resolution independently re-resolves each phase, reconstructs the normalized
+outcome and sums uncapped phase usage before the compute broker settles the
+outer reservation. The composition permits a registered backend to co-schedule
+compatible phases behind those receipts; it does not require three GPU
+startups. Any such co-scheduling policy, shared-server lifecycle and attribution
+of phase usage must be frozen in the backend profile and schedule.
+
 Each serving-performance execution also carries an explicit performance
 profile digest. The trusted collector constructs benchmark invocations from
 that exact profile, and the digest is retained in dispatch, remote and

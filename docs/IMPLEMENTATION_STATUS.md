@@ -312,7 +312,15 @@ smallest useful seams before adding the runtime and collaboration machinery.
   distinct visible and hidden evaluator profiles, workloads, compute accounts,
   schedules and evidence namespaces. Durable outer receipts bind the selected
   lane and underlying evaluator authority; cross-scope use and ledger tampering
-  fail closed. The underlying registered Modal lanes remain to be promoted.
+  fail closed.
+- A hidden serving evaluator now composes correctness, reference-relative
+  quality and performance behind one durable receipt. Its fixed phase
+  allowances exactly partition the hidden reservation; it derives stable phase
+  reservations, re-resolves all evaluator-owned evidence after restart, sums
+  uncapped usage and admits the performance criterion only when every gate
+  passes. No-spend tests cover retries, restart, failed gates, wrong scope,
+  budget mismatch and composite or phase-ledger tampering. The underlying
+  registered Modal phase adapters remain to be promoted.
 
 ## Not implemented
 
@@ -333,12 +341,13 @@ The following remain gates, not implied capabilities:
    mandatory compute reconciliation pass locally. The current adapter accepts
    only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
-3. The production evaluator path for public and hidden measurements, including
-   the remaining correctness, stability and shortcut gates and complete
-   confirmatory evidence retention. Neutral selection and result-release
-   enforcement pass locally, and the calibration Volume path is durable, but
-   they are not yet composed with registered Modal execution and a hidden
-   workload as a production service.
+3. The production phase adapters for public and hidden measurements, including
+   execution of hidden correctness and quality, stability and shortcut gates,
+   efficient registered phase co-scheduling, and complete confirmatory evidence
+   retention. Neutral selection, result-release enforcement, hidden-workload
+   authority and fail-closed outcome composition pass locally, and the
+   calibration Volume path is durable, but the phases are not yet backed by a
+   registered Modal service.
 4. Four-condition scheduling, registered manifests, combined platform audit
    export and the
    preregistered statistical analysis.
@@ -371,7 +380,9 @@ Development provider-route qualification, condition-matched cache isolation,
 nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem, and process-resource
 enforcement remain scored-run gates. The durable development dispatch and
-collection gate is complete. The next gate is registered compute/evaluator
-promotion with hidden workload separation, followed by complete resolved-run
+collection gate is complete. Hidden workload separation and the no-spend
+three-phase composition contract are also complete. The next gate is
+implementing the workload-specific Modal phase adapters and freezing their
+registered compute/evaluator profiles, followed by complete resolved-run
 manifests and four-condition scheduling. No live multi-condition model run is
 authorized yet.
