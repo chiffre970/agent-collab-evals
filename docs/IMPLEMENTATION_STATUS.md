@@ -321,6 +321,14 @@ smallest useful seams before adding the runtime and collaboration machinery.
   passes. No-spend tests cover retries, restart, failed gates, wrong scope,
   budget mismatch and composite or phase-ledger tampering. The underlying
   registered Modal phase adapters remain to be promoted.
+- A provider-neutral trusted correctness scorer now loads both public and
+  hidden JSON-lines workloads, constructs fixed non-thinking OpenAI-compatible
+  requests and scores verbatim response bytes. It binds every response digest,
+  checks the served-model identity, single stopped assistant choice and
+  exact/regex/case-folded result, and distinguishes schema from answer failures
+  without copying expected hidden answers into diagnostics. Hidden bundle
+  validation reuses this parser so materialization and scoring cannot accept
+  different request contracts.
 
 ## Not implemented
 

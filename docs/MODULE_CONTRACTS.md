@@ -634,6 +634,15 @@ compatible phases behind those receipts; it does not require three GPU
 startups. Any such co-scheduling policy, shared-server lifecycle and attribution
 of phase usage must be frozen in the backend profile and schedule.
 
+The correctness phase builds bounded, non-streaming, non-thinking requests from
+the registered JSON-lines workload and evaluates the raw OpenAI-compatible
+response bytes. It requires the registered served-model identity, exactly one
+stopped assistant choice and the declared exact, case-folded exact or regular-
+expression check. The evidence digest binds every raw response digest and the
+workload digest. Schema failures and answer failures remain distinct without
+placing expected hidden answers in result metadata. Hidden-bundle admission and
+trusted response scoring use the same workload parser.
+
 Each serving-performance execution also carries an explicit performance
 profile digest. The trusted collector constructs benchmark invocations from
 that exact profile, and the digest is retained in dispatch, remote and

@@ -21,6 +21,10 @@ from ..canonical import (
     parse_json,
 )
 from .model_serving import BenchmarkPlan, ManifestValidationError, load_benchmark_plan
+from .serving_correctness import (
+    CorrectnessValidationError,
+    load_correctness_workload,
+)
 
 
 HIDDEN_WORKLOAD_SCHEMA = "model-serving-hidden-workload/v0alpha1"
@@ -321,45 +325,10 @@ def _performance_bytes(plan: BenchmarkPlan, seed: int) -> bytes:
 
 
 def _validate_correctness(path: Path) -> None:
-    identifiers: set[str] = set()
-    rows = path.read_text(encoding="utf-8").splitlines()
-    if not rows:
-        raise HiddenWorkloadError("hidden correctness workload is empty")
-    for line in rows:
-        try:
-            value = parse_json(line)
-        except (json.JSONDecodeError, DuplicateKeyError) as error:
-            raise HiddenWorkloadError("hidden correctness request is invalid") from error
-        if not isinstance(value, dict) or set(value) != {
-            "id",
-            "messages",
-            "max_tokens",
-            "check",
-        }:
-            raise HiddenWorkloadError("hidden correctness request fields differ")
-        identifier = value["id"]
-        if not isinstance(identifier, str) or not identifier or identifier in identifiers:
-            raise HiddenWorkloadError("hidden correctness IDs are invalid")
-        identifiers.add(identifier)
-        if type(value["max_tokens"]) is not int or value["max_tokens"] < 1:
-            raise HiddenWorkloadError("hidden correctness token limit is invalid")
-        messages = value["messages"]
-        check = value["check"]
-        if (
-            not isinstance(messages, list)
-            or len(messages) != 1
-            or not isinstance(messages[0], dict)
-            or set(messages[0]) != {"role", "content"}
-            or messages[0]["role"] != "user"
-            or not isinstance(messages[0]["content"], str)
-            or not messages[0]["content"]
-            or not isinstance(check, dict)
-            or set(check) != {"kind", "value"}
-            or check["kind"] not in {"exact", "regex", "casefold_exact"}
-            or not isinstance(check["value"], str)
-            or not check["value"]
-        ):
-            raise HiddenWorkloadError("hidden correctness request is invalid")
+    try:
+        load_correctness_workload(path)
+    except CorrectnessValidationError as error:
+        raise HiddenWorkloadError("hidden correctness workload is invalid") from error
 
 
 def _validate_performance(path: Path, public_plan: BenchmarkPlan) -> None:
