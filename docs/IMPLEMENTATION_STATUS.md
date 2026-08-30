@@ -347,6 +347,18 @@ smallest useful seams before adding the runtime and collaboration machinery.
   this adapter through the real `SqliteComputeBackend`, its frozen run manifest,
   fixed standard evidence envelope, dispatch-evidence verification and
   close-time reconciliation rather than relying only on a permissive fake.
+- A Modal quality transport now binds each hidden repetition to the frozen
+  campaign, hidden-workload manifest, private workload, canonical request file,
+  candidate, role and repetition before dispatch. It reuses the hardened
+  single-use L4 quality runner, requires durable spend authorization and
+  normalizes the retained Modal bundle into the standard compute evidence
+  envelope. A no-spend integration test composes that envelope with
+  `SqliteComputeBackend` and the quality-repetition adapter, accounts for the
+  uncapped measured duration and completes close-time reconciliation. The live
+  conformance run and registered profile are still pending. Tests now build the
+  production profile from a real 64-case private bundle, compose the actual
+  transport with durable SQLite spend authorization, and execute the complete
+  three-pair role schedule as six separately reconciled durable compute jobs.
 
 ## Not implemented
 
@@ -367,13 +379,14 @@ The following remain gates, not implied capabilities:
    mandatory compute reconciliation pass locally. The current adapter accepts
    only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
-3. The production Modal repetition backends for public and hidden measurements,
-   including execution of hidden correctness and paired quality, stability and shortcut gates,
-   efficient registered phase co-scheduling, and complete confirmatory evidence
-   retention. Neutral selection, result-release enforcement, hidden-workload
-   authority and fail-closed outcome composition pass locally, and the
-   calibration Volume path is durable, but the phases are not yet backed by a
-   registered Modal service.
+3. The remaining production Modal repetition backends for public and hidden
+   measurements, including hidden correctness and performance, stability and
+   shortcut gates, efficient registered phase co-scheduling, and complete
+   confirmatory evidence retention. The paired-quality transport now passes
+   locally through the durable compute boundary, but it still needs a bounded
+   live conformance run and registered profile. Neutral selection,
+   result-release enforcement, hidden-workload authority, and fail-closed
+   outcome composition pass locally.
 4. Four-condition scheduling, registered manifests, combined platform audit
    export and the
    preregistered statistical analysis.
@@ -393,7 +406,7 @@ confirmatory policy.
 The direct-vLLM sensitivity gate and the paired generation-quality calibration
 are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. The durable development compute state machine,
-frozen run authority, durable spend authorization, pinned Modal transport and
+frozen run authority, durable spend authorization, pinned Modal transport, and
 visible evaluator composition are implemented and tested without live spend.
 The hardened command, secret, network, model-cache and evidence boundaries now
 pass a bounded live Modal conformance run. The first complete development
@@ -407,8 +420,8 @@ nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem, and process-resource
 enforcement remain scored-run gates. The durable development dispatch and
 collection gate is complete. Hidden workload separation and the no-spend
-three-phase composition contract are also complete. The next gate is
-implementing the workload-specific Modal repetition backends and freezing their
-registered compute/evaluator profiles, followed by complete resolved-run
-manifests and four-condition scheduling. No live multi-condition model run is
-authorized yet.
+three-phase composition contract are also complete. The paired-quality Modal
+path now passes the no-spend durable integration gate. The next gate is its one
+bounded live conformance run, followed by the hidden correctness and performance
+transports, frozen registered profiles, complete resolved-run manifests, and
+four-condition scheduling. No live multi-condition model run is authorized yet.

@@ -13,6 +13,7 @@ from agent_collab_evals.campaigns.serving_workload import (
     HiddenWorkloadExpectations,
     load_hidden_workload,
     materialize_hidden_workload,
+    verify_quality_request_specs,
 )
 from agent_collab_evals.canonical import digest_bytes, digest_value
 
@@ -227,6 +228,55 @@ class HiddenServingWorkloadTests(unittest.TestCase):
                 self.expectations,
                 self.campaign.benchmark_plan(),
                 registered_manifest_digest=bundle.manifest_digest,
+            )
+
+    def test_quality_request_specs_bind_executable_values(self) -> None:
+        bundle = materialize_hidden_workload(
+            self.root / "bundle",
+            expectations=self.expectations,
+            public_plan=self.campaign.benchmark_plan(),
+            selection_seed=self.seed,
+            seed_bytes=32,
+            quality_workload_path=self.quality_workload,
+            quality_requests=self.requests,
+        )
+
+        observed = verify_quality_request_specs(
+            bundle.resource_paths["quality_requests"],
+            self.requests,
+            expected_digest=bundle.resource_digests["quality_requests"],
+        )
+
+        self.assertEqual(observed, bundle.resource_digests["quality_requests"])
+
+    def test_quality_request_specs_reject_changed_values_and_digest(self) -> None:
+        bundle = materialize_hidden_workload(
+            self.root / "bundle",
+            expectations=self.expectations,
+            public_plan=self.campaign.benchmark_plan(),
+            selection_seed=self.seed,
+            seed_bytes=32,
+            quality_workload_path=self.quality_workload,
+            quality_requests=self.requests,
+        )
+        changed = tuple(
+            {
+                **request,
+                "body": {**request["body"], "max_tokens": 513},
+            }
+            for request in self.requests
+        )
+        with self.assertRaisesRegex(HiddenWorkloadError, "specifications differ"):
+            verify_quality_request_specs(
+                bundle.resource_paths["quality_requests"],
+                changed,
+                expected_digest=bundle.resource_digests["quality_requests"],
+            )
+        with self.assertRaisesRegex(HiddenWorkloadError, "digest differs"):
+            verify_quality_request_specs(
+                bundle.resource_paths["quality_requests"],
+                self.requests,
+                expected_digest=digest_value({"wrong": True}),
             )
 
 

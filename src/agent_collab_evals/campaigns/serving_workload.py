@@ -402,6 +402,26 @@ def _validate_quality_requests(path: Path) -> None:
             raise HiddenWorkloadError("hidden quality request body is invalid")
 
 
+def verify_quality_request_specs(
+    path: Path,
+    requests: Sequence[Mapping[str, Any]],
+    *,
+    expected_digest: str,
+) -> str:
+    """Bind executable request values to the canonical private request file."""
+
+    if not _DIGEST.fullmatch(expected_digest):
+        raise HiddenWorkloadError("quality request digest is invalid")
+    _validate_quality_requests(path)
+    content = path.read_bytes()
+    observed = digest_bytes(content)
+    if observed != expected_digest:
+        raise HiddenWorkloadError("quality request digest differs")
+    if content != _quality_request_bytes(requests):
+        raise HiddenWorkloadError("quality request specifications differ")
+    return observed
+
+
 def _quality_request_bytes(
     requests: Sequence[Mapping[str, Any]],
 ) -> bytes:
