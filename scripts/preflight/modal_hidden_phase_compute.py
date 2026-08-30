@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--approval-reference", required=True)
     parser.add_argument("--modal-environment", default="dev")
     parser.add_argument("--modal-client-version", default="1.5.4")
+    parser.add_argument("--modal-cli", type=Path)
     parser.add_argument("--maximum-seconds", type=int, default=1_800)
     parser.add_argument("--collection-seconds", type=int, default=300)
     parser.add_argument(
@@ -70,7 +71,11 @@ def main() -> None:
     repository_root = Path(__file__).resolve().parents[2]
     campaign_manifest = repository_root / "campaigns/model_serving_v0/campaign.toml"
     modal_script = repository_root / "campaigns/model_serving_v0/reference/modal_vllm.py"
-    modal_cli = repository_root / ".venv/bin/modal"
+    modal_cli = (
+        args.modal_cli.resolve(strict=True)
+        if args.modal_cli is not None
+        else repository_root / ".venv/bin/modal"
+    )
     campaign = ModelServingCampaign.load(campaign_manifest)
     hidden = _hidden_bundle(
         campaign,
