@@ -296,6 +296,11 @@ smallest useful seams before adding the runtime and collaboration machinery.
   reconciliation. The frozen manifest reconstructed exactly one execution;
   dispatch and evidence digests re-resolved after restart. Terminal collection
   now invokes this reconciliation gate automatically.
+- A split-scope evaluator facade now binds one registered evaluator identity to
+  distinct visible and hidden evaluator profiles, workloads, compute accounts,
+  schedules and evidence namespaces. Durable outer receipts bind the selected
+  lane and underlying evaluator authority; cross-scope use and ledger tampering
+  fail closed. The underlying registered Modal lanes remain to be promoted.
 
 ## Not implemented
 

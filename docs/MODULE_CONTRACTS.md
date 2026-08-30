@@ -596,6 +596,14 @@ the submission database.
 
 Visible evaluation may be invoked only through the submission service and an actor-owned `EvaluationReservation`. Its worst-case GPU duration is reserved before candidate admission, runs in the submitting actor's deterministic slots, charges the same actor and organisation `cloud_gpu_seconds`, and is released at the frozen slot boundary. Its result is visible only to the submitting actor unless that actor explicitly publishes it in `peer_collab`. Hidden evaluation is authorized only after submission closure and final selection and uses a separate evaluator reservation/account. Evaluator measurements on shared hardware use exclusive compute leases and the same frozen reset, warmup, repetition and canary protocol.
 
+The executable split-scope adapter exposes one registered evaluator identity
+while binding visible and hidden work to distinct underlying evaluator profiles,
+workload digests, compute accounts, schedules and evidence namespaces. Its
+durable outer receipt binds the scope, candidate, reservation, lane and
+underlying evaluator receipt. Scope-specific evaluation keys fail before
+dispatch if they use the wrong namespace. This composition contract does not
+by itself qualify either underlying compute lane or materialize hidden data.
+
 ## Submission registry
 
 ```text
