@@ -655,6 +655,15 @@ receipt digests may justify the policy but cannot substitute for these
 contemporaneous scored runs. If the reference artifact is selected, it still
 runs separately in the candidate role as required by intention-to-treat.
 
+Each quality repetition is submitted through the ordinary durable
+`ComputeBackend`; the quality-series service does not implement a second retry
+or dispatch state machine. Its adapter binds role and repetition to the
+execution key, hidden reservation, candidate artifact and manifest, evaluator
+profile, hidden bundle, quality profile and workload. The compute evidence must
+resolve to a normalized quality run under that exact identity. The adapter
+stores only an opaque receipt and compute execution binding, reports the
+backend's uncapped measured duration and rejects a backend-profile change.
+
 Each serving-performance execution also carries an explicit performance
 profile digest. The trusted collector constructs benchmark invocations from
 that exact profile, and the digest is retained in dispatch, remote and

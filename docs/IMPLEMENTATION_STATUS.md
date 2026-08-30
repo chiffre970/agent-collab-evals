@@ -337,6 +337,13 @@ smallest useful seams before adding the runtime and collaboration machinery.
   host paths. It sums uncapped usage and rejects schedule, budget, scope,
   policy, artifact or ledger changes. The existing calibration reference
   receipts cannot be substituted for contemporaneous hidden runs.
+- A provider-neutral quality-repetition adapter now maps every paired run to
+  the durable `ComputeBackend` contract. It validates candidate manifests,
+  binds role and repetition into the hidden execution request, pins the compute
+  backend profile and accepts only normalized evidence carrying the exact
+  campaign, hidden bundle, quality profile, workload, candidate and repetition
+  identity. Retry and restart recover the same execution and opaque receipt;
+  accounting uses the backend's uncapped duration.
 
 ## Not implemented
 
