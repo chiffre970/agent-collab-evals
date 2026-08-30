@@ -305,8 +305,9 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - The benchmark runner no longer relies on an implicit public workload. The
   compute profile pins the performance-profile path and digest, passes that
   exact profile to the trusted runner and verifies its identity in dispatch,
-  remote, normalized and reconciliation evidence. This script change requires
-  a new bounded live conformance check before registered promotion.
+  remote, normalized and reconciliation evidence. The changed script passed a
+  new bounded live conformance check on 2026-08-30 with all six declared
+  isolation and persistence controls true.
 - A split-scope evaluator facade now binds one registered evaluator identity to
   distinct visible and hidden evaluator profiles, workloads, compute accounts,
   schedules and evidence namespaces. Durable outer receipts bind the selected

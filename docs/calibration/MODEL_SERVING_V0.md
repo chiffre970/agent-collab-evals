@@ -320,6 +320,22 @@ and re-resolved dispatch plus evidence digest
 `sha256:2e3a41d7b3bef1aa518e1620c56ed70d67a0879f8c6321fe52839e2e21640acf`.
 The development durable-dispatch gate is complete.
 
+Commit `67a1403` added explicit performance-profile binding and therefore
+invalidated the earlier script-specific conformance proof. The replacement
+bounded check passed in Modal app `ap-qe4vCriDPxPlv7EjoAZ5w3` on 2026-08-30.
+It bound evaluator script
+`sha256:fd37240034069275c93610fba8f759839a1a29a82a87d864d12fc53d071d77d0`,
+evidence root `security-conformance/aa36dd88dde343718f13b5049deac055`,
+remote receipt
+`sha256:00f6cdc77127db66f2e79bc9559cb78606ac26de49b7ee034e9dfa88c029a29a`
+and raw result
+`sha256:01ea3d2b4a7419aaf9fc98478d47801435ae6d16a854b78c28743bb9b3832f3c`.
+External networking was blocked, the model cache was read-only, the scored
+function had no secret or durable evidence mount, and isolated staging plus
+separate trusted persistence both passed. Startup took 293.424 seconds, the
+single request took 104 milliseconds and function-body time was 298.461
+seconds. This remains development conformance, not scored study evidence.
+
 ## 2026-08-17: valid non-reference sensitivity series
 
 The replacement series
