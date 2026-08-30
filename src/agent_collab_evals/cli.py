@@ -414,6 +414,7 @@ def _modal_compute_development(arguments: argparse.Namespace) -> dict[str, objec
         )
         receipt = backend.submit(request, candidate)
         result = None
+        reconciliation = None
     else:
         receipt = backend.collect(
             request, timeout_seconds=arguments.collect_timeout_seconds
@@ -431,6 +432,24 @@ def _modal_compute_development(arguments: argparse.Namespace) -> dict[str, objec
                 "valid": normalized.get("valid"),
                 "performance_score": performance,
                 "durable_evidence": normalized.get("durable_evidence"),
+            }
+        reconciliation = None
+        if receipt.status in {
+            ComputeExecutionStatus.COMPLETE,
+            ComputeExecutionStatus.FAILED,
+        }:
+            reconciled = backend.reconcile(arguments.run_id)
+            if len(reconciled) != 1 or reconciled[0] != receipt:
+                raise RuntimeError("terminal compute reconciliation differs")
+            reconciliation = {
+                "valid": True,
+                "receipt_count": 1,
+                "execution_id": receipt.execution_id,
+                "request_digest": receipt.request_digest,
+                "status": receipt.status.value,
+                "evidence_digest": (
+                    receipt.evidence.digest if receipt.evidence is not None else None
+                ),
             }
     return {
         "ok": receipt.status not in {
@@ -456,6 +475,7 @@ def _modal_compute_development(arguments: argparse.Namespace) -> dict[str, objec
         "used_seconds": receipt.used_seconds,
         "failure": receipt.failure,
         "result": result,
+        "reconciliation": reconciliation,
     }
 
 

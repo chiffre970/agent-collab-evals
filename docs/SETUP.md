@@ -458,6 +458,9 @@ confirmatory study. Use `--candidate` and a new `--run-id` for an explicitly
 chosen candidate; never reuse a run ID for different bytes. Collection and
 close-time reconciliation reconstruct authority from the frozen run manifest;
 they do not require the dispatching process to replay the request first.
+When collection becomes terminal, the CLI re-resolves the exact dispatch and
+evidence and returns `reconciliation.valid: true`; absence of that field is not
+a successful close.
 
 Verify the local installation with:
 

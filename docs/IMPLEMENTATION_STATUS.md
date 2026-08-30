@@ -291,6 +291,11 @@ smallest useful seams before adding the runtime and collaboration machinery.
   second run completed the benchmark but proved that restricted functions
   cannot use Modal's large-result blob upload. A CPU-only 4 MiB conformance now
   proves the replacement isolated-staging and trusted-copy path end to end.
+- The replacement full-reference run completed all nine points through durable
+  dispatch, isolated staging, trusted persistence, normalization, and terminal
+  reconciliation. The frozen manifest reconstructed exactly one execution;
+  dispatch and evidence digests re-resolved after restart. Terminal collection
+  now invokes this reconciliation gate automatically.
 
 ## Not implemented
 
@@ -347,10 +352,9 @@ later platform-service work.
 ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
 nonloopback egress denial and post-stream budget reconciliation also pass.
-Gateway-specific loopback isolation, filesystem and process-resource
-enforcement remain scored-run gates. The next gate remains one complete
-development dispatch and collection through the durable backend using the
-newly qualified staging path, then registered compute/evaluator promotion with
-hidden workload separation, followed by complete resolved-run manifests and
-four-condition scheduling. No live multi-condition model run is authorized
-yet.
+Gateway-specific loopback isolation, filesystem, and process-resource
+enforcement remain scored-run gates. The durable development dispatch and
+collection gate is complete. The next gate is registered compute/evaluator
+promotion with hidden workload separation, followed by complete resolved-run
+manifests and four-condition scheduling. No live multi-condition model run is
+authorized yet.

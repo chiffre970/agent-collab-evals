@@ -296,6 +296,30 @@ An earlier probe, `ap-AJ4zhGy6uvUMDkCG4UJ5CW`, exposed a transient Volume
 visibility delay after sync; collection now applies a bounded 30-second
 visibility barrier. These are development transport results, not model scores.
 
+The replacement run `modal-development-reference-v4-20260829` completed from
+commit `f63afa6692c9041a71c7d7e27b58fe9c0824392d` under function call
+`fc-01M16MV5FBW2PQEBWY13GY9H0F`. All nine benchmark points completed without
+parse, environment, or scoring failures. Startup took 283.434 seconds,
+measured points took 460.331 seconds, and the authoritative function-body
+duration was 748.887 seconds, recorded as 749 used seconds.
+
+The eligible reference score is 996,024 ppm. Bucket ratios were 994,748 ppm
+for short, 995,509 ppm for medium, and 997,816 ppm for long; selected goodput
+was 3.561208, 1.301075, and 0.581666 requests per second, respectively. These
+are development calibration measurements, not a treatment comparison.
+
+Durable evidence root
+`model-serving/8c419db915d474db3aab39fc365869bffd94d344ba0cb7cc0e0f00c36452f68a/repetition-0001-attempt-01`
+binds remote receipt
+`sha256:6bf7583a2085897419bc293dab754befa36aa71cd2b2ebc1daaf3111ff48580d`
+and normalized result
+`sha256:e90d4b2fc51d914e25d5502bba464b350ac745522fb897d717948ad613b1a50e`.
+Close-time reconciliation reconstructed the sole request from frozen manifest
+`sha256:76f819d5011a29188fc6641b27a7188fb19f150b75fccfb45964a749dc3c95b5`
+and re-resolved dispatch plus evidence digest
+`sha256:2e3a41d7b3bef1aa518e1620c56ed70d67a0879f8c6321fe52839e2e21640acf`.
+The development durable-dispatch gate is complete.
+
 ## 2026-08-17: valid non-reference sensitivity series
 
 The replacement series
