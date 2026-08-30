@@ -359,6 +359,9 @@ smallest useful seams before adding the runtime and collaboration machinery.
   production profile from a real 64-case private bundle, compose the actual
   transport with durable SQLite spend authorization, and execute the complete
   three-pair role schedule as six separately reconciled durable compute jobs.
+  The `modal_quality_compute.py` preflight reconstructs the same authority from
+  a registered hidden-bundle digest and requires an explicit approval reference
+  before it can dispatch one billable conformance repetition.
 
 ## Not implemented
 
