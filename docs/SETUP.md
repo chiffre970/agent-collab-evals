@@ -502,6 +502,22 @@ The evaluator-private quality workload is prepared separately:
 See [the quality calibration ledger](calibration/MODEL_SERVING_QUALITY_V0.md)
 for its source, profile and private workload commitments.
 
+After the quality workload exists, materialize the complete hidden evaluator
+bundle without network or GPU access:
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  scripts/calibration/materialize_hidden_workload.py
+```
+
+The write-once bundle is stored under ignored `tmp/evaluator-private/` with
+owner-only permissions. It binds disjoint correctness and synthetic
+performance inputs, integer-unit quality request specifications, the frozen
+quality workload and policy, and every resource digest. Registered consumers
+must pin the resulting manifest digest; recomputing a digest after mutation is
+not accepted. File modes are defense in depth only—the registered harness
+sandbox must still prevent agents from reading evaluator-private paths.
+
 After materialization, dispatch one reference quality repetition without
 keeping a terminal attached:
 

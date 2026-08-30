@@ -604,6 +604,16 @@ underlying evaluator receipt. Scope-specific evaluation keys fail before
 dispatch if they use the wrong namespace. This composition contract does not
 by itself qualify either underlying compute lane or materialize hidden data.
 
+The serving campaign materializes hidden inputs as one evaluator-private,
+write-once bundle. Its manifest binds the campaign and hidden contract,
+selection-seed commitment, correctness requests, performance profile, quality
+requests, quality profile, quality policy and quality workload. Public and
+hidden correctness/performance bytes must differ. After study registration,
+the evaluator resolves the bundle only against the exact manifest digest in
+the lane profile; accepting a coherently rewritten local manifest is forbidden.
+Owner-only file modes are defense in depth and do not substitute for the
+registered sandbox's filesystem boundary.
+
 ## Submission registry
 
 ```text

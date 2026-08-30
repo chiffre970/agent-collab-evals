@@ -65,6 +65,18 @@ The source fetcher refuses content whose digest differs. The materializer
 creates its 32-byte seed once with mode `0600`, refuses a changed workload at
 the same destination and emits commitments rather than secret material.
 
+On 2026-08-30, the same private seed and V2 workload produced the complete
+hidden evaluator bundle with manifest digest
+`sha256:2ebd6452a678b42e09644bc89a4c3d95107820d0ced82f96b53993d9b3fd31e6`.
+Its hidden correctness, performance and derived quality-request digests are,
+respectively,
+`sha256:6c2928e9b1945408f51190fba679aed9cfd112d9626f043855726767ce965663`,
+`sha256:6a431e8fa0b3b20d5e772e879b127b60f5e1bfcc51194d7e4b7a7dd74b646fae`
+and
+`sha256:b247cab0e3ac415c4a6acfcec4636c49e5731b347d05382553e17f2dfbb18e52`.
+This is a calibration artifact awaiting registration, not hidden outcome
+evidence from a treatment run.
+
 ## Completed calibration and frozen gate
 
 Three served-generation repetitions completed for the pinned reference and

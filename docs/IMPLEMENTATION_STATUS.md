@@ -82,6 +82,12 @@ smallest useful seams before adding the runtime and collaboration machinery.
   reproduces the 168/192 reference and 166/192 control outcomes, verifies all
   six receipt digests, and admits the clean control without exposing private
   prompts or answers.
+- A write-once evaluator-private bundle now combines the frozen quality
+  workload with disjoint hidden correctness requests, a separately seeded
+  performance profile and integer-unit quality request specifications. Loading
+  verifies owner-only modes, fixed resource names, every content digest, public
+  disjointness and the registered bundle-manifest digest. This authority does
+  not replace the pending registered filesystem sandbox.
 - Raw serving evidence now targets an evaluator-owned Modal v2 Volume. A
   restricted non-GPU function successfully wrote and synced a probe which the
   trusted client read back by digest. Detached dispatch records make long calls
