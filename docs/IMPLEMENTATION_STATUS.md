@@ -396,6 +396,14 @@ smallest useful seams before adding the runtime and collaboration machinery.
   request, requires a durable approval-bound spend authorization, and reports
   a result only after terminal compute reconciliation. Adding the command does
   not authorize or perform a billable run.
+- A provider-neutral randomized-block scheduler now materializes complete
+  four-condition blocks with one run per condition. Its versioned SHA-256
+  assignment algorithm binds conditions to predeclared execution positions,
+  derives run and actor stochastic seeds from position rather than treatment,
+  and preserves one task seed and material digest across the block. Plans and
+  mechanically resolved run manifests are canonical, content-addressed,
+  write-once and fsynced. Loading recomputes the complete assignment from the
+  registered inputs, so label, order or seed tampering fails closed.
 
 ## Not implemented
 
@@ -426,9 +434,10 @@ The following remain gates, not implied capabilities:
    run. All three phase profiles still need registered copies. Neutral
    selection, result-release enforcement, hidden-workload authority and
    fail-closed outcome composition pass locally.
-4. Four-condition scheduling, registered manifests, combined platform audit
-   export and the
-   preregistered statistical analysis.
+4. The complete registered study manifest and composition root, execution of
+   the implemented four-condition schedule, combined platform audit export and
+   the preregistered statistical analysis. Block assignment and per-run
+   resolution now pass locally; they are not yet wired to campaign execution.
 5. An experiment-grade delivery outbox/receipt transaction. The development
    controller records a completed delivery after the harness call; the future
    authoritative ledger must atomically bind admission, runtime receipt and
@@ -464,5 +473,6 @@ three-phase composition through all real phase adapters are also complete. The
 paired-quality Modal path passes both the no-spend durable integration gate and
 one bounded live reference conformance. The next gates are bounded live
 correctness/performance qualification, frozen registered profiles, complete
-resolved-run manifests and four-condition scheduling. No live multi-condition
-model run is authorized yet.
+study composition and four-condition campaign execution. Resolved-run
+assignment is now implemented, but the full registered configuration authority
+is not. No live multi-condition model run is authorized yet.
