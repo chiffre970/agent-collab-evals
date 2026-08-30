@@ -329,6 +329,14 @@ smallest useful seams before adding the runtime and collaboration machinery.
   without copying expected hidden answers into diagnostics. Hidden bundle
   validation reuses this parser so materialization and scoring cannot accept
   different request contracts.
+- A paired hidden-quality evaluator now enforces the frozen three-repetition
+  reference-relative design. It freezes a registered within-pair role order,
+  derives separate artifact-bound reference and candidate reservations, stores
+  six opaque backend receipts and replays the paired bootstrap policy after
+  restart. Its portable authority digest binds parsed policy values without
+  host paths. It sums uncapped usage and rejects schedule, budget, scope,
+  policy, artifact or ledger changes. The existing calibration reference
+  receipts cannot be substituted for contemporaneous hidden runs.
 
 ## Not implemented
 
@@ -349,8 +357,8 @@ The following remain gates, not implied capabilities:
    mandatory compute reconciliation pass locally. The current adapter accepts
    only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
-3. The production phase adapters for public and hidden measurements, including
-   execution of hidden correctness and quality, stability and shortcut gates,
+3. The production Modal repetition backends for public and hidden measurements,
+   including execution of hidden correctness and paired quality, stability and shortcut gates,
    efficient registered phase co-scheduling, and complete confirmatory evidence
    retention. Neutral selection, result-release enforcement, hidden-workload
    authority and fail-closed outcome composition pass locally, and the
@@ -390,7 +398,7 @@ Gateway-specific loopback isolation, filesystem, and process-resource
 enforcement remain scored-run gates. The durable development dispatch and
 collection gate is complete. Hidden workload separation and the no-spend
 three-phase composition contract are also complete. The next gate is
-implementing the workload-specific Modal phase adapters and freezing their
+implementing the workload-specific Modal repetition backends and freezing their
 registered compute/evaluator profiles, followed by complete resolved-run
 manifests and four-condition scheduling. No live multi-condition model run is
 authorized yet.

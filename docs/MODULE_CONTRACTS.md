@@ -643,6 +643,18 @@ workload digest. Schema failures and answer failures remain distinct without
 placing expected hidden answers in result metadata. Hidden-bundle admission and
 trusted response scoring use the same workload parser.
 
+Reference-relative quality is a paired series, not a lookup of the calibration
+reference score. For every registered repetition, the hidden evaluator runs one
+fresh reference server and one fresh selected-candidate server against the same
+case seeds. The manifest freezes the within-pair role order for each repetition,
+the per-run allowance, reference artifact and candidate digests, parsed policy
+authority and repetition-backend profile. Reference and candidate runs receive
+distinct deterministic reservations; their six evaluator-owned receipts are
+re-resolved before the frozen paired bootstrap policy is replayed. Calibration
+receipt digests may justify the policy but cannot substitute for these
+contemporaneous scored runs. If the reference artifact is selected, it still
+runs separately in the candidate role as required by intention-to-treat.
+
 Each serving-performance execution also carries an explicit performance
 profile digest. The trusted collector constructs benchmark invocations from
 that exact profile, and the digest is retained in dispatch, remote and
