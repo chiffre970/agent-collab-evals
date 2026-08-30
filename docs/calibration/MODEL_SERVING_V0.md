@@ -336,6 +336,39 @@ separate trusted persistence both passed. Startup took 293.424 seconds, the
 single request took 104 milliseconds and function-body time was 298.461
 seconds. This remains development conformance, not scored study evidence.
 
+## 2026-08-30: durable hidden-quality compute conformance
+
+One explicitly authorized reference repetition exercised the new hidden-quality
+path from private-bundle resolution through durable spend authorization, Modal
+dispatch, retained evidence normalization, compute accounting, and close-time
+reconciliation. The scored function ran from commit `fb688a4` under function
+call `fc-01M196A529QH097YJ52KG17WDR`. It completed all 64 private cases with no
+validation errors: 55 passed, producing a valid quality score of 859,375 ppm.
+Startup took 275.404 seconds, case evaluation took 292.930 seconds, and the
+authoritative function-body duration was 573.661 seconds, recorded as 574 used
+seconds.
+
+The first trusted collection encountered a transient empty response while
+reading the staged `manifest.json`. The earlier visibility barrier retried only
+`FileNotFoundError`, so it rejected the already-completed function call without
+creating terminal local evidence. Commit `46056f8` extends the barrier to retry
+missing, empty, and digest-incomplete reads. Recovery app
+`ap-nFMKEqArpo9iCTPoq5N5JD` reused the original function call and dispatched no
+second scored GPU job.
+
+Durable evidence root
+`model-serving-quality/25528e275c352a9d1353cb4f029cb513e015ce3937536c5c8c56242b4fa47411/repetition-0001-attempt-01`
+binds 64 raw response digests, remote receipt
+`sha256:08b9785a19b623f912954cf63a1c194fa4a00ca1c7da146042688f56fdc5e6ee`
+and normalized result
+`sha256:3385e80653215599d24a07177c2a2935a34cccc9c7e11de9a5d008baee3bc3c8`.
+The durable compute envelope has evidence digest
+`sha256:d8c3e46a45ef6e3400ce79b62fa7244c8df3a651c6cde712820fa6749bd3ed2f`.
+Close-time reconciliation reconstructed the sole request from frozen manifest
+`sha256:797506a8ab61c913494b7378ba19bb952bf97f85f02ffaa1cd84591fba32fdb0`.
+This is development conformance evidence, not a treatment result or registered
+study qualification.
+
 ## 2026-08-17: valid non-reference sensitivity series
 
 The replacement series

@@ -354,14 +354,21 @@ smallest useful seams before adding the runtime and collaboration machinery.
   normalizes the retained Modal bundle into the standard compute evidence
   envelope. A no-spend integration test composes that envelope with
   `SqliteComputeBackend` and the quality-repetition adapter, accounts for the
-  uncapped measured duration and completes close-time reconciliation. The live
-  conformance run and registered profile are still pending. Tests now build the
+  uncapped measured duration and completes close-time reconciliation. Tests now build the
   production profile from a real 64-case private bundle, compose the actual
   transport with durable SQLite spend authorization, and execute the complete
   three-pair role schedule as six separately reconciled durable compute jobs.
   The `modal_quality_compute.py` preflight reconstructs the same authority from
   a registered hidden-bundle digest and requires an explicit approval reference
   before it can dispatch one billable conformance repetition.
+- The bounded quality-compute conformance completed on 2026-08-30 with one
+  spend-authorized reference repetition. It retained all 64 raw responses,
+  admitted a valid 859,375 ppm quality result, recorded 574 uncapped seconds,
+  and reconciled the sole execution from its frozen manifest. The first
+  collection exposed a transient empty-file response from Modal Volume staging;
+  the collector now retries missing, empty, and digest-incomplete visibility.
+  Recovery reused the original function call and did not dispatch another GPU
+  job. The exact registered-study profile remains pending.
 
 ## Not implemented
 
@@ -386,8 +393,8 @@ The following remain gates, not implied capabilities:
    measurements, including hidden correctness and performance, stability and
    shortcut gates, efficient registered phase co-scheduling, and complete
    confirmatory evidence retention. The paired-quality transport now passes
-   locally through the durable compute boundary, but it still needs a bounded
-   live conformance run and registered profile. Neutral selection,
+   locally through the durable compute boundary and has passed one bounded live
+   reference conformance. It still needs its registered profile. Neutral selection,
    result-release enforcement, hidden-workload authority, and fail-closed
    outcome composition pass locally.
 4. Four-condition scheduling, registered manifests, combined platform audit
@@ -424,7 +431,8 @@ Gateway-specific loopback isolation, filesystem, and process-resource
 enforcement remain scored-run gates. The durable development dispatch and
 collection gate is complete. Hidden workload separation and the no-spend
 three-phase composition contract are also complete. The paired-quality Modal
-path now passes the no-spend durable integration gate. The next gate is its one
-bounded live conformance run, followed by the hidden correctness and performance
-transports, frozen registered profiles, complete resolved-run manifests, and
-four-condition scheduling. No live multi-condition model run is authorized yet.
+path now passes both the no-spend durable integration gate and one bounded live
+reference conformance. The next gate is the hidden correctness and performance
+transports, followed by frozen registered profiles, complete resolved-run
+manifests, and four-condition scheduling. No live multi-condition model run is
+authorized yet.
