@@ -1552,6 +1552,7 @@ def main(
     output_path: str = "tmp/calibration/model-serving-reference-smoke.json",
     baseline: bool = False,
     quality: bool = False,
+    correctness: bool = False,
     security_conformance: bool = False,
     allow_gpu_spend: bool = False,
     candidate_path: str = "campaigns/model_serving_v0/reference/candidate.json",
@@ -1569,6 +1570,11 @@ def main(
     quality_workload_path: str = "tmp/evaluator-private/model-serving-quality/workload-v2.json",
     quality_output_root: str = "tmp/evaluator-private/model-serving-quality/results",
     quality_role: str = "",
+    correctness_workload_path: str = "tmp/evaluator-private/model-serving-hidden/correctness.jsonl",
+    correctness_output_root: str = "tmp/evaluator-private/model-serving-correctness/results",
+    correctness_profile_digest: str = "",
+    correctness_hidden_manifest_digest: str = "",
+    correctness_role: str = "",
 ) -> None:
     from agent_collab_evals.canonical import load_json
 
@@ -1587,12 +1593,14 @@ def main(
         if (
             baseline
             or quality
+            or correctness
             or security_conformance
             or allow_gpu_spend
             or dispatch_only
             or collect_only
             or collect_timeout_seconds
             or quality_role
+            or correctness_role
             or staging_probe
         ):
             raise ValueError("--evidence-probe cannot be combined with measurement flags")
@@ -1609,28 +1617,45 @@ def main(
         if (
             baseline
             or quality
+            or correctness
             or security_conformance
             or allow_gpu_spend
             or dispatch_only
             or collect_only
             or collect_timeout_seconds
             or quality_role
+            or correctness_role
         ):
             raise ValueError(
                 "--staging-probe cannot be combined with measurement flags"
             )
         _run_staging_probe(Path(output_path))
         return
-    if sum((baseline, quality, security_conformance)) > 1:
+    if sum((baseline, quality, correctness, security_conformance)) > 1:
         raise ValueError(
-            "--baseline, --quality and --security-conformance are mutually exclusive"
+            "--baseline, --quality, --correctness and --security-conformance "
+            "are mutually exclusive"
         )
+    if quality_role and not quality:
+        raise ValueError("--quality-role requires --quality")
+    if correctness_role and not correctness:
+        raise ValueError("--correctness-role requires --correctness")
+    if (
+        correctness_profile_digest or correctness_hidden_manifest_digest
+    ) and not correctness:
+        raise ValueError("correctness digests require --correctness")
     if security_conformance:
         if not allow_gpu_spend:
             raise ValueError(
                 "--security-conformance requires --allow-gpu-spend"
             )
-        if dispatch_only or collect_only or collect_timeout_seconds or quality_role:
+        if (
+            dispatch_only
+            or collect_only
+            or collect_timeout_seconds
+            or quality_role
+            or correctness_role
+        ):
             raise ValueError(
                 "--security-conformance cannot be combined with measurement flags"
             )
@@ -1658,6 +1683,25 @@ def main(
             collect_timeout_seconds=collect_timeout_seconds,
         )
         return
+    if correctness:
+        _run_correctness_repetition(
+            candidate,
+            candidate_path=resolved_candidate_path,
+            workload_path=Path(correctness_workload_path),
+            repetition=repetition,
+            attempt=attempt,
+            output_root=Path(correctness_output_root),
+            measurement_id_override=measurement_id,
+            role_override=correctness_role,
+            correctness_profile_digest=correctness_profile_digest,
+            hidden_workload_manifest_digest=(
+                correctness_hidden_manifest_digest
+            ),
+            dispatch_only=dispatch_only,
+            collect_only=collect_only,
+            collect_timeout_seconds=collect_timeout_seconds,
+        )
+        return
     if baseline:
         _run_baseline_repetition(
             candidate,
@@ -1673,9 +1717,10 @@ def main(
         )
         return
     if dispatch_only or collect_only or collect_timeout_seconds:
-        raise ValueError("dispatch and collection options require --baseline or --quality")
-    if quality_role:
-        raise ValueError("--quality-role requires --quality")
+        raise ValueError(
+            "dispatch and collection options require --baseline, --quality, "
+            "or --correctness"
+        )
     result = smoke_reference.remote(candidate)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     destination = Path(output_path).resolve()
@@ -2761,6 +2806,424 @@ def _run_quality_repetition(
     )
     if not valid:
         raise RuntimeError(f"quality repetition is invalid: {destination}")
+
+
+def _run_correctness_repetition(
+    candidate: dict[str, Any],
+    *,
+    candidate_path: Path,
+    workload_path: Path,
+    repetition: int,
+    attempt: int,
+    output_root: Path,
+    measurement_id_override: str,
+    role_override: str,
+    correctness_profile_digest: str,
+    hidden_workload_manifest_digest: str,
+    dispatch_only: bool,
+    collect_only: bool,
+    collect_timeout_seconds: int,
+) -> None:
+    """Run hidden correctness while keeping expected answers local."""
+
+    from agent_collab_evals.adapters.local_measurements import (
+        LocalMeasurementBundleStore,
+    )
+    from agent_collab_evals.canonical import load_json
+    from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+    from agent_collab_evals.campaigns.serving_correctness import (
+        load_correctness_workload,
+        score_correctness_responses,
+    )
+
+    for name, value in (
+        ("correctness profile", correctness_profile_digest),
+        ("hidden workload manifest", hidden_workload_manifest_digest),
+    ):
+        if (
+            not isinstance(value, str)
+            or len(value) != 71
+            or not value.startswith("sha256:")
+            or any(character not in _HEX for character in value[7:])
+        ):
+            raise ValueError(f"{name} digest is invalid")
+    if repetition != 1:
+        raise ValueError("hidden correctness has exactly one repetition")
+    if dispatch_only and collect_only:
+        raise ValueError("--dispatch-only and --collect-only are mutually exclusive")
+    if not 0 <= collect_timeout_seconds <= 300:
+        raise ValueError("collect timeout must be between 0 and 300 seconds")
+
+    campaign_path = Path(__file__).parents[1] / "campaign.toml"
+    repository_root = Path(__file__).resolve().parents[3]
+    campaign = ModelServingCampaign.load(campaign_path)
+    environment_profile = campaign.measurement_profile()
+    if not 1 <= attempt <= environment_profile.max_attempts:
+        raise ValueError(
+            f"attempt must be between 1 and {environment_profile.max_attempts}"
+        )
+    workload = load_correctness_workload(workload_path.resolve(strict=True))
+    status = subprocess.check_output(
+        ["git", "status", "--porcelain=v1", "--untracked-files=normal"],
+        cwd=repository_root,
+        text=True,
+    ).strip()
+    if status:
+        raise RuntimeError("formal correctness runs require a clean Git worktree")
+    collector_git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repository_root, text=True
+    ).strip()
+    local_modal_version = importlib.metadata.version("modal")
+    if local_modal_version != environment_profile.modal_client_version:
+        raise RuntimeError("local Modal client does not match the measurement profile")
+
+    descriptor = campaign.validate_candidate(candidate_path)
+    reference_descriptor = campaign.validate_reference_candidate()
+    automatic_role = (
+        "reference"
+        if descriptor.manifest_digest == reference_descriptor.manifest_digest
+        else "candidate"
+    )
+    role = role_override or automatic_role
+    if role not in {"reference", "candidate"}:
+        raise ValueError("correctness role is invalid")
+    if role == "reference" and automatic_role != "reference":
+        raise ValueError("a non-reference artifact cannot use the reference role")
+
+    derived_measurement_id = (
+        f"correctness-{role}-{descriptor.candidate_id}-"
+        f"{workload.digest.removeprefix('sha256:')[:8]}"
+    )
+    measurement_id = measurement_id_override or derived_measurement_id
+    store = LocalMeasurementBundleStore(output_root)
+    try:
+        store.load(measurement_id, repetition, attempt=attempt)
+    except KeyError:
+        pass
+    else:
+        raise RuntimeError(
+            "this correctness attempt is already committed; refusing another GPU allocation"
+        )
+    if attempt > 1:
+        try:
+            previous = store.load(measurement_id, repetition, attempt=attempt - 1)
+        except KeyError as error:
+            raise RuntimeError(
+                "a correctness retry requires the preceding attempt's evidence"
+            ) from error
+        if previous.receipt["normalized"].get("valid") is True:
+            raise RuntimeError("a valid correctness attempt cannot be retried")
+
+    served_model_name = str(candidate["server"]["served_model_name"])
+    requests: list[dict[str, Any]] = []
+    for case, body in zip(
+        workload.cases, workload.requests(served_model_name), strict=True
+    ):
+        requests.append(
+            {
+                "case_id": case.case_id,
+                "body": {**body, "top_k": 0, "min_p": 0},
+            }
+        )
+    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_root = (
+        f"model-serving-correctness/{evidence_namespace}/"
+        f"repetition-{repetition:04d}-attempt-{attempt:02d}"
+    )
+    correctness_spec = {
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": correctness_profile_digest,
+        "quality_workload_digest": workload.digest,
+        "repetition": repetition,
+        "attempt": attempt,
+        "evidence_root": evidence_root,
+        "max_concurrency": min(8, len(requests)),
+        "request_timeout_seconds": 120,
+        "requests": requests,
+    }
+    dispatch_path = (
+        output_root
+        / ".dispatch"
+        / measurement_id
+        / f"repetition-{repetition:04d}-attempt-{attempt:02d}.json"
+    )
+    dispatch_identity = {
+        "schema_version": "model-serving-correctness-modal-dispatch/v0alpha1",
+        "measurement_id": measurement_id,
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "hidden_workload_manifest_digest": hidden_workload_manifest_digest,
+        "correctness_profile_digest": correctness_profile_digest,
+        "correctness_workload_digest": workload.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "role": role,
+        "evidence_root": evidence_root,
+        "git_commit": collector_git_commit,
+        "modal_client_version": local_modal_version,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    try:
+        with dispatch_path.open("r", encoding="utf-8") as source:
+            dispatch_record = load_json(source)
+    except FileNotFoundError:
+        if collect_only:
+            raise RuntimeError("no durable Modal correctness dispatch exists")
+        staged_function = _scored_function_with_staging(
+            quality_serving_repetition, evidence_root
+        )
+        function_call = staged_function.spawn(candidate, correctness_spec)
+        dispatch_record = {
+            **dispatch_identity,
+            "function_call_id": function_call.object_id,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _write_json_atomic(dispatch_path, dispatch_record, prefix=".dispatch-")
+    else:
+        if not isinstance(dispatch_record, dict):
+            raise RuntimeError("Modal correctness dispatch record must be an object")
+        if set(dispatch_record) != {
+            *dispatch_identity,
+            "function_call_id",
+            "dispatched_at",
+        }:
+            raise RuntimeError("Modal correctness dispatch record fields differ")
+        for key, expected in dispatch_identity.items():
+            if key == "git_commit" and collect_only:
+                observed = dispatch_record.get(key)
+                if (
+                    not isinstance(observed, str)
+                    or len(observed) != 40
+                    or any(character not in _HEX for character in observed)
+                ):
+                    raise RuntimeError("Modal correctness dispatch commit is invalid")
+                continue
+            if dispatch_record.get(key) != expected:
+                raise RuntimeError(f"Modal correctness dispatch {key} differs")
+        function_call_id = dispatch_record.get("function_call_id")
+        if not isinstance(function_call_id, str) or not function_call_id:
+            raise RuntimeError("Modal correctness dispatch call ID is invalid")
+        if not isinstance(dispatch_record.get("dispatched_at"), str):
+            raise RuntimeError("Modal correctness dispatch timestamp is invalid")
+        function_call = modal.FunctionCall.from_id(function_call_id)
+
+    function_call_id = str(dispatch_record["function_call_id"])
+    platform_git_commit = str(dispatch_record["git_commit"])
+    print(
+        json.dumps(
+            {
+                "status": "dispatched",
+                "function_call_id": function_call_id,
+                "dispatch_record": str(dispatch_path.resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if dispatch_only:
+        return
+
+    client_started = time.monotonic()
+    try:
+        collection_timeout = (
+            collect_timeout_seconds
+            if collect_timeout_seconds or collect_only
+            else None
+        )
+        remote_pointer = function_call.get(timeout=collection_timeout)
+    except modal.exception.ConnectionError:
+        print(
+            json.dumps(
+                {
+                    "status": "collection_interrupted",
+                    "function_call_id": function_call_id,
+                }
+            )
+        )
+        return
+    except (TimeoutError, modal.exception.TimeoutError) as error:
+        if not isinstance(
+            error,
+            (modal.exception.FunctionTimeoutError, modal.exception.OutputExpiredError),
+        ):
+            print(
+                json.dumps(
+                    {"status": "pending", "function_call_id": function_call_id}
+                )
+            )
+            return
+        remote_error: Exception | None = error
+    except Exception as error:
+        remote_error = error
+    else:
+        remote_error = None
+    client_observed_ms = round((time.monotonic() - client_started) * 1000)
+    if remote_error is not None:
+        failure = {
+            "schema_version": "model-serving-correctness-repetition/v0alpha1",
+            "campaign_manifest_digest": campaign.manifest_digest,
+            "hidden_workload_manifest_digest": hidden_workload_manifest_digest,
+            "correctness_profile_digest": correctness_profile_digest,
+            "correctness_workload_digest": workload.digest,
+            "candidate_manifest_digest": descriptor.manifest_digest,
+            "candidate_id": descriptor.candidate_id,
+            "role": role,
+            "platform_build": {
+                "git_commit": platform_git_commit,
+                "collector_git_commit": collector_git_commit,
+                "modal_client_version": local_modal_version,
+            },
+            "modal_function_call_id": function_call_id,
+            "repetition": repetition,
+            "attempt": attempt,
+            "valid": False,
+            "validation_errors": [],
+            "client_observed_ms": client_observed_ms,
+            "failure": {
+                "stage": "remote_invocation",
+                "type": type(remote_error).__name__,
+                "message": str(remote_error)[-8000:],
+            },
+            "remote_receipt": None,
+            "correctness_result": None,
+        }
+        destination = store.save(
+            measurement_id, repetition, failure, {}, attempt=attempt
+        )
+        raise RuntimeError(
+            f"correctness invocation failed; evidence: {destination}"
+        ) from remote_error
+
+    durable_pointer = _ensure_durable_evidence(
+        remote_pointer, evidence_root=evidence_root
+    )
+    remote_result, raw_results, durable_evidence = _collect_remote_evidence(
+        durable_pointer, expected_root=evidence_root
+    )
+    expected_remote = {
+        "candidate_id": descriptor.candidate_id,
+        "model_id": campaign.target_model_id,
+        "model_revision": campaign.target_model_revision,
+        "served_model_name": served_model_name,
+        "vllm_version": str(candidate["server"]["engine_version"]),
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "quality_profile_digest": correctness_profile_digest,
+        "quality_workload_digest": workload.digest,
+        "repetition": repetition,
+        "attempt": attempt,
+    }
+    validation_errors = [
+        f"remote_receipt.{key} differs"
+        for key, expected in expected_remote.items()
+        if remote_result.get(key) != expected
+    ]
+    expected_execution = {
+        "max_concurrency": min(8, len(requests)),
+        "request_timeout_seconds": 120,
+    }
+    if remote_result.get("execution") != expected_execution:
+        validation_errors.append("remote_receipt.execution differs")
+    current_environment = remote_result.get("environment", {})
+    for key, expected in {
+        "package_set_digest": environment_profile.resolved_package_digest,
+        "base_image_digest": environment_profile.base_image_digest,
+    }.items():
+        if current_environment.get(key) != expected:
+            validation_errors.append(f"environment.{key} differs")
+    expected_gpu = {
+        "name": f"NVIDIA {environment_profile.gpu_type}",
+        "memory_mib": str(environment_profile.gpu_memory_mib),
+        "driver_version": environment_profile.gpu_driver_version,
+        "power_limit_watts": environment_profile.gpu_power_limit_watts,
+    }
+    gpu_before = remote_result.get("gpu_before", {})
+    gpu_after = remote_result.get("gpu_after", {})
+    for key, expected in expected_gpu.items():
+        if gpu_before.get(key) != expected:
+            validation_errors.append(f"gpu.{key} differs")
+        if gpu_after.get(key) != expected:
+            validation_errors.append(f"gpu_after.{key} differs")
+        if gpu_before.get(key) != gpu_after.get(key):
+            validation_errors.append(f"gpu.{key} changed within repetition")
+
+    expected_files = {f"{case.case_id}.json" for case in workload.cases}
+    if set(raw_results) != expected_files:
+        validation_errors.append("correctness raw result set differs")
+    responses = {
+        case.case_id: raw_results[f"{case.case_id}.json"]
+        for case in workload.cases
+        if f"{case.case_id}.json" in raw_results
+    }
+    correctness_result = None
+    if len(responses) == len(workload.cases):
+        try:
+            correctness_result = score_correctness_responses(
+                workload, responses, served_model_name=served_model_name
+            ).to_document()
+        except Exception as error:
+            validation_errors.append(f"score: {type(error).__name__}: {error}")
+    valid = (
+        remote_result.get("ok") is True
+        and not validation_errors
+        and correctness_result is not None
+    )
+    normalized = {
+        "schema_version": "model-serving-correctness-repetition/v0alpha1",
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "hidden_workload_manifest_digest": hidden_workload_manifest_digest,
+        "correctness_profile_digest": correctness_profile_digest,
+        "correctness_workload_digest": workload.digest,
+        "candidate_manifest_digest": descriptor.manifest_digest,
+        "candidate_id": descriptor.candidate_id,
+        "role": role,
+        "platform_build": {
+            "git_commit": platform_git_commit,
+            "collector_git_commit": collector_git_commit,
+            "modal_client_version": local_modal_version,
+        },
+        "modal_function_call_id": function_call_id,
+        "durable_evidence": durable_evidence,
+        "repetition": repetition,
+        "attempt": attempt,
+        "valid": valid,
+        "validation_errors": validation_errors,
+        "client_observed_ms": client_observed_ms,
+        "remote_receipt": remote_result,
+        "correctness_result": correctness_result,
+    }
+    normalized_digest = _publish_normalized_evidence(
+        durable_evidence, normalized
+    )
+    normalized["durable_evidence"] = {
+        **durable_evidence,
+        "normalized_digest": normalized_digest,
+    }
+    destination = store.save(
+        measurement_id, repetition, normalized, raw_results, attempt=attempt
+    )
+    print(
+        json.dumps(
+            {
+                "valid": valid,
+                "eligible": (
+                    correctness_result["eligible"]
+                    if correctness_result is not None
+                    else None
+                ),
+                "passed_cases": (
+                    correctness_result["passed_cases"]
+                    if correctness_result is not None
+                    else None
+                ),
+                "total_cases": len(workload.cases),
+                "bundle": str(destination.resolve()),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if not valid:
+        raise RuntimeError(f"correctness repetition is invalid: {destination}")
 
 
 def _stored_attempt_is_valid(

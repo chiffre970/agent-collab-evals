@@ -369,6 +369,26 @@ smallest useful seams before adding the runtime and collaboration machinery.
   the collector now retries missing, empty, and digest-incomplete visibility.
   Recovery reused the original function call and did not dispatch another GPU
   job. The exact registered-study profile remains pending.
+- Provider-neutral hidden correctness and performance evaluators now map one
+  phase to the durable `ComputeBackend`, accept only the standard evidence
+  envelope, bind the campaign, hidden bundle, workload and candidate digests,
+  and use uncapped backend time for accounting. The hidden-performance adapter
+  reuses the pinned benchmark transport with the evaluator-private workload
+  profile and translates retained benchmark evidence without changing the
+  execution boundary.
+- The hidden-correctness Modal adapter builds its production profile from the
+  real private bundle, requires durable request-bound spend authorization and
+  uses the same restricted, secret-free, read-only-model-cache serving
+  function as quality. Only prompts and generation settings enter the scored
+  function. The trusted collector keeps expected checks local, rescoring the
+  retained raw response bytes and rejecting any disagreement with the stored
+  result. No-spend tests cover the real profile factory, exact Modal command,
+  durable authorization, compute reconciliation and raw-evidence replay.
+- A no-spend integration now executes the complete hidden evaluator through
+  the real phase adapters: one correctness job, six paired quality jobs and one
+  hidden-performance job. The composite admits only after all three phases
+  resolve, reports the hidden performance criterion, sums 81 uncapped simulated
+  seconds and independently reconciles all eight planned compute executions.
 
 ## Not implemented
 
@@ -389,14 +409,16 @@ The following remain gates, not implied capabilities:
    mandatory compute reconciliation pass locally. The current adapter accepts
    only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
-3. The remaining production Modal repetition backends for public and hidden
-   measurements, including hidden correctness and performance, stability and
-   shortcut gates, efficient registered phase co-scheduling, and complete
-   confirmatory evidence retention. The paired-quality transport now passes
-   locally through the durable compute boundary and has passed one bounded live
-   reference conformance. It still needs its registered profile. Neutral selection,
-   result-release enforcement, hidden-workload authority, and fail-closed
-   outcome composition pass locally.
+3. Live qualification and registered promotion of the implemented hidden
+   correctness and performance adapters, plus stability and shortcut gates,
+   efficient registered phase co-scheduling, and complete confirmatory evidence
+   retention. The paired-quality transport passes locally through the durable
+   compute boundary and has passed one bounded live reference conformance. The
+   correctness orchestration added to the pinned runner changes its script
+   digest, so the shared hardened boundary must be requalified before a scored
+   run. All three phase profiles still need registered copies. Neutral
+   selection, result-release enforcement, hidden-workload authority and
+   fail-closed outcome composition pass locally.
 4. Four-condition scheduling, registered manifests, combined platform audit
    export and the
    preregistered statistical analysis.
@@ -418,11 +440,12 @@ are complete. Raw calibration evidence is durably mirrored to the
 evaluator-owned Modal Volume. The durable development compute state machine,
 frozen run authority, durable spend authorization, pinned Modal transport, and
 visible evaluator composition are implemented and tested without live spend.
-The hardened command, secret, network, model-cache and evidence boundaries now
-pass a bounded live Modal conformance run. The first complete development
-reference dispatch through the durable execution backend remains a deliberate,
-separately authorized check. Confirmatory retention and the hidden gates remain
-later platform-service work.
+The hardened command, secret, network, model-cache and evidence boundaries
+passed a bounded live Modal conformance run. The development reference,
+quality, correctness and hidden-performance paths now compose locally through
+durable execution. Because correctness changed the shared runner digest, one
+bounded live requalification remains a deliberate, separately authorized
+check. Confirmatory retention remains later platform-service work.
 
 ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
@@ -430,9 +453,9 @@ nonloopback egress denial and post-stream budget reconciliation also pass.
 Gateway-specific loopback isolation, filesystem, and process-resource
 enforcement remain scored-run gates. The durable development dispatch and
 collection gate is complete. Hidden workload separation and the no-spend
-three-phase composition contract are also complete. The paired-quality Modal
-path now passes both the no-spend durable integration gate and one bounded live
-reference conformance. The next gate is the hidden correctness and performance
-transports, followed by frozen registered profiles, complete resolved-run
-manifests, and four-condition scheduling. No live multi-condition model run is
-authorized yet.
+three-phase composition through all real phase adapters are also complete. The
+paired-quality Modal path passes both the no-spend durable integration gate and
+one bounded live reference conformance. The next gates are bounded live
+correctness/performance qualification, frozen registered profiles, complete
+resolved-run manifests and four-condition scheduling. No live multi-condition
+model run is authorized yet.
