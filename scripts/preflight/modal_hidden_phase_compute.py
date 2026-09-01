@@ -192,6 +192,12 @@ def main() -> None:
             modal_profile, state_root, transport.profile_digest
         )
     else:
+        resolver = ModalVllmHiddenPerformanceEvidenceResolver(
+            modal_profile,
+            repository_root,
+            state_root,
+            transport_profile,
+        )
         transport = ModalVllmCliTransport(
             modal_profile,
             repository_root,
@@ -199,13 +205,10 @@ def main() -> None:
             modal_cli,
             authorizations,
             evaluator_profile_digest=evaluator_profile.digest,
+            evidence_resolver=resolver,
         )
-        resolver = ModalVllmHiddenPerformanceEvidenceResolver(
-            modal_profile,
-            repository_root,
-            state_root,
-            transport.profile_digest,
-        )
+        if transport.profile_digest != transport_profile:
+            raise RuntimeError("hidden performance transport profile differs")
     backend = SqliteComputeBackend(
         state_root / "compute.sqlite3", transport, resolver, authority
     )
@@ -215,9 +218,18 @@ def main() -> None:
         evaluator_profile,
         backend,
     )
-    authorizations.issue(
-        request, transport.profile_digest, args.approval_reference
+    authorization_status = authorizations.request_status(
+        request, transport.profile_digest
     )
+    if authorization_status is None:
+        authorizations.issue(
+            request, transport.profile_digest, args.approval_reference
+        )
+    elif authorization_status == "issued":
+        # Recheck the approval digest before a not-yet-dispatched request can run.
+        authorizations.issue(
+            request, transport.profile_digest, args.approval_reference
+        )
     execution = backend.submit(request, candidate)
     deadline = time.monotonic() + args.maximum_seconds + 60
     while execution.status is ComputeExecutionStatus.DISPATCHED:

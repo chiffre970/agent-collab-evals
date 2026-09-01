@@ -399,3 +399,50 @@ its remote receipt and a digest manifest to
 `agent-collab-evals-evaluator-evidence-v2`; the trusted collector verified
 those bytes and published an immutable normalized receipt in the same remote
 directory. The ignored local bundles are mirrors, not the evidence authority.
+
+## 2026-09-01: hidden correctness and performance compute qualification
+
+Two explicitly authorized reference executions from clean, pushed commit
+`69ea2d9d8df0a1b139038c845cf81a9151c03698` exercised the remaining hidden
+phase adapters against private-bundle manifest
+`sha256:2ebd6452a678b42e09644bc89a4c3d95107820d0ced82f96b53993d9b3fd31e6`.
+Both used the hardened secret-free, network-blocked L4 function, immutable model
+cache, isolated staging, trusted persistence, frozen compute authority, durable
+single-use spend authorization and close-time reconciliation.
+
+The correctness call `fc-01M1AC9V3ABWCXTGY0FQRFPCKD` passed all 8 private
+cases. Startup took 279.415 seconds, case evaluation took 495 milliseconds and
+function-body time was 284.502 seconds, accounted as 285 seconds. Durable root
+`model-serving-correctness/8dee853dd95f378dd04b4c9fb90e2cf401a2606efb06a7e7cfbb41b6e2bbd412/repetition-0001-attempt-01`
+binds remote receipt
+`sha256:ab61a1fc09e3e20a3a6419833628c1eeee39c93b4f79ef903947987ec0bcd1e7`
+and normalized receipt
+`sha256:eab0d4e693b429bf1dbafc6ef2dec0a68676f3fb6a847d4efddb5b33c5a5844d`.
+The reconciled compute-evidence digest is
+`sha256:ad752c1b3f8076a5705296dada559f20a0dbc13f6d0628a30c3831728438c087`.
+
+The performance call `fc-01M1ACN1KSZJRCZRX95S1N9CNF` completed all 9 points
+and 224 requests with no request, parsing or environment failures. Startup took
+285.417 seconds, measured points took 457.895 seconds and function-body time was
+748.462 seconds, accounted as 749 seconds. Durable root
+`model-serving/d991d21f6d251832f23c625f627fcbfa86dd560cc8e4457694dbb4a8f4916c85/repetition-0001-attempt-01`
+binds remote receipt
+`sha256:e3c31fe40401f404dae60749b8390e2bdabe7e103c2c6fc7216db88d262c068e`
+and normalized receipt
+`sha256:51d37a3656b52faadc25811c0e81ff5ffef483f43eaaf6598532eb69d20d3c19`.
+The reconciled compute-evidence digest is
+`sha256:45385e0bf5d1bf30bfe08679ecbc551cfaeaf143608711214bce70e7fd95c4c9`.
+
+The performance measurement was complete but not score-eligible. The stock
+reference missed joint SLO attainment at `medium/1` and `long/1`, so its scalar
+is zero under the pinned policy. Initial collection incorrectly treated this
+candidate-level ineligibility as an infrastructure failure and selected the
+public resolver instead of the registered hidden resolver. The corrected
+collector recovered the same retained function call, dispatched no second GPU
+job and reconciled the execution as complete with an ineligible result.
+
+This evidence qualifies the live phase transports and durable orchestration; it
+does not validate the current hidden performance thresholds for a scored study.
+Before registration, use a declared calibration run to derive a new versioned
+policy under which the stock reference is eligible. Do not alter, relabel or
+pool this retained result with the replacement profile.

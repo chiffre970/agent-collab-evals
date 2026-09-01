@@ -177,6 +177,45 @@ class SqliteComputeSpendAuthorizationService:
             raise KeyError("compute spend authorization is unknown")
         return str(row["status"])
 
+    def request_status(
+        self,
+        request: ComputeExecutionRequest,
+        transport_profile_digest: str,
+    ) -> str | None:
+        """Return the durable status for an authorized request, if issued."""
+        self._validate_request(request, transport_profile_digest)
+        authorization = self._authorization(request, transport_profile_digest)
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT campaign_run_id, request_digest, "
+                "transport_profile_digest, run_manifest_digest, status "
+                "FROM compute_spend_authorizations WHERE authorization_id = ?",
+                (authorization.authorization_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        expected = (
+            request.campaign_run_id,
+            request.request_digest,
+            transport_profile_digest,
+            self._authority.manifest_digest,
+        )
+        actual = tuple(
+            str(row[key])
+            for key in (
+                "campaign_run_id",
+                "request_digest",
+                "transport_profile_digest",
+                "run_manifest_digest",
+            )
+        )
+        if actual != expected:
+            raise RuntimeError("durable compute spend authorization differs")
+        status = str(row["status"])
+        if status not in {"issued", "consumed"}:
+            raise RuntimeError("durable compute spend status is invalid")
+        return status
+
     def _validate_request(
         self,
         request: ComputeExecutionRequest,

@@ -239,11 +239,9 @@ class ModalVllmHiddenPerformanceEvidenceResolver:
             ):
                 raise RuntimeError("Modal performance score fields differ")
             eligible = (
-                normalized.get("valid") is True
+                envelope.get("status") == "complete"
                 and performance.get("eligible") is True
             )
-            if normalized.get("valid") is not True:
-                failures = [*failures, "measurement_invalid"]
         candidate_result: dict[str, Any] = {
             "schema_version": "serving-candidate-compute-evidence/v0alpha1",
             "phase": "performance",

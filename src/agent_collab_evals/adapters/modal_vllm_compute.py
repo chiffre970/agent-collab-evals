@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from ..campaigns.model_serving import ModelServingCampaign
 from ..canonical import (
@@ -157,6 +157,21 @@ class ModalVllmComputeProfile:
         )
 
 
+class ModalEvidencePointerResolver(Protocol):
+    """Resolve one retained Modal result into terminal compute evidence."""
+
+    def pointer(
+        self,
+        request: ComputeExecutionRequest,
+        external_call_id: str,
+    ) -> tuple[
+        ComputeEvidencePointer,
+        ComputeExecutionStatus,
+        int,
+        str | None,
+    ]: ...
+
+
 class ModalVllmCliTransport:
     """Dispatch one explicit development repetition through Modal's CLI."""
 
@@ -169,12 +184,14 @@ class ModalVllmCliTransport:
         spend_authorization: ComputeSpendAuthorizationService,
         *,
         evaluator_profile_digest: str | None = None,
+        evidence_resolver: ModalEvidencePointerResolver | None = None,
     ) -> None:
         self._profile = profile
         self._repository_root = repository_root.resolve()
         self._state_root = state_root.resolve()
         self._modal_cli = modal_cli.resolve()
         self._spend_authorization = spend_authorization
+        self._evidence_resolver = evidence_resolver
         self._evaluator_profile_digest = (
             evaluator_profile_digest or profile.evaluator_profile_digest
         )
@@ -317,7 +334,7 @@ class ModalVllmCliTransport:
                     "Modal collection failed without terminal evidence: "
                     + result.stdout[-4000:]
                 )
-        resolver = ModalVllmEvidenceResolver(
+        resolver = self._evidence_resolver or ModalVllmEvidenceResolver(
             self._profile,
             self._repository_root,
             self._state_root,
@@ -530,6 +547,12 @@ class ModalVllmEvidenceResolver:
         if any(normalized.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal normalized evidence identity differs")
         valid = normalized.get("valid") is True
+        measurement_complete = valid or (
+            normalized.get("failure") is None
+            and isinstance(normalized.get("performance_score"), dict)
+            and normalized.get("parse_errors") == []
+            and normalized.get("environment_errors") == []
+        )
         dispatch = self._dispatch_record(measurement_id)
         platform_build = normalized.get("platform_build")
         if (
@@ -540,7 +563,7 @@ class ModalVllmEvidenceResolver:
         ):
             raise RuntimeError("Modal platform build evidence differs")
         durable_evidence = normalized.get("durable_evidence")
-        if valid:
+        if measurement_complete:
             self._validate_durable_evidence(normalized, durable_evidence)
         elif (
             not isinstance(normalized.get("failure"), dict)
@@ -549,11 +572,11 @@ class ModalVllmEvidenceResolver:
             raise RuntimeError("Modal terminal failure evidence is invalid")
         status = (
             ComputeExecutionStatus.COMPLETE
-            if valid
+            if measurement_complete
             else ComputeExecutionStatus.FAILED
         )
         used_seconds = _used_seconds(normalized, request.maximum_seconds)
-        failure = None if valid else _failure(normalized)
+        failure = None if measurement_complete else _failure(normalized)
         document = {
             "schema_version": "compute-execution-evidence/v0alpha1",
             "request_digest": request.request_digest,

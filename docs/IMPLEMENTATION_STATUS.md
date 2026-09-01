@@ -390,12 +390,24 @@ smallest useful seams before adding the runtime and collaboration machinery.
   resolve, reports the hidden performance criterion, sums 81 uncapped simulated
   seconds and independently reconciles all eight planned compute executions.
 - The `modal_hidden_phase_compute.py` preflight provides one fail-closed
-  operator path for the remaining bounded live qualifications. It accepts only
+  operator path for bounded live qualifications. It accepts only
   correctness or performance, resolves a digest-pinned private bundle, creates
   the phase-specific Modal and evaluator profiles, freezes the sole compute
   request, requires a durable approval-bound spend authorization, and reports
-  a result only after terminal compute reconciliation. Adding the command does
-  not authorize or perform a billable run.
+  a result only after terminal compute reconciliation. Restart recovery
+  distinguishes a new request from an already consumed authorization, so it
+  can collect an existing call without redispatch or the original approval
+  text. Adding the command does not authorize or perform a billable run.
+- Bounded live correctness and performance executions completed from clean,
+  pushed commit `69ea2d9` on 2026-09-01. Correctness passed all 8 private cases,
+  retained and rechecked every response digest, accounted for 285 seconds and
+  reconciled. Performance retained and rechecked all 9 benchmark points,
+  accounted for 749 seconds and reconciled without redispatch after a local
+  collection fix. Its reference score was correctly ineligible because the
+  medium/1 and long/1 points missed the current joint-latency SLO. The adapter
+  now distinguishes complete-but-ineligible benchmark evidence from a failed
+  compute execution and uses its registered scope-specific evidence resolver.
+  The calibration ledger records the exact calls and evidence digests.
 - A provider-neutral randomized-block scheduler now materializes complete
   four-condition blocks with one run per condition. Its versioned SHA-256
   assignment algorithm binds conditions to predeclared execution positions,
@@ -424,16 +436,17 @@ The following remain gates, not implied capabilities:
    mandatory compute reconciliation pass locally. The current adapter accepts
    only validated declarative serving candidates; it does not execute arbitrary
    candidate-supplied commands. The research broker is also not implemented.
-3. Live qualification and registered promotion of the implemented hidden
-   correctness and performance adapters, plus stability and shortcut gates,
-   efficient registered phase co-scheduling, and complete confirmatory evidence
-   retention. The paired-quality transport passes locally through the durable
-   compute boundary and has passed one bounded live reference conformance. The
-   correctness orchestration added to the pinned runner changes its script
-   digest, so the shared hardened boundary must be requalified before a scored
-   run. All three phase profiles still need registered copies. Neutral
-   selection, result-release enforcement, hidden-workload authority and
-   fail-closed outcome composition pass locally.
+3. Registered promotion of the implemented hidden correctness, quality and
+   performance adapters, plus stability and shortcut gates, efficient phase
+   co-scheduling, and complete confirmatory evidence retention. All three
+   adapters now pass bounded live execution and durable reconciliation. The
+   current hidden performance policy cannot be registered unchanged because
+   the stock reference missed two joint-latency gates. Freeze a new profile
+   version only after declared calibration establishes reference eligibility;
+   do not reinterpret or pool the retained ineligible result. All three phase
+   profiles still need registered copies. Neutral selection, result-release
+   enforcement, hidden-workload authority and fail-closed outcome composition
+   pass locally.
 4. The complete registered study manifest and composition root, execution of
    the implemented four-condition schedule, combined platform audit export and
    the preregistered statistical analysis. Block assignment and per-run
@@ -459,9 +472,9 @@ visible evaluator composition are implemented and tested without live spend.
 The hardened command, secret, network, model-cache and evidence boundaries
 passed a bounded live Modal conformance run. The development reference,
 quality, correctness and hidden-performance paths now compose locally through
-durable execution. Because correctness changed the shared runner digest, one
-bounded live requalification remains a deliberate, separately authorized
-check. Confirmatory retention remains later platform-service work.
+durable execution. The shared runner and both remaining hidden phase adapters
+have passed bounded live execution and reconciliation. Confirmatory retention
+remains later platform-service work.
 
 ADR 0001 and the fake submission/compute/evaluator slice are complete.
 Development provider-route qualification, condition-matched cache isolation,
@@ -471,8 +484,9 @@ enforcement remain scored-run gates. The durable development dispatch and
 collection gate is complete. Hidden workload separation and the no-spend
 three-phase composition through all real phase adapters are also complete. The
 paired-quality Modal path passes both the no-spend durable integration gate and
-one bounded live reference conformance. The next gates are bounded live
-correctness/performance qualification, frozen registered profiles, complete
-study composition and four-condition campaign execution. Resolved-run
-assignment is now implemented, but the full registered configuration authority
-is not. No live multi-condition model run is authorized yet.
+one bounded live reference conformance; correctness and performance have now
+done the same. The next gates are a declared performance-policy calibration,
+frozen registered profiles, complete study composition and four-condition
+campaign execution. Resolved-run assignment is implemented, but the full
+registered configuration authority is not. No live multi-condition model run
+is authorized yet.

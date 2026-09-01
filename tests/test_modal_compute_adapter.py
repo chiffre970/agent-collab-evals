@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.local_measurements import LocalMeasurementBundleStore
 from agent_collab_evals.adapters.modal_vllm_compute import (
@@ -25,6 +25,7 @@ from agent_collab_evals.adapters.sqlite_compute_spend import (
 from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
 from agent_collab_evals.canonical import digest_bytes
 from agent_collab_evals.compute_backend import (
+    ComputeEvidencePointer,
     ComputeExecutionRequest,
     ComputeExecutionStatus,
     FrozenComputeRunManifest,
@@ -164,11 +165,23 @@ class ModalComputeAdapterTests(unittest.TestCase):
         restarted = SqliteComputeSpendAuthorizationService(
             self.state_root / "compute-spend.sqlite3", self.manifest
         )
+        self.assertEqual(
+            restarted.request_status(
+                self.request, self.transport.profile_digest
+            ),
+            "issued",
+        )
         consumed = restarted.consume(
             self.request, self.transport.profile_digest
         )
         self.assertEqual(consumed, self.authorization)
         self.assertEqual(restarted.status(consumed.authorization_id), "consumed")
+        self.assertEqual(
+            restarted.request_status(
+                self.request, self.transport.profile_digest
+            ),
+            "consumed",
+        )
         with self.assertRaisesRegex(RuntimeError, "unused durable"):
             restarted.consume(self.request, self.transport.profile_digest)
 
@@ -222,14 +235,15 @@ class ModalComputeAdapterTests(unittest.TestCase):
             "modal_function_call_id": function_call_id,
             "repetition": 1,
             "attempt": 1,
-            "valid": True,
+            "valid": False,
             "failure": None,
             "parse_errors": [],
             "environment_errors": [],
             "remote_receipt": {"timing": {"function_body_ms": 7_001}},
             "performance_score": {
-                "eligible": True,
-                "scalar_ppm": 1_002_000,
+                "eligible": False,
+                "scalar_ppm": 0,
+                "failures": ["long/1 misses joint SLO attainment"],
             },
             "platform_build": {
                 "git_commit": "f" * 40,
@@ -260,8 +274,41 @@ class ModalComputeAdapterTests(unittest.TestCase):
         _, evidence = self.backend.resolve(self.request)
         self.assertEqual(
             evidence["result"]["performance_score"]["scalar_ppm"],
-            1_002_000,
+            0,
         )
+        self.assertFalse(evidence["result"]["performance_score"]["eligible"])
+
+    def test_transport_uses_registered_evidence_resolver(self) -> None:
+        pointer = ComputeEvidencePointer("hidden-result", "sha256:" + "a" * 64)
+        resolver = Mock()
+        resolver.pointer.return_value = (
+            pointer,
+            ComputeExecutionStatus.COMPLETE,
+            17,
+            None,
+        )
+        transport = ModalVllmCliTransport(
+            self.profile,
+            REPOSITORY_ROOT,
+            self.state_root,
+            REPOSITORY_ROOT / ".venv/bin/modal",
+            self.authorizations,
+            evidence_resolver=resolver,
+        )
+        transport._prepare_request(self.request, self.candidate)
+        measurement_id = _measurement_id(self.request)
+        LocalMeasurementBundleStore(self.state_root / "measurements").save(
+            measurement_id,
+            1,
+            {"retained": True},
+            {},
+        )
+
+        polled = transport.poll(self.request, "fc-hidden", 0)
+
+        self.assertEqual(polled.evidence, pointer)
+        self.assertEqual(polled.status, ComputeExecutionStatus.COMPLETE)
+        resolver.pointer.assert_called_once_with(self.request, "fc-hidden")
 
     def test_profile_rejects_changed_script_digest(self) -> None:
         changed = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
