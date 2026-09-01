@@ -240,7 +240,11 @@ The first near-term follow-ups are required rather than optional: test pooled or
 - **Provider-runtime mismatch:** some models may not use a runtime's tools well. Qualify before freezing and repeat later with other model profiles.
 - **Provider drift, caching and tariff windows:** mutable aliases, cross-run prefix caches or price-tier transitions can change effective capability or how much work a dollar buys. Isolate caches, freeze billing policy, retain provider identity and unit-rate receipts, keep a block within one effective tier and rerun complete affected blocks under the frozen rule.
 - **Budget leakage or ledger tampering:** auxiliary calls, retries or rewritten accounting could favor a condition. Route all credentials through one account, pin the immutable budget plan and receipt-verifier profile outside the ledger, make credential revocation an in-flight request barrier and reject campaign closure on plan mismatches, raw-receipt mismatches, active reservations, forfeitures, overruns or incomplete receipts.
-- **Hidden evaluator leakage:** public and hidden workloads must be disjoint and hidden results unavailable until closure.
+- **Hidden evaluator leakage:** public and hidden workloads must be disjoint and
+  hidden results unavailable until closure. Any private bundle used to tune an
+  evaluator becomes calibration data and is retired; after policy freeze, the
+  scored study materializes a fresh hidden seed that was not used for threshold
+  or reference-baseline selection.
 - **Infrastructure noise:** GPU and API variability can swamp effects. Block, randomize order and repeat.
 - **Selection advantage:** different mergers or candidate counts can create the result. Use one submission and selection policy.
 - **Researcher degrees of freedom:** freeze endpoints and rules after calibration, then publish all runs.

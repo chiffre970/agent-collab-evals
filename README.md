@@ -142,11 +142,13 @@ This is calibration infrastructure, not a completed experimental platform.
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
 publication and storage gates now pass, as do the development provider-route,
 cache-isolation, sandbox, budget-reconciliation and fake candidate-lifecycle
-proofs. The real single-repetition Modal adapter now also passes its durable
-execution, restart-reconciliation and spend-authorization contracts against a
-fake transport without GPU spend. Live Modal boundary conformance, registered
-compute and evaluator promotion, hidden evaluation, research brokerage and
-four-condition execution remain explicit later gates. See
+proofs. The hidden correctness, quality and performance adapters now pass both
+their no-spend durable contracts and bounded live Modal conformance. The stock
+reference exposed a hidden-performance SLO calibration issue, so a pinned
+three-reference plan must finish before that policy can be registered. The
+source calibration bundle is retired and a fresh hidden seed is required after
+policy freeze. Registered compute and evaluator promotion, research brokerage,
+study composition and four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents

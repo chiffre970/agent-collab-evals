@@ -60,6 +60,12 @@ def main() -> None:
     parser.add_argument("--modal-cli", type=Path)
     parser.add_argument("--maximum-seconds", type=int, default=1_800)
     parser.add_argument("--collection-seconds", type=int, default=300)
+    parser.add_argument("--repetition", type=int, default=1)
+    parser.add_argument(
+        "--purpose",
+        choices=("conformance", "calibration"),
+        default="conformance",
+    )
     parser.add_argument(
         "--evidence-volume",
         default="agent-collab-evals-evaluator-evidence-v2",
@@ -67,6 +73,14 @@ def main() -> None:
     args = parser.parse_args()
     if not args.approval_reference.startswith("approved:"):
         raise ValueError("approval reference must start with 'approved:'")
+    if args.repetition < 1 or args.repetition > 3:
+        raise ValueError("repetition is invalid for the selected hidden phase")
+    if args.phase == "correctness" and (
+        args.repetition != 1 or args.purpose != "conformance"
+    ):
+        raise ValueError("correctness supports only its conformance run")
+    if args.purpose == "conformance" and args.repetition != 1:
+        raise ValueError("conformance supports only repetition 1")
 
     repository_root = Path(__file__).resolve().parents[2]
     campaign_manifest = repository_root / "campaigns/model_serving_v0/campaign.toml"
@@ -112,15 +126,24 @@ def main() -> None:
         workload_digest = modal_profile.correctness_workload_digest
         evaluation_key = "hidden:reference:correctness"
     else:
+        performance_profile_id = "modal-hidden-performance-live-conformance-v0"
+        evaluation_key = "hidden:reference:performance"
+        if args.purpose == "calibration":
+            performance_profile_id = (
+                "modal-hidden-performance-reference-calibration-v1"
+            )
+            evaluation_key = (
+                f"hidden:reference:performance-calibration:{args.repetition}"
+            )
         modal_profile = ModalVllmHiddenPerformanceProfile.create(
-            profile_id="modal-hidden-performance-live-conformance-v0",
+            profile_id=performance_profile_id,
             campaign=campaign,
             campaign_manifest=campaign_manifest,
             hidden_workload=hidden,
             modal_script=modal_script,
             modal_environment=args.modal_environment,
             modal_client_version=args.modal_client_version,
-            repetition=1,
+            repetition=args.repetition,
             attempt=1,
             maximum_collection_seconds=args.collection_seconds,
             evidence_volume=args.evidence_volume,
@@ -134,13 +157,16 @@ def main() -> None:
             )
         )
         workload_digest = modal_profile.performance_profile_digest
-        evaluation_key = "hidden:reference:performance"
 
     backend_profile = SqliteComputeBackend.profile_digest_for(
         transport_profile, evidence_profile
     )
     evaluator_profile = ComputeCandidateEvaluationProfile(
-        profile_id=f"hidden-{args.phase}-live-conformance-v0",
+        profile_id=(
+            f"hidden-{args.phase}-live-conformance-v0"
+            if args.purpose == "conformance"
+            else "hidden-performance-reference-calibration-v1"
+        ),
         phase=args.phase,
         campaign_manifest_digest=campaign.manifest_digest,
         hidden_workload_manifest_digest=hidden.manifest_digest,
@@ -150,7 +176,11 @@ def main() -> None:
     )
     reservation = EvaluationReservation(
         reservation_id="evaluation-" + "c" * 32,
-        reservation_key=f"hidden:live-conformance:{args.phase}",
+        reservation_key=(
+            f"hidden:live-conformance:{args.phase}"
+            if args.purpose == "conformance"
+            else f"hidden:performance-calibration:{args.repetition}"
+        ),
         campaign_run_id=args.campaign_run_id,
         actor_id=None,
         artifact_ref=ArtifactRef("artifact-" + "c" * 32),
@@ -240,6 +270,8 @@ def main() -> None:
         )
     output: dict[str, object] = {
         "phase": args.phase,
+        "purpose": args.purpose,
+        "repetition": args.repetition,
         "status": execution.status.value,
         "execution_id": execution.execution_id,
         "request_digest": request.request_digest,

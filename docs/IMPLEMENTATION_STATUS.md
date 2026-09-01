@@ -408,6 +408,17 @@ smallest useful seams before adding the runtime and collaboration machinery.
   now distinguishes complete-but-ineligible benchmark evidence from a failed
   compute execution and uses its registered scope-specific evidence resolver.
   The calibration ledger records the exact calls and evidence digests.
+- A pinned hidden-performance calibration plan now requires three stable stock
+  reference repetitions. Its no-spend derivation tool revalidates raw vLLM
+  detail and direct goodput, requires identical campaign, candidate, build,
+  model, package and GPU provenance, applies the declared P95 headroom and
+  rounding rule, verifies every point's joint attainment, and emits a
+  write-once proposal rather than changing the active profile. The observed
+  conformance result motivates but is excluded from derivation. The operator
+  preflight separates conformance from a fresh three-repetition calibration
+  series under one predeclared build. The calibration bundle is then retired,
+  and any scored study must materialize a fresh hidden seed after the proposal
+  is frozen.
 - A provider-neutral randomized-block scheduler now materializes complete
   four-condition blocks with one run per condition. Its versioned SHA-256
   assignment algorithm binds conditions to predeclared execution positions,
@@ -441,9 +452,12 @@ The following remain gates, not implied capabilities:
    co-scheduling, and complete confirmatory evidence retention. All three
    adapters now pass bounded live execution and durable reconciliation. The
    current hidden performance policy cannot be registered unchanged because
-   the stock reference missed two joint-latency gates. Freeze a new profile
-   version only after declared calibration establishes reference eligibility;
-   do not reinterpret or pool the retained ineligible result. All three phase
+   the stock reference missed two joint-latency gates. Three fresh, explicitly
+   authorized reference repetitions remain before the deterministic calibration
+   proposal can be derived; the observed conformance run is excluded. Freeze a
+   new profile version only after that declared calibration establishes
+   reference eligibility; do not
+   reinterpret or pool the retained ineligible result. All three phase
    profiles still need registered copies. Neutral selection, result-release
    enforcement, hidden-workload authority and fail-closed outcome composition
    pass locally.
@@ -485,8 +499,9 @@ collection gate is complete. Hidden workload separation and the no-spend
 three-phase composition through all real phase adapters are also complete. The
 paired-quality Modal path passes both the no-spend durable integration gate and
 one bounded live reference conformance; correctness and performance have now
-done the same. The next gates are a declared performance-policy calibration,
-frozen registered profiles, complete study composition and four-condition
-campaign execution. Resolved-run assignment is implemented, but the full
-registered configuration authority is not. No live multi-condition model run
-is authorized yet.
+done the same. The next live gate is a fresh three-reference series under the
+declared performance-calibration plan. The next implementation gates are the
+resulting versioned policy, frozen registered profiles, complete study
+composition and four-condition campaign execution. Resolved-run assignment is
+implemented, but the full registered configuration authority is not. No live
+multi-condition model run is authorized yet.

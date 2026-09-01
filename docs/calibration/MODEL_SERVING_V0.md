@@ -446,3 +446,19 @@ does not validate the current hidden performance thresholds for a scored study.
 Before registration, use a declared calibration run to derive a new versioned
 policy under which the stock reference is eligible. Do not alter, relabel or
 pool this retained result with the replacement profile.
+
+The versioned calibration plan at
+`config/calibration/model-serving-hidden-performance-v1.json` requires three
+stock-reference repetitions with identical provenance. The retained execution
+above motivated the plan but is excluded from its derivation because it
+predates the plan freeze. All three calibration repetitions require separate
+explicit spend authorization and must use the same pinned campaign, candidate,
+build, private performance profile, model, package set and GPU identity. Only
+then may the no-spend derivation command emit a write-once proposal. It takes
+the worst P95
+TTFT and TPOT across every rate and repetition, applies 10% headroom, rounds
+TTFT upward to 50 milliseconds and TPOT upward to 5 milliseconds, replays
+joint attainment from saved per-request detail, and derives median selected-rate
+reference goodput. The source private bundle is calibration-only and must not
+serve as the study's held-out workload. A new hidden seed is materialized only
+after the replacement policy is frozen.

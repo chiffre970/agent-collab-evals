@@ -1,0 +1,14 @@
+{
+  "schema_version": "model-serving-performance-calibration-plan/v0alpha1",
+  "plan_id": "hidden-performance-reference-v1",
+  "required_reference_repetitions": 3,
+  "latency_percentile": 95,
+  "slo_headroom_ppm": 1100000,
+  "ttft_rounding_ms": 50,
+  "tpot_rounding_ms": 5,
+  "minimum_joint_attainment_ppm": 900000,
+  "selected_rate_policy": "largest_offered_rate",
+  "reference_aggregation": "median_goodput_by_bucket",
+  "source_bundle_disposition": "calibration_only_retire_before_study",
+  "study_hidden_bundle_policy": "fresh_seed_after_policy_freeze"
+}
