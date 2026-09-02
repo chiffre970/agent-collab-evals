@@ -61,6 +61,7 @@ def main() -> None:
     parser.add_argument("--maximum-seconds", type=int, default=1_800)
     parser.add_argument("--collection-seconds", type=int, default=300)
     parser.add_argument("--repetition", type=int, default=1)
+    parser.add_argument("--calibration-index", type=int)
     parser.add_argument(
         "--purpose",
         choices=("conformance", "calibration"),
@@ -81,6 +82,16 @@ def main() -> None:
         raise ValueError("correctness supports only its conformance run")
     if args.purpose == "conformance" and args.repetition != 1:
         raise ValueError("conformance supports only repetition 1")
+    if args.purpose == "conformance" and args.calibration_index is not None:
+        raise ValueError("conformance cannot name a calibration index")
+    if args.purpose == "calibration" and (
+        args.phase != "performance"
+        or args.repetition != 1
+        or args.calibration_index not in {1, 2, 3}
+    ):
+        raise ValueError(
+            "calibration requires an index and an independent repetition 1"
+        )
 
     repository_root = Path(__file__).resolve().parents[2]
     campaign_manifest = repository_root / "campaigns/model_serving_v0/campaign.toml"
@@ -133,7 +144,8 @@ def main() -> None:
                 "modal-hidden-performance-reference-calibration-v1"
             )
             evaluation_key = (
-                f"hidden:reference:performance-calibration:{args.repetition}"
+                "hidden:reference:performance-calibration:"
+                f"{args.calibration_index}:performance"
             )
         modal_profile = ModalVllmHiddenPerformanceProfile.create(
             profile_id=performance_profile_id,
@@ -179,7 +191,7 @@ def main() -> None:
         reservation_key=(
             f"hidden:live-conformance:{args.phase}"
             if args.purpose == "conformance"
-            else f"hidden:performance-calibration:{args.repetition}"
+            else f"hidden:performance-calibration:{args.calibration_index}"
         ),
         campaign_run_id=args.campaign_run_id,
         actor_id=None,
@@ -271,7 +283,8 @@ def main() -> None:
     output: dict[str, object] = {
         "phase": args.phase,
         "purpose": args.purpose,
-        "repetition": args.repetition,
+        "runner_repetition": args.repetition,
+        "calibration_index": args.calibration_index,
         "status": execution.status.value,
         "execution_id": execution.execution_id,
         "request_digest": request.request_digest,

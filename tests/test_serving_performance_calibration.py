@@ -24,7 +24,12 @@ from agent_collab_evals.campaigns.serving_performance_calibration import (
     derive_performance_calibration,
     load_calibration_bundle,
 )
-from agent_collab_evals.canonical import digest_bytes, digest_file
+from agent_collab_evals.canonical import (
+    canonical_json_bytes,
+    digest_bytes,
+    digest_file,
+    load_json,
+)
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +40,10 @@ PLAN_PATH = (
 )
 PROFILE_PATH = (
     REPOSITORY_ROOT / "campaigns/model_serving_v0/workloads/public/profile.toml"
+)
+PROPOSAL_PATH = (
+    REPOSITORY_ROOT
+    / "config/calibration/model-serving-hidden-performance-proposal-v1.json"
 )
 
 
@@ -58,7 +67,7 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
         self._temporary.cleanup()
 
     def test_derivation_requires_three_repetitions_and_is_deterministic(self) -> None:
-        bundles = tuple(self._bundle(repetition) for repetition in (1, 2, 3))
+        bundles = tuple(self._bundle(index) for index in (1, 2, 3))
 
         proposal = derive_performance_calibration(
             self.plan,
@@ -86,12 +95,20 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
         self.assertEqual(rules["short"]["ttft_slo_ms"], 150)
         self.assertEqual(rules["short"]["tpot_slo_ms"], 15)
         self.assertEqual(rules["long"]["selected_request_rate"], 2)
+        self.assertEqual(
+            [source["calibration_index"] for source in proposal["source_receipts"]],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            {source["runner_repetition"] for source in proposal["source_receipts"]},
+            {1},
+        )
 
         changed_environment = (
             bundles[0],
             bundles[1],
             CalibrationBundle(
-                repetition=3,
+                runner_repetition=1,
                 receipt_digest=bundles[2].receipt_digest,
                 provenance_digest="sha256:" + "8" * 64,
                 candidate_manifest_digest=bundles[2].candidate_manifest_digest,
@@ -116,7 +133,7 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(
-            PerformanceCalibrationError, "repetitions 1 through 3"
+            PerformanceCalibrationError, "3 independent single repetitions"
         ):
             derive_performance_calibration(
                 self.plan,
@@ -176,10 +193,33 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
             performance_profile_digest=digest_file(PROFILE_PATH),
         )
 
-        self.assertEqual(loaded.repetition, 1)
+        self.assertEqual(loaded.runner_repetition, 1)
         self.assertEqual(loaded.raw_documents, raw)
 
-    def _bundle(self, repetition: int) -> CalibrationBundle:
+    def test_retained_proposal_is_canonical_and_remains_unregistered(self) -> None:
+        content = PROPOSAL_PATH.read_bytes()
+        with PROPOSAL_PATH.open("r", encoding="utf-8") as source:
+            proposal = load_json(source)
+
+        self.assertEqual(canonical_json_bytes(proposal) + b"\n", content)
+        self.assertEqual(
+            proposal["status"], "calibration_proposal_not_registered"
+        )
+        self.assertEqual(proposal["calibration_plan_digest"], self.plan.digest)
+        self.assertEqual(
+            [value["calibration_index"] for value in proposal["source_receipts"]],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            {value["runner_repetition"] for value in proposal["source_receipts"]},
+            {1},
+        )
+        self.assertEqual(
+            proposal["study_hidden_bundle_policy"],
+            "fresh_seed_after_policy_freeze",
+        )
+
+    def _bundle(self, calibration_index: int) -> CalibrationBundle:
         documents = {
             invocation.result_file.name: json.dumps(
                 _result_document(invocation, self.campaign.target_model_id),
@@ -188,13 +228,15 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
             for invocation in self.invocations
         }
         return CalibrationBundle(
-            repetition=repetition,
-            receipt_digest=digest_bytes(f"receipt-{repetition}".encode()),
+            runner_repetition=1,
+            receipt_digest=digest_bytes(
+                f"receipt-{calibration_index}".encode()
+            ),
             provenance_digest="sha256:" + "9" * 64,
             candidate_manifest_digest=(
                 self.campaign.validate_reference_candidate().manifest_digest
             ),
-            measurement_id=f"reference-{repetition}",
+            measurement_id=f"reference-{calibration_index}",
             raw_documents=documents,
         )
 

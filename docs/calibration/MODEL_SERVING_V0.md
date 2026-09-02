@@ -462,3 +462,58 @@ joint attainment from saved per-request detail, and derives median selected-rate
 reference goodput. The source private bundle is calibration-only and must not
 serve as the study's held-out workload. A new hidden seed is materialized only
 after the replacement policy is frozen.
+
+## 2026-09-02: hidden performance reference calibration
+
+Three explicitly authorized, independent stock-reference measurements ran from
+clean, pushed commit `e8cbe91cb4ed07de573955c86d687ef0b1b39319`. Each used
+one fresh L4 allocation and runner repetition 1; the derivation tool assigns
+outer calibration indices after sorting the immutable receipt digests. This
+keeps measurements independent instead of conditioning repetitions 2 and 3 on
+whether an earlier result passed the SLO being calibrated.
+
+| Index | Function call | Startup | Warm phase | Function body | Receipt digest |
+| --- | --- | ---: | ---: | ---: | --- |
+| 1 | `fc-01M1G000GXMB1PCBTM2WJ0W3QE` | 234.348 s | 425.489 s | 663.666 s | `sha256:200420d0ad7c1faff0367bf8f05da844e659de90af0d83f0336d88268af594ee` |
+| 2 | `fc-01M1G0T3T4JVAF066DWHPRJ99F` | 283.441 s | 454.127 s | 742.256 s | `sha256:8d09a63690e2fe95208d03b12ded953f1449eac5cee5f85d55cf48a04534999f` |
+| 3 | `fc-01M1G1KRNHECY61YDD85GKAGFB` | 290.432 s | 461.455 s | 756.982 s | `sha256:f406940a7b41c8a94a7a6db9461b5923561d68d1845fb7aafd82911e8949cf57` |
+
+All 27 raw point documents and all 672 requests completed with no request,
+parsing or environment failures. The runs accounted for 664, 743 and 757
+uncapped seconds. They share provenance digest
+`sha256:52d0902863262140fe9f4d2777f53b8a7560e0526d412c240ebd7dfdbd1be5a1`.
+Under the superseded SLOs, each result was ineligible because `long/1` missed
+joint attainment. This is the calibration signal, not an infrastructure
+failure.
+
+The deterministic proposal is retained at
+`config/calibration/model-serving-hidden-performance-proposal-v1.json` with
+file digest
+`sha256:5b4ce9eb9aaa483e7c9c268436a79c5bb054d726d9f9178d5d7b4f78a12f86f4`.
+It derives these rules:
+
+| Bucket | TTFT SLO | TPOT SLO | Reference selected-rate goodput |
+| --- | ---: | ---: | ---: |
+| short | 250 ms | 45 ms | 3.588535 requests/s |
+| medium | 500 ms | 60 ms | 1.306723 requests/s |
+| long | 2,150 ms | 90 ms | 0.574602 requests/s |
+
+Every calibration point reaches the declared 90% joint-attainment floor under
+the proposal. Reference repetition scalars are 1,000,000, 1,003,057 and 997,025
+ppm. The proposal remains unregistered and cannot authorize a scored run.
+
+Two orchestration diagnostics are retained separately. A sequential
+repetition-2 request failed before GPU dispatch because the runner correctly
+found no eligible prior repetition in its new request-derived series. The
+third valid independent call completed GPU work but initially lost its trusted
+persistence function when the detached Modal app stopped. Restart collection
+reused the same function call and consumed authorization, persisted and
+verified the original evidence, and reconciled without redispatch. A local
+post-reconciliation phase-key wrapper bug did not affect the retained compute
+or measurement evidence and is fixed by suffixing calibration keys with
+`:performance`.
+
+The three source measurements are now retired as calibration evidence. The
+next policy version must be frozen before materializing a fresh hidden seed for
+scored experiments; none of these prompts or results may be reused as held-out
+study data.

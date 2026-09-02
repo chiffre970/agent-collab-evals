@@ -408,17 +408,29 @@ smallest useful seams before adding the runtime and collaboration machinery.
   now distinguishes complete-but-ineligible benchmark evidence from a failed
   compute execution and uses its registered scope-specific evidence resolver.
   The calibration ledger records the exact calls and evidence digests.
-- A pinned hidden-performance calibration plan now requires three stable stock
-  reference repetitions. Its no-spend derivation tool revalidates raw vLLM
-  detail and direct goodput, requires identical campaign, candidate, build,
+- A pinned hidden-performance calibration plan requires three stable,
+  independent stock-reference measurements. Its no-spend derivation tool
+  revalidates raw vLLM detail and direct goodput, requires identical campaign,
+  candidate, build,
   model, package and GPU provenance, applies the declared P95 headroom and
   rounding rule, verifies every point's joint attainment, and emits a
   write-once proposal rather than changing the active profile. The observed
-  conformance result motivates but is excluded from derivation. The operator
-  preflight separates conformance from a fresh three-repetition calibration
-  series under one predeclared build. The calibration bundle is then retired,
-  and any scored study must materialize a fresh hidden seed after the proposal
-  is frozen.
+  conformance result motivated but was excluded from derivation. Three fresh
+  measurements completed from build `e8cbe91`; all 27 raw points and identical
+  provenance passed validation. The resulting write-once proposal has digest
+  `sha256:5b4ce9eb9aaa483e7c9c268436a79c5bb054d726d9f9178d5d7b4f78a12f86f4`.
+  It changes TTFT gates to 250/500/2150 ms, retains TPOT gates at 45/60/90 ms,
+  and remains explicitly unregistered. The calibration bundle is retired, and
+  any scored study must materialize a fresh hidden seed after policy freeze.
+- Calibration execution now uses three independent runner-repetition-1 calls,
+  each assigned an outer calibration index. This avoids conditioning a later
+  calibration allocation on whether an earlier reference passed the SLO being
+  calibrated. Phase keys preserve the required `:performance` suffix. A
+  sequential-repetition probe failed before GPU dispatch and is retained as
+  invalid diagnostic evidence. The third valid call's trusted persistence
+  function stopped after GPU completion; restart collection reused the same
+  function call and authorization, then completed reconciliation without
+  redispatch.
 - A provider-neutral randomized-block scheduler now materializes complete
   four-condition blocks with one run per condition. Its versioned SHA-256
   assignment algorithm binds conditions to predeclared execution positions,
@@ -452,13 +464,12 @@ The following remain gates, not implied capabilities:
    co-scheduling, and complete confirmatory evidence retention. All three
    adapters now pass bounded live execution and durable reconciliation. The
    current hidden performance policy cannot be registered unchanged because
-   the stock reference missed two joint-latency gates. Three fresh, explicitly
-   authorized reference repetitions remain before the deterministic calibration
-   proposal can be derived; the observed conformance run is excluded. Freeze a
-   new profile version only after that declared calibration establishes
-   reference eligibility; do not
-   reinterpret or pool the retained ineligible result. All three phase
-   profiles still need registered copies. Neutral selection, result-release
+   the stock reference missed joint-latency gates. The deterministic replacement
+   proposal is complete but still needs promotion into a separate pinned hidden
+   scoring profile and runner input. Do not reinterpret or pool the retained
+   ineligible results. Materialize a fresh hidden bundle only after that profile
+   is frozen. All three phase profiles still need registered copies. Neutral
+   selection, result-release
    enforcement, hidden-workload authority and fail-closed outcome composition
    pass locally.
 4. The complete registered study manifest and composition root, execution of
@@ -499,9 +510,9 @@ collection gate is complete. Hidden workload separation and the no-spend
 three-phase composition through all real phase adapters are also complete. The
 paired-quality Modal path passes both the no-spend durable integration gate and
 one bounded live reference conformance; correctness and performance have now
-done the same. The next live gate is a fresh three-reference series under the
-declared performance-calibration plan. The next implementation gates are the
-resulting versioned policy, frozen registered profiles, complete study
-composition and four-condition campaign execution. Resolved-run assignment is
-implemented, but the full registered configuration authority is not. No live
-multi-condition model run is authorized yet.
+done the same. The performance-calibration series and deterministic proposal
+are complete. The next implementation gates are a separate versioned hidden
+scoring-profile input, a fresh post-freeze hidden bundle, frozen registered
+profiles, complete study composition and four-condition campaign execution.
+Resolved-run assignment is implemented, but the full registered configuration
+authority is not. No live multi-condition model run is authorized yet.

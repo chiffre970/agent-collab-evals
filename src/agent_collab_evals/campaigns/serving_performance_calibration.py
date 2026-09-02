@@ -145,7 +145,7 @@ class PerformanceCalibrationPlan:
 
 @dataclass(frozen=True, slots=True)
 class CalibrationBundle:
-    repetition: int
+    runner_repetition: int
     receipt_digest: str
     provenance_digest: str
     candidate_manifest_digest: str
@@ -175,7 +175,7 @@ def load_calibration_bundle(
         performance_profile_digest=performance_profile_digest,
     )
     return CalibrationBundle(
-        repetition=repetition,
+        runner_repetition=repetition,
         receipt_digest=digest_bytes(receipt_path.read_bytes()),
         provenance_digest=provenance_digest,
         candidate_manifest_digest=candidate_manifest_digest,
@@ -196,12 +196,15 @@ def derive_performance_calibration(
     """Derive a proposal from a complete reference series without mutating policy."""
     plan = load_benchmark_plan(performance_profile)
     values = tuple(bundles)
-    expected_repetitions = tuple(
+    expected_indices = tuple(
         range(1, calibration_plan.required_reference_repetitions + 1)
     )
-    if tuple(sorted(bundle.repetition for bundle in values)) != expected_repetitions:
+    if (
+        len(values) != calibration_plan.required_reference_repetitions
+        or any(bundle.runner_repetition != 1 for bundle in values)
+    ):
         raise PerformanceCalibrationError(
-            "calibration requires exactly repetitions 1 through 3"
+            "calibration requires exactly 3 independent single repetitions"
         )
     if len({bundle.receipt_digest for bundle in values}) != len(values):
         raise PerformanceCalibrationError("calibration receipts repeat")
@@ -218,10 +221,12 @@ def derive_performance_calibration(
             "calibration reference environments differ"
         )
     _validate_prior_slos(plan, prior_slos_ms)
+    values = tuple(sorted(values, key=lambda bundle: bundle.receipt_digest))
+    indexed = tuple(zip(expected_indices, values, strict=True))
     invocations = _invocations(plan, model_source)
     expected_names = {invocation.result_file.name for invocation in invocations}
     parsed: dict[tuple[int, str, int], tuple[BenchmarkInvocation, bytes, Any]] = {}
-    for bundle in values:
+    for calibration_index, bundle in indexed:
         if set(bundle.raw_documents) != expected_names:
             raise PerformanceCalibrationError(
                 "calibration benchmark point set differs"
@@ -242,7 +247,7 @@ def derive_performance_calibration(
                 raw, invocation, prior_slos_ms[invocation.bucket_id]
             )
             key = (
-                bundle.repetition,
+                calibration_index,
                 invocation.bucket_id,
                 invocation.request_rate,
             )
@@ -293,7 +298,7 @@ def derive_performance_calibration(
         references[bucket.bucket_id] = _median(
             tuple(
                 goodput[(repetition, bucket.bucket_id, rate)][1]
-                for repetition in expected_repetitions
+                for repetition in expected_indices
             )
         )
         bucket_rules[bucket.bucket_id]["reference_goodput_micro_rps"] = references[
@@ -301,7 +306,7 @@ def derive_performance_calibration(
         ]
 
     repetition_scalars = []
-    for repetition in expected_repetitions:
+    for repetition in expected_indices:
         ratios = tuple(
             _ratio_ppm(
                 goodput[
@@ -324,11 +329,12 @@ def derive_performance_calibration(
         "study_hidden_bundle_policy": calibration_plan.study_hidden_bundle_policy,
         "source_receipts": [
             {
-                "repetition": bundle.repetition,
+                "calibration_index": calibration_index,
+                "runner_repetition": bundle.runner_repetition,
                 "measurement_id": bundle.measurement_id,
                 "receipt_digest": bundle.receipt_digest,
             }
-            for bundle in sorted(values, key=lambda value: value.repetition)
+            for calibration_index, bundle in indexed
         ],
         "derivation": {
             "latency_percentile": calibration_plan.latency_percentile,

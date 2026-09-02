@@ -144,11 +144,12 @@ publication and storage gates now pass, as do the development provider-route,
 cache-isolation, sandbox, budget-reconciliation and fake candidate-lifecycle
 proofs. The hidden correctness, quality and performance adapters now pass both
 their no-spend durable contracts and bounded live Modal conformance. The stock
-reference exposed a hidden-performance SLO calibration issue, so a pinned
-three-reference plan must finish before that policy can be registered. The
-source calibration bundle is retired and a fresh hidden seed is required after
-policy freeze. Registered compute and evaluator promotion, research brokerage,
-study composition and four-condition execution remain explicit later gates. See
+reference exposed a hidden-performance SLO calibration issue. The pinned
+three-measurement calibration is complete and its deterministic proposal is
+retained, but not yet promoted to a registered profile. The source calibration
+bundle is retired and a fresh hidden seed is required after policy freeze.
+Registered compute and evaluator promotion, research brokerage, study
+composition and four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents
