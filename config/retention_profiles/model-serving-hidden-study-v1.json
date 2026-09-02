@@ -1,0 +1,14 @@
+{
+  "schema_version": "hidden-bundle-retention-profile/v1",
+  "profile_id": "model-serving-hidden-study-v1",
+  "status": "registered",
+  "backend": "modal_volume",
+  "modal_environment": "dev",
+  "volume_name": "agent-collab-evals-evaluator-private-v1",
+  "namespace": "hidden-workload-d4ef783ed35d7418",
+  "hidden_workload_manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8",
+  "write_policy": "write_once_digest_addressed",
+  "verification_policy": "complete_read_back_sha256",
+  "seed_retention": "excluded",
+  "deletion_policy": "manual_after_study_audit_release"
+}

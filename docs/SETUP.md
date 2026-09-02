@@ -528,6 +528,19 @@ scoring policy is committed. Never reuse the calibration bundle as held-out
 study material. The current registration candidate pins only commitments and
 digests; it deliberately contains no private path or seed.
 
+Retain the current study bundle on its dedicated evaluator-private Modal
+Volume and verify every byte with:
+
+```bash
+.venv/bin/python scripts/registration/retain_hidden_bundle.py
+```
+
+Use `--create-volume` only for the first retention attempt. The operation is
+idempotent for identical bytes and rejects an existing path with different
+content. It uploads the five bundle files but never uploads the selection seed.
+The key-free receipt is written to
+`evidence/hidden_workloads/model-serving-hidden-study-v1.json`.
+
 After materialization, dispatch one reference quality repetition without
 keeping a terminal attached:
 

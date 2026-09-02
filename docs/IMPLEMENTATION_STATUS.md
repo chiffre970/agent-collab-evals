@@ -467,10 +467,12 @@ The following remain gates, not implied capabilities:
    mechanically verified against its calibration proposal and injected into
    the runner and evidence boundary. A fresh post-freeze hidden bundle is
    materialized and digest-pinned in the composition candidate. Do not
-   reinterpret or pool the retained ineligible calibration results. All three
-   phase profiles still need registered copies. Neutral selection, result-release
-   enforcement, hidden-workload authority and fail-closed outcome composition
-   pass locally.
+   reinterpret or pool the retained ineligible calibration results. The hidden
+   phase policy is now frozen and the performance phase aggregates three
+   independent, durably receipted repetitions instead of accepting one result.
+   Stability and prohibited-shortcut authorities remain missing. Neutral
+   selection, result-release enforcement, hidden-workload authority and
+   fail-closed outcome composition pass locally.
 4. The complete registered study manifest and composition root, execution of
    the implemented four-condition schedule, combined platform audit export and
    the preregistered statistical analysis. A strict composition candidate pins
@@ -514,9 +516,13 @@ paired-quality Modal path passes both the no-spend durable integration gate and
 one bounded live reference conformance; correctness and performance have now
 done the same. The performance-calibration series and deterministic proposal
 are complete. The separate hidden scoring input and fresh post-freeze hidden
-bundle are complete. The next implementation gates are registered copies of
-the development profiles, the remaining budget, enforcement, analysis and
-block-plan authorities, durable evaluator-private bundle retention, and the
-executable composition root. Resolved-run
+bundle are complete. The bundle is retained without its seed on a dedicated,
+write-once evaluator-private Modal Volume; a committed receipt binds complete
+read-back verification. Registered hidden-phase, SQLite collaboration, and
+deny-all research profiles now pass semantic validation. The enforcement
+requirements are frozen but deliberately lack an implementation profile. The
+next implementation gates are registered provider, runtime, compute, budget,
+enforcement, stability, shortcut, analysis, block-plan, and platform-build
+authorities, followed by the executable composition root. Resolved-run
 assignment is implemented, but the full registered configuration authority is
 not. No live multi-condition model run is authorized yet.

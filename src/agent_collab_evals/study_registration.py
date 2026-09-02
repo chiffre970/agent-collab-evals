@@ -18,6 +18,16 @@ from .campaigns.serving_workload import (
     load_hidden_workload,
 )
 from .canonical import digest_file, digest_value, load_json
+from .hidden_bundle_retention import (
+    HiddenBundleRetentionProfile,
+    HiddenBundleRetentionReceipt,
+)
+from .registered_profiles import (
+    load_collaboration_profile,
+    load_enforcement_requirements,
+    load_hidden_evaluation_profile,
+    load_research_profile,
+)
 
 
 STUDY_COMPOSITION_SCHEMA = "registered-study-composition/v0alpha1"
@@ -137,6 +147,12 @@ class StudyCompositionCandidate:
             if profile.ref_id in profiles:
                 raise StudyRegistrationError("composition profile IDs repeat")
             profiles[profile.ref_id] = profile
+        _validate_registered_profiles(
+            profiles,
+            campaign=campaign,
+            hidden_workload=hidden_workload,
+            scoring_profile_digest=scoring_ref.digest,
+        )
 
         gates = document["unresolved_gates"]
         if (
@@ -285,3 +301,132 @@ def _identifier(value: Any, label: str) -> str:
     if not isinstance(value, str) or not _SAFE_ID.fullmatch(value):
         raise StudyRegistrationError(f"{label} is invalid")
     return value
+
+
+def _validate_registered_profiles(
+    profiles: Mapping[str, RegisteredFileRef],
+    *,
+    campaign: ModelServingCampaign,
+    hidden_workload: HiddenWorkloadRef,
+    scoring_profile_digest: str,
+) -> None:
+    required = {
+        "hidden_bundle_retention",
+        "hidden_bundle_retention_receipt",
+        "hidden_evaluation",
+        "collaboration",
+        "research",
+        "enforcement_requirements",
+    }
+    missing = required - set(profiles)
+    if missing:
+        raise StudyRegistrationError(
+            "registered profile set is incomplete: " + ", ".join(sorted(missing))
+        )
+    retention_ref = profiles["hidden_bundle_retention"]
+    retention = HiddenBundleRetentionProfile.load(retention_ref.path)
+    if (
+        retention.digest != retention_ref.digest
+        or retention.hidden_workload_manifest_digest
+        != hidden_workload.manifest_digest
+    ):
+        raise StudyRegistrationError("hidden bundle retention profile differs")
+    receipt_ref = profiles["hidden_bundle_retention_receipt"]
+    receipt = HiddenBundleRetentionReceipt.load(receipt_ref.path)
+    if (
+        digest_file(receipt_ref.path) != receipt_ref.digest
+        or receipt.profile_digest != retention.digest
+        or receipt.hidden_workload_manifest_digest
+        != hidden_workload.manifest_digest
+        or receipt.selection_seed_commitment
+        != hidden_workload.selection_seed_commitment
+        or receipt.volume_name != retention.volume_name
+        or receipt.namespace != retention.namespace
+    ):
+        raise StudyRegistrationError("hidden bundle retention receipt differs")
+    expected_retained_objects = {
+        "manifest.json": hidden_workload.manifest_digest,
+        "correctness.jsonl": hidden_workload.resource_digests[
+            "correctness_requests"
+        ],
+        "performance.toml": hidden_workload.resource_digests[
+            "performance_profile"
+        ],
+        "quality-requests.json": hidden_workload.resource_digests[
+            "quality_requests"
+        ],
+        "quality-workload.json": hidden_workload.resource_digests[
+            "quality_workload"
+        ],
+    }
+    if dict(receipt.object_digests) != expected_retained_objects:
+        raise StudyRegistrationError("retained hidden object digests differ")
+    hidden_ref = profiles["hidden_evaluation"]
+    hidden = load_hidden_evaluation_profile(hidden_ref.path)
+    if hidden.digest != hidden_ref.digest:
+        raise StudyRegistrationError("hidden evaluation profile digest differs")
+    expected_hidden = {
+        "campaign_manifest_digest": campaign.manifest_digest,
+        "hidden_workload_manifest_digest": hidden_workload.manifest_digest,
+        "retention_receipt_file_digest": receipt_ref.digest,
+    }
+    if any(hidden.document.get(key) != value for key, value in expected_hidden.items()):
+        raise StudyRegistrationError("hidden evaluation registration differs")
+    correctness = hidden.document["correctness"]
+    quality = hidden.document["quality"]
+    performance = hidden.document["performance"]
+    expected_phase_inputs = {
+        "correctness_workload": (
+            correctness.get("workload_digest"),
+            hidden_workload.resource_digests["correctness_requests"],
+        ),
+        "quality_profile": (
+            quality.get("quality_profile_digest"),
+            hidden_workload.resource_digests["quality_profile"],
+        ),
+        "quality_policy": (
+            quality.get("quality_policy_digest"),
+            hidden_workload.resource_digests["quality_policy"],
+        ),
+        "quality_workload": (
+            quality.get("workload_digest"),
+            hidden_workload.resource_digests["quality_workload"],
+        ),
+        "quality_requests": (
+            quality.get("request_spec_digest"),
+            hidden_workload.resource_digests["quality_requests"],
+        ),
+        "reference_candidate": (
+            quality.get("reference_candidate_digest"),
+            digest_file(campaign.reference_candidate_path),
+        ),
+        "reference_candidate_manifest": (
+            quality.get("reference_candidate_manifest_digest"),
+            campaign.validate_reference_candidate().manifest_digest,
+        ),
+        "performance_workload": (
+            performance.get("workload_digest"),
+            hidden_workload.resource_digests["performance_profile"],
+        ),
+        "performance_scoring": (
+            performance.get("scoring_profile_digest"),
+            scoring_profile_digest,
+        ),
+    }
+    changed = [
+        name for name, (observed, expected) in expected_phase_inputs.items()
+        if observed != expected
+    ]
+    if changed:
+        raise StudyRegistrationError(
+            "hidden phase inputs differ: " + ", ".join(changed)
+        )
+    semantic_loaders = {
+        "collaboration": load_collaboration_profile,
+        "research": load_research_profile,
+        "enforcement_requirements": load_enforcement_requirements,
+    }
+    for name, loader in semantic_loaders.items():
+        loaded = loader(profiles[name].path)
+        if loaded.digest != profiles[name].digest:
+            raise StudyRegistrationError(f"{name} profile digest differs")

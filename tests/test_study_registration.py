@@ -29,7 +29,7 @@ class StudyRegistrationTests(unittest.TestCase):
         )
 
         self.assertEqual(candidate.study_id, "model-serving-flash-v0")
-        self.assertEqual(len(candidate.profiles), 8)
+        self.assertEqual(len(candidate.profiles), 14)
         self.assertTrue(candidate.resolved_configuration_digest.startswith("sha256:"))
         with self.assertRaisesRegex(
             StudyRegistrationError, "cannot authorize execution"

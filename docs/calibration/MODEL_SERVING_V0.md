@@ -537,3 +537,10 @@ and seed commitment
 The seed and hidden resources remain outside Git. The composition candidate
 pins their digests and can verify the private bundle, but cannot authorize a
 run while its declared registration gates remain unresolved.
+
+The five bundle files, excluding the seed, are retained under namespace
+`hidden-workload-d4ef783ed35d7418` on the dedicated evaluator-private Modal
+Volume `agent-collab-evals-evaluator-private-v1`. Complete read-back produced
+receipt digest
+`sha256:8a35bfd38b9d1c162f7595b99a389b9422f92fb7f2df3cf277358dee4a18ea05`.
+The committed receipt contains only locators, commitments, and content digests.

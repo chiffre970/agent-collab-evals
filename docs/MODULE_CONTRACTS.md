@@ -672,6 +672,14 @@ profile digest. The trusted collector constructs benchmark invocations from
 that exact profile, and the digest is retained in dispatch, remote and
 normalized evidence. A transport default is not an experiment authority.
 
+The registered performance phase is a durable three-repetition series. Each
+repetition uses an independently pinned evaluator and compute receipt, a
+deterministically derived subreservation, and the same hidden workload and
+scoring profile. The series recomputes the median candidate scalar and the
+`candidate_min_over_reference_max` lower bound from all three resolved
+repetition results. A one-repetition result cannot satisfy the registered
+performance profile.
+
 ## Submission registry
 
 ```text

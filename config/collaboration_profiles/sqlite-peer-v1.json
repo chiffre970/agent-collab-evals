@@ -1,0 +1,14 @@
+{
+  "schema_version": "registered-collaboration-profile/v1",
+  "profile_id": "sqlite-peer-v1",
+  "status": "registered",
+  "adapter": "sqlite-collaboration-backend/v1",
+  "peer_isolated_visibility": "actor_private",
+  "peer_collab_visibility": "campaign_shared",
+  "identity_source": "server_session_transport",
+  "entry_sequence_policy": "actor_local_in_private_campaign_global_in_shared",
+  "notification_cursor_policy": "signed_view_local_watermark",
+  "denial_audit_policy": "durable_before_propagation",
+  "pagination_limit": 100,
+  "reset_policy": "campaign_scoped"
+}

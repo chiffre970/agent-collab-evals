@@ -91,7 +91,10 @@ class _RetainedPerformanceTransport:
             self.state_root
             / "measurements/.dispatch"
             / measurement_id
-            / "repetition-0001-attempt-01.json"
+            / (
+                f"repetition-{self.profile.repetition:04d}-"
+                f"attempt-{self.profile.attempt:02d}.json"
+            )
         )
         dispatch_path.parent.mkdir(parents=True, exist_ok=True)
         dispatch_path.write_bytes(canonical_json_bytes(dispatch))

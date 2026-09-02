@@ -1,0 +1,12 @@
+{
+  "schema_version": "registered-research-profile/v1",
+  "profile_id": "disabled-v1",
+  "status": "registered",
+  "adapter": "disabled-research-broker/v1",
+  "network_access": "none",
+  "search_policy": "deny",
+  "fetch_policy": "deny",
+  "request_cap_per_actor": 0,
+  "byte_cap_per_actor": 0,
+  "cache_policy": "none"
+}

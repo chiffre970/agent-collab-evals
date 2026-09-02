@@ -1,0 +1,56 @@
+{
+  "schema_version": "registered-hidden-evaluation-profile/v1",
+  "profile_id": "model-serving-hidden-v1",
+  "status": "registered",
+  "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+  "hidden_workload_manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8",
+  "retention_receipt_file_digest": "sha256:56213e5ec0bc5c916d4d7f4bb99b589843c74b2166b13b436136178b0ccc3055",
+  "phase_order": [
+    "correctness",
+    "quality",
+    "performance"
+  ],
+  "correctness": {
+    "adapter": "compute-candidate-evaluator/v0alpha1",
+    "workload_digest": "sha256:efe44a1a532624f7f5487d7e1897cffab4eae84a7ac35eb9a6fbbdc7e359d62f",
+    "executions": 1,
+    "reserved_seconds_per_execution": 600,
+    "maximum_collection_seconds": 300
+  },
+  "quality": {
+    "adapter": "paired-quality-series-evaluator/v0alpha1",
+    "quality_profile_digest": "sha256:297f7e46f1d78b740ff22baf888a8ac3d7f2487573090b9755e00c197b14e36a",
+    "quality_policy_digest": "sha256:eae72dc6000cdc7ecb0b09c012030bed0d66e668644040f8a8f1faae57a2bee4",
+    "quality_policy_authority_digest": "sha256:c1c3eba38690ba0938479f65639307e3adb0c5a52dcb95efdec70e9d6478b0e9",
+    "workload_digest": "sha256:9f129b49dda34d6af30d3e6a59f6ea945756b67fae32fbefca0ed9444492e8f4",
+    "request_spec_digest": "sha256:b247cab0e3ac415c4a6acfcec4636c49e5731b347d05382553e17f2dfbb18e52",
+    "reference_candidate_digest": "sha256:ce7525dad2b9952259fd8f4e2adf19e107156a2621862942c1ae6ae8fe49bd99",
+    "reference_candidate_manifest_digest": "sha256:1465966c4f6aa6a28c8af0839b0db3d7bcdb1ee50fd106a839ca6e6a8ca7211e",
+    "repetitions": 3,
+    "roles_per_repetition": 2,
+    "reserved_seconds_per_execution": 600,
+    "role_order_by_repetition": [
+      ["reference", "candidate"],
+      ["candidate", "reference"],
+      ["reference", "candidate"]
+    ]
+  },
+  "performance": {
+    "adapter": "performance-series-evaluator/v0alpha1",
+    "workload_digest": "sha256:b5432f3223c18c09aa775fe8acfde21c5cee0e44a9cb46ff2c881288687cc266",
+    "scoring_profile_digest": "sha256:b9a592bd555336520d16ab0eefd2d4678c4dcc264845fe8312bb1b0cf80f360f",
+    "repetitions": 3,
+    "reserved_seconds_per_execution": 1800,
+    "aggregation": "median_with_candidate_min_over_reference_max_bound",
+    "maximum_collection_seconds": 300
+  },
+  "outer_hidden_reserved_seconds": 9600,
+  "co_scheduling_policy": "none_independent_receipts",
+  "external_gate_authorities_required": [
+    "artifact_integrity",
+    "cold_start",
+    "api_schema",
+    "stability",
+    "prohibited_shortcuts"
+  ]
+}

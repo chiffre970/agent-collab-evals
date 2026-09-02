@@ -74,17 +74,46 @@
       "id": "peer_tool",
       "path": "config/peer_tool_profiles/peer-tool-v0.json",
       "digest": "sha256:c916564f77260c3471e940000a76c5bc780004baafb2014832ca446dedf730a9"
+    },
+    {
+      "id": "hidden_bundle_retention",
+      "path": "config/retention_profiles/model-serving-hidden-study-v1.json",
+      "digest": "sha256:707f78acd6d0496f7f76c0380d91cca8eaf1879ec8f76ce2f87f55b69a47757c"
+    },
+    {
+      "id": "hidden_bundle_retention_receipt",
+      "path": "evidence/hidden_workloads/model-serving-hidden-study-v1.json",
+      "digest": "sha256:56213e5ec0bc5c916d4d7f4bb99b589843c74b2166b13b436136178b0ccc3055"
+    },
+    {
+      "id": "hidden_evaluation",
+      "path": "config/evaluation_profiles/model-serving-hidden-v1.json",
+      "digest": "sha256:3e930ff7d4a21f6371b80d21b7e078e1d8335378291854e6997d02c8f5449ffd"
+    },
+    {
+      "id": "collaboration",
+      "path": "config/collaboration_profiles/sqlite-peer-v1.json",
+      "digest": "sha256:c18fa14f039acd0ba7bb0e4666a9eee4fc8fa473de0ebc9b4ad9c670d66035c1"
+    },
+    {
+      "id": "research",
+      "path": "config/research_profiles/disabled-v1.json",
+      "digest": "sha256:f79ea77279fa7eb90f5fc91db333f9892e877920ef2b09202c3ac757163bc8a4"
+    },
+    {
+      "id": "enforcement_requirements",
+      "path": "config/enforcement_profiles/model-serving-v0-requirements.json",
+      "digest": "sha256:23d1ce943b04272e8e76182bd199da4a227550ec1f8207df7dfe3587c9c279a1"
     }
   ],
   "unresolved_gates": [
     "registered_budget_plan",
     "registered_enforcement_profile",
-    "registered_hidden_phase_profiles",
     "registered_analysis_plan",
     "registered_block_plan",
-    "registered_collaboration_backend_profile",
-    "evaluator_private_bundle_retention",
-    "registered_research_broker",
+    "registered_provider_runtime_profiles",
+    "registered_compute_backend_profile",
+    "registered_stability_and_shortcut_gates",
     "registered_platform_build"
   ]
 }

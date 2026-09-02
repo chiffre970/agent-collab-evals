@@ -219,9 +219,9 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha3",
+                "adapter": "modal-vllm-cli-transport/v0alpha4",
                 "compute_profile_digest": compute_profile_digest,
-                "modal_cli": str(modal_cli.resolve()),
+                "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),

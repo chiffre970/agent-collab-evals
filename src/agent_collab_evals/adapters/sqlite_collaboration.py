@@ -25,6 +25,7 @@ from ..collaboration import (
     SessionTransport,
 )
 from ..session_identity import SessionIdentityRegistry
+from ..registered_profiles import RegisteredProfile
 
 
 class _AuditedAuthorizationError(PermissionError):
@@ -35,13 +36,35 @@ class SqliteCollaborationBackend:
     """Implements the actor-private/shared twin modes without coordination policy."""
 
     def __init__(
-        self, database_path: Path, identities: SessionIdentityRegistry
+        self,
+        database_path: Path,
+        identities: SessionIdentityRegistry,
+        registered_profile: RegisteredProfile | None = None,
     ) -> None:
+        if registered_profile is not None and (
+            registered_profile.schema_version
+            != "registered-collaboration-profile/v1"
+        ):
+            raise ValueError("SQLite collaboration profile schema differs")
         self._database_path = database_path
         self._identities = identities
+        self._profile_digest = (
+            registered_profile.authority_digest
+            if registered_profile is not None
+            else digest_value(
+                {
+                    "adapter": "sqlite-collaboration-backend/v1",
+                    "status": "development_unregistered",
+                }
+            )
+        )
         self._lock = threading.RLock()
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+
+    @property
+    def profile_digest(self) -> str:
+        return self._profile_digest
 
     def provision(
         self, campaign_run_id: str, visibility: CollaborationVisibility
