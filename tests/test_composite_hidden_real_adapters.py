@@ -108,6 +108,10 @@ class CompositeHiddenRealAdapterTests(unittest.TestCase):
                 campaign=campaign,
                 campaign_manifest=campaign_manifest,
                 hidden_workload=bundle,
+                scoring_profile=(
+                    REPOSITORY_ROOT
+                    / "campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml"
+                ),
                 modal_script=modal_script,
                 modal_environment="dev",
                 modal_client_version="1.5.4",

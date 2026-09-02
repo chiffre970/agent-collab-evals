@@ -80,6 +80,7 @@ class _RetainedPerformanceTransport:
             "measurement_id": measurement_id,
             "campaign_manifest_digest": self.profile.campaign_manifest_digest,
             "performance_profile_digest": self.profile.performance_profile_digest,
+            "scoring_profile_digest": self.profile.scoring_profile_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
             "repetition": self.profile.repetition,
             "attempt": self.profile.attempt,
@@ -113,7 +114,7 @@ class _RetainedPerformanceTransport:
                 "failures": [],
             },
             "measurement_profile_digest": digest_value({"measurement": "test"}),
-            "scoring_profile_digest": digest_value({"scoring": "test"}),
+            "scoring_profile_digest": self.profile.scoring_profile_digest,
             "platform_build": {
                 "git_commit": "f" * 40,
                 "modal_client_version": self.profile.modal_client_version,
@@ -165,6 +166,10 @@ class ModalHiddenPerformanceComputeTests(unittest.TestCase):
                 REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
             ),
             hidden_workload=self.bundle,
+            scoring_profile=(
+                REPOSITORY_ROOT
+                / "campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml"
+            ),
             modal_script=(
                 REPOSITORY_ROOT
                 / "campaigns/model_serving_v0/reference/modal_vllm.py"
@@ -200,6 +205,10 @@ class ModalHiddenPerformanceComputeTests(unittest.TestCase):
             self.modal_profile.performance_profile_digest,
             self.campaign.transitive_digests["public_profile"],
         )
+        self.assertNotEqual(
+            self.modal_profile.scoring_profile_digest,
+            self.campaign.scoring_profile().digest,
+        )
         self.modal_profile.validate_inputs(self.campaign)
 
     def test_existing_modal_transport_builds_the_hidden_profile_command(self) -> None:
@@ -220,6 +229,10 @@ class ModalHiddenPerformanceComputeTests(unittest.TestCase):
         profile_index = command.index("--performance-profile-path")
         self.assertEqual(
             command[profile_index + 1], str(self.modal_profile.performance_profile)
+        )
+        scoring_index = command.index("--scoring-profile-path")
+        self.assertEqual(
+            command[scoring_index + 1], str(self.modal_profile.scoring_profile)
         )
         self.assertIn("--dispatch-only", command)
 

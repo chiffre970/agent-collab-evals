@@ -1560,6 +1560,7 @@ def main(
     attempt: int = 1,
     baseline_output_root: str = "tmp/calibration/model-serving-reference",
     performance_profile_path: str = "campaigns/model_serving_v0/workloads/public/profile.toml",
+    scoring_profile_path: str = "campaigns/model_serving_v0/evaluator/scoring.toml",
     measurement_id: str = "",
     dispatch_only: bool = False,
     collect_only: bool = False,
@@ -1710,6 +1711,7 @@ def main(
             attempt=attempt,
             output_root=Path(baseline_output_root),
             performance_profile_path=Path(performance_profile_path),
+            scoring_profile_path=Path(scoring_profile_path),
             measurement_id_override=measurement_id,
             dispatch_only=dispatch_only,
             collect_only=collect_only,
@@ -1898,6 +1900,7 @@ def _run_baseline_repetition(
     attempt: int,
     output_root: Path,
     performance_profile_path: Path,
+    scoring_profile_path: Path,
     measurement_id_override: str,
     dispatch_only: bool,
     collect_only: bool,
@@ -1921,6 +1924,7 @@ def _run_baseline_repetition(
         replay_vllm_goodput,
     )
     from agent_collab_evals.campaigns.serving_scoring import (
+        ScoringProfile,
         score_repetition,
     )
 
@@ -1928,7 +1932,7 @@ def _run_baseline_repetition(
     repository_root = Path(__file__).resolve().parents[3]
     campaign = ModelServingCampaign.load(campaign_path)
     profile = campaign.measurement_profile()
-    scoring = campaign.scoring_profile()
+    scoring = ScoringProfile.load(scoring_profile_path)
     resolved_performance_profile = performance_profile_path.resolve(strict=True)
     performance_profile_digest = digest_file(resolved_performance_profile)
     plan = load_benchmark_plan(resolved_performance_profile)

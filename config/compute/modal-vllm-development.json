@@ -6,7 +6,7 @@
   "modal_environment": "dev",
   "modal_client_version": "1.5.4",
   "modal_script": "campaigns/model_serving_v0/reference/modal_vllm.py",
-  "modal_script_digest": "sha256:1d3fa94b711ea86dd0001bd7e52d675ce3581e60922e07c10a433ea177e94f28",
+  "modal_script_digest": "sha256:380975aa13e919036f985680c79dbe1ca6b59f649cb5b4a129427d5f66b28523",
   "campaign_manifest": "campaigns/model_serving_v0/campaign.toml",
   "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
   "performance_profile": "campaigns/model_serving_v0/workloads/public/profile.toml",

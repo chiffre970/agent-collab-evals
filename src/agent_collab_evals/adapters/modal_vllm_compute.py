@@ -280,6 +280,11 @@ class ModalVllmCliTransport:
             "repetition": self._profile.repetition,
             "attempt": self._profile.attempt,
         }
+        scoring_profile_digest = getattr(
+            self._profile, "scoring_profile_digest", None
+        )
+        if scoring_profile_digest is not None:
+            expected["scoring_profile_digest"] = scoring_profile_digest
         if any(dispatch_record.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal dispatch record differs from the compute request")
         return ExternalDispatch(
@@ -412,6 +417,14 @@ class ModalVllmCliTransport:
             str(self._state_root / "measurements"),
             "--performance-profile-path",
             str(self._profile.performance_profile),
+            "--scoring-profile-path",
+            str(
+                getattr(
+                    self._profile,
+                    "scoring_profile",
+                    self._campaign.scoring_profile_path,
+                )
+            ),
             "--measurement-id",
             measurement_id,
         ]
@@ -493,6 +506,11 @@ class ModalVllmEvidenceResolver:
             "attempt": self._profile.attempt,
             "function_call_id": external_call_id,
         }
+        scoring_profile_digest = getattr(
+            self._profile, "scoring_profile_digest", None
+        )
+        if scoring_profile_digest is not None:
+            expected["scoring_profile_digest"] = scoring_profile_digest
         if any(dispatch.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal dispatch evidence identity differs")
         return canonical_json_bytes(dispatch)
@@ -544,6 +562,11 @@ class ModalVllmEvidenceResolver:
             "repetition": self._profile.repetition,
             "attempt": self._profile.attempt,
         }
+        scoring_profile_digest = getattr(
+            self._profile, "scoring_profile_digest", None
+        )
+        if scoring_profile_digest is not None:
+            expected["scoring_profile_digest"] = scoring_profile_digest
         if any(normalized.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal normalized evidence identity differs")
         valid = normalized.get("valid") is True

@@ -26,6 +26,7 @@ from .serving_benchmark import (
     build_vllm_benchmark_invocations,
 )
 from .serving_measurement import parse_vllm_benchmark_result
+from .serving_scoring import ScoringProfile
 
 
 CALIBRATION_PLAN_SCHEMA = "model-serving-performance-calibration-plan/v0alpha1"
@@ -37,6 +38,78 @@ _REPETITION_ROOT = re.compile(r"repetition-([0-9]{4})-attempt-([0-9]{2})")
 
 class PerformanceCalibrationError(ValueError):
     pass
+
+
+def validate_scoring_profile_promotion(
+    proposal_path: Path,
+    scoring_profile: ScoringProfile,
+) -> str:
+    """Verify that a scoring profile is an exact promotion of a proposal."""
+
+    resolved = proposal_path.resolve(strict=True)
+    try:
+        with resolved.open("r", encoding="utf-8") as source:
+            proposal = load_json(source)
+    except (json.JSONDecodeError, DuplicateKeyError) as error:
+        raise PerformanceCalibrationError(
+            "performance calibration proposal is not valid JSON"
+        ) from error
+    if (
+        not isinstance(proposal, dict)
+        or proposal.get("schema_version") != CALIBRATION_PROPOSAL_SCHEMA
+        or proposal.get("status") != "calibration_proposal_not_registered"
+        or proposal.get("study_hidden_bundle_policy")
+        != "fresh_seed_after_policy_freeze"
+    ):
+        raise PerformanceCalibrationError(
+            "performance calibration proposal cannot be promoted"
+        )
+    sources = proposal.get("source_receipts")
+    buckets = proposal.get("buckets")
+    scalars = proposal.get("reference_repetition_scalar_ppm")
+    derivation = proposal.get("derivation")
+    if (
+        not isinstance(sources, list)
+        or not isinstance(buckets, list)
+        or not isinstance(scalars, list)
+        or not isinstance(derivation, dict)
+    ):
+        raise PerformanceCalibrationError(
+            "performance calibration proposal fields differ"
+        )
+    expected_receipts = tuple(source.get("receipt_digest") for source in sources)
+    if scoring_profile.reference_receipt_digests != expected_receipts:
+        raise PerformanceCalibrationError("promoted reference receipts differ")
+    if scoring_profile.reference_repetition_scalar_ppm != tuple(scalars):
+        raise PerformanceCalibrationError("promoted reference scalars differ")
+    if scoring_profile.minimum_joint_attainment_ppm != derivation.get(
+        "minimum_joint_attainment_ppm"
+    ):
+        raise PerformanceCalibrationError("promoted attainment policy differs")
+    expected_buckets = {
+        value.get("id"): {
+            "selected_request_rate": value.get("selected_request_rate"),
+            "ttft_slo_ms": value.get("ttft_slo_ms"),
+            "tpot_slo_ms": value.get("tpot_slo_ms"),
+            "reference_goodput_micro_rps": value.get(
+                "reference_goodput_micro_rps"
+            ),
+        }
+        for value in buckets
+        if isinstance(value, dict)
+    }
+    observed_buckets = {
+        bucket_id: {
+            "selected_request_rate": rule.selected_request_rate,
+            "ttft_slo_ms": rule.ttft_slo_ms,
+            "tpot_slo_ms": rule.tpot_slo_ms,
+            "reference_goodput_micro_rps": rule.reference_goodput_micro_rps,
+        }
+        for bucket_id, rule in scoring_profile.bucket_rules.items()
+    }
+    if expected_buckets != observed_buckets or len(expected_buckets) != len(buckets):
+        raise PerformanceCalibrationError("promoted bucket policy differs")
+    return digest_file(resolved)
 
 
 @dataclass(frozen=True, slots=True)

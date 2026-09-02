@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..campaigns.model_serving import ModelServingCampaign, load_benchmark_plan
+from ..campaigns.serving_scoring import ScoringProfile
 from ..campaigns.serving_workload import HiddenWorkloadBundle
 from ..canonical import (
     canonical_json_bytes,
@@ -43,6 +44,8 @@ class ModalVllmHiddenPerformanceProfile:
     hidden_workload_manifest_digest: str
     performance_profile: Path
     performance_profile_digest: str
+    scoring_profile: Path
+    scoring_profile_digest: str
     repetition: int
     attempt: int
     maximum_collection_seconds: int
@@ -57,6 +60,7 @@ class ModalVllmHiddenPerformanceProfile:
         campaign: ModelServingCampaign,
         campaign_manifest: Path,
         hidden_workload: HiddenWorkloadBundle,
+        scoring_profile: Path,
         modal_script: Path,
         modal_environment: str,
         modal_client_version: str,
@@ -92,6 +96,13 @@ class ModalVllmHiddenPerformanceProfile:
         if digest_file(performance_profile) != performance_digest:
             raise ValueError("hidden performance profile digest differs")
         hidden_plan = load_benchmark_plan(performance_profile)
+        resolved_scoring_profile = scoring_profile.resolve(strict=True)
+        scoring = ScoringProfile.load(resolved_scoring_profile)
+        scoring.validate_against(
+            hidden_plan,
+            measurement_profile_digest=campaign.measurement_profile().digest,
+            measurement_repetitions=campaign.measurement_profile().repetitions,
+        )
         public_plan = campaign.benchmark_plan()
         if (
             hidden_plan.seed == public_plan.seed
@@ -108,6 +119,7 @@ class ModalVllmHiddenPerformanceProfile:
             "campaign_manifest_digest": campaign.manifest_digest,
             "hidden_workload_manifest_digest": hidden_workload.manifest_digest,
             "performance_profile_digest": performance_digest,
+            "scoring_profile_digest": scoring.digest,
             "repetition": repetition,
             "attempt": attempt,
             "maximum_collection_seconds": maximum_collection_seconds,
@@ -125,6 +137,8 @@ class ModalVllmHiddenPerformanceProfile:
             hidden_workload_manifest_digest=hidden_workload.manifest_digest,
             performance_profile=performance_profile,
             performance_profile_digest=performance_digest,
+            scoring_profile=resolved_scoring_profile,
+            scoring_profile_digest=scoring.digest,
             repetition=repetition,
             attempt=attempt,
             maximum_collection_seconds=maximum_collection_seconds,
@@ -149,6 +163,8 @@ class ModalVllmHiddenPerformanceProfile:
             raise RuntimeError("hidden workload manifest digest differs")
         if digest_file(self.performance_profile) != self.performance_profile_digest:
             raise RuntimeError("hidden performance profile digest differs")
+        if digest_file(self.scoring_profile) != self.scoring_profile_digest:
+            raise RuntimeError("hidden scoring profile digest differs")
         hidden = load_benchmark_plan(self.performance_profile)
         public = campaign.benchmark_plan()
         if (
@@ -157,6 +173,11 @@ class ModalVllmHiddenPerformanceProfile:
             or hidden.metric_percentiles != public.metric_percentiles
         ):
             raise RuntimeError("hidden performance plan differs from its contract")
+        ScoringProfile.load(self.scoring_profile).validate_against(
+            hidden,
+            measurement_profile_digest=campaign.measurement_profile().digest,
+            measurement_repetitions=campaign.measurement_profile().repetitions,
+        )
 
 
 class ModalVllmHiddenPerformanceEvidenceResolver:
@@ -222,6 +243,10 @@ class ModalVllmHiddenPerformanceEvidenceResolver:
         normalized = envelope.get("result")
         if not isinstance(normalized, dict):
             raise RuntimeError("Modal performance normalized result is invalid")
+        if normalized.get("scoring_profile_digest") != (
+            self._profile.scoring_profile_digest
+        ):
+            raise RuntimeError("Modal performance scoring profile differs")
         performance = normalized.get("performance_score")
         if performance is None and envelope.get("status") == "failed":
             scalar = 0

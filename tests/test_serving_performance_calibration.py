@@ -23,7 +23,9 @@ from agent_collab_evals.campaigns.serving_performance_calibration import (
     PerformanceCalibrationPlan,
     derive_performance_calibration,
     load_calibration_bundle,
+    validate_scoring_profile_promotion,
 )
+from agent_collab_evals.campaigns.serving_scoring import ScoringProfile
 from agent_collab_evals.canonical import (
     canonical_json_bytes,
     digest_bytes,
@@ -44,6 +46,10 @@ PROFILE_PATH = (
 PROPOSAL_PATH = (
     REPOSITORY_ROOT
     / "config/calibration/model-serving-hidden-performance-proposal-v1.json"
+)
+HIDDEN_SCORING_PATH = (
+    REPOSITORY_ROOT
+    / "campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml"
 )
 
 
@@ -206,6 +212,12 @@ class ServingPerformanceCalibrationTests(unittest.TestCase):
             proposal["status"], "calibration_proposal_not_registered"
         )
         self.assertEqual(proposal["calibration_plan_digest"], self.plan.digest)
+
+        promoted = ScoringProfile.load(HIDDEN_SCORING_PATH)
+        self.assertEqual(
+            validate_scoring_profile_promotion(PROPOSAL_PATH, promoted),
+            digest_file(PROPOSAL_PATH),
+        )
         self.assertEqual(
             [value["calibration_index"] for value in proposal["source_receipts"]],
             [1, 2, 3],

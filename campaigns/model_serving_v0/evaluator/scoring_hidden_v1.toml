@@ -1,0 +1,49 @@
+schema_version = "model-serving-scoring/v0alpha1"
+phase = "calibration_candidate_sensitivity"
+primary_metric = "goodput_requests_per_second"
+point_selection = "largest_offered_rate_per_bucket"
+bucket_aggregation = "equal_weight_mean_of_reference_ratios"
+repetition_aggregation = "median"
+candidate_repetitions = 3
+minimum_joint_attainment_ppm = 900000
+request_failure_policy = "zero_failures_at_every_point"
+candidate_goodput_source = "vllm_direct"
+improvement_bound = "candidate_min_over_reference_max"
+
+[legacy_replay]
+authority = "reference_calibration_only"
+latency_reconstruction = "ttft_plus_sum_itls"
+classification_guard_us = 100
+aggregate_tolerance_us = 100
+
+[reference]
+measurement_id = "hidden-performance-reference-v1"
+measurement_profile_digest = "sha256:5b26369d44fa19450fed0300218181f8ef71e68e503afe0721f3654fc3777bb2"
+aggregation = "median_bucket_goodput"
+receipt_digests = [
+  "sha256:200420d0ad7c1faff0367bf8f05da844e659de90af0d83f0336d88268af594ee",
+  "sha256:8d09a63690e2fe95208d03b12ded953f1449eac5cee5f85d55cf48a04534999f",
+  "sha256:f406940a7b41c8a94a7a6db9461b5923561d68d1845fb7aafd82911e8949cf57",
+]
+repetition_scalar_ppm = [1000000, 1003057, 997025]
+
+[[buckets]]
+id = "short"
+selected_request_rate = 8
+ttft_slo_ms = 250
+tpot_slo_ms = 45
+reference_goodput_micro_rps = 3588535
+
+[[buckets]]
+id = "medium"
+selected_request_rate = 4
+ttft_slo_ms = 500
+tpot_slo_ms = 60
+reference_goodput_micro_rps = 1306723
+
+[[buckets]]
+id = "long"
+selected_request_rate = 2
+ttft_slo_ms = 2150
+tpot_slo_ms = 90
+reference_goodput_micro_rps = 574602
