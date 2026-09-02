@@ -523,6 +523,11 @@ must pin the resulting manifest digest; recomputing a digest after mutation is
 not accepted. File modes are defense in depth only—the registered harness
 sandbox must still prevent agents from reading evaluator-private paths.
 
+For a study bundle, use a new seed and output directory after the applicable
+scoring policy is committed. Never reuse the calibration bundle as held-out
+study material. The current registration candidate pins only commitments and
+digests; it deliberately contains no private path or seed.
+
 After materialization, dispatch one reference quality repetition without
 keeping a terminal attached:
 

@@ -517,3 +517,23 @@ The three source measurements are now retired as calibration evidence. The
 next policy version must be frozen before materializing a fresh hidden seed for
 scored experiments; none of these prompts or results may be reused as held-out
 study data.
+
+## 2026-09-02: hidden performance policy freeze
+
+Commit `7465379e86087f4880636aa75306e0edd63fd042` freezes the separate hidden
+scoring profile at
+`campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml`, with digest
+`sha256:b9a592bd555336520d16ab0eefd2d4678c4dcc264845fe8312bb1b0cf80f360f`.
+The promotion validator requires its receipt lineage, reference scalars,
+attainment floor and every bucket rule to match the retained calibration
+proposal exactly. The Modal runner accepts the scoring profile as an explicit
+input, and dispatch and normalized evidence bind its digest.
+
+Only after that commit was pushed, a new evaluator-private seed produced the
+study bundle with manifest digest
+`sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8`
+and seed commitment
+`sha256:ad63be5fe6a96361eaac3247f0279bc1edf8d8c52f694296ae710745a9c4e0ad`.
+The seed and hidden resources remain outside Git. The composition candidate
+pins their digests and can verify the private bundle, but cannot authorize a
+run while its declared registration gates remain unresolved.

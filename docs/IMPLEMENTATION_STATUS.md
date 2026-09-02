@@ -463,19 +463,21 @@ The following remain gates, not implied capabilities:
    performance adapters, plus stability and shortcut gates, efficient phase
    co-scheduling, and complete confirmatory evidence retention. All three
    adapters now pass bounded live execution and durable reconciliation. The
-   current hidden performance policy cannot be registered unchanged because
-   the stock reference missed joint-latency gates. The deterministic replacement
-   proposal is complete but still needs promotion into a separate pinned hidden
-   scoring profile and runner input. Do not reinterpret or pool the retained
-   ineligible results. Materialize a fresh hidden bundle only after that profile
-   is frozen. All three phase profiles still need registered copies. Neutral
-   selection, result-release
+   replacement performance policy is frozen separately from public scoring,
+   mechanically verified against its calibration proposal and injected into
+   the runner and evidence boundary. A fresh post-freeze hidden bundle is
+   materialized and digest-pinned in the composition candidate. Do not
+   reinterpret or pool the retained ineligible calibration results. All three
+   phase profiles still need registered copies. Neutral selection, result-release
    enforcement, hidden-workload authority and fail-closed outcome composition
    pass locally.
 4. The complete registered study manifest and composition root, execution of
    the implemented four-condition schedule, combined platform audit export and
-   the preregistered statistical analysis. Block assignment and per-run
-   resolution now pass locally; they are not yet wired to campaign execution.
+   the preregistered statistical analysis. A strict composition candidate pins
+   every currently available profile, the calibration lineage and the fresh
+   hidden workload identity. It always rejects execution and names the missing
+   authorities. Block assignment and per-run resolution pass locally; they are
+   not yet wired to campaign execution.
 5. An experiment-grade delivery outbox/receipt transaction. The development
    controller records a completed delivery after the harness call; the future
    authoritative ledger must atomically bind admission, runtime receipt and
@@ -511,8 +513,10 @@ three-phase composition through all real phase adapters are also complete. The
 paired-quality Modal path passes both the no-spend durable integration gate and
 one bounded live reference conformance; correctness and performance have now
 done the same. The performance-calibration series and deterministic proposal
-are complete. The next implementation gates are a separate versioned hidden
-scoring-profile input, a fresh post-freeze hidden bundle, frozen registered
-profiles, complete study composition and four-condition campaign execution.
-Resolved-run assignment is implemented, but the full registered configuration
-authority is not. No live multi-condition model run is authorized yet.
+are complete. The separate hidden scoring input and fresh post-freeze hidden
+bundle are complete. The next implementation gates are registered copies of
+the development profiles, the remaining budget, enforcement, analysis and
+block-plan authorities, durable evaluator-private bundle retention, and the
+executable composition root. Resolved-run
+assignment is implemented, but the full registered configuration authority is
+not. No live multi-condition model run is authorized yet.

@@ -1,0 +1,90 @@
+{
+  "schema_version": "registered-study-composition/v0alpha1",
+  "status": "registration_candidate",
+  "execution_authorized": false,
+  "study_id": "model-serving-flash-v0",
+  "study_version": "candidate-1",
+  "policy_freeze_commit": "7465379e86087f4880636aa75306e0edd63fd042",
+  "campaign": {
+    "id": "model-serving-v0",
+    "path": "campaigns/model_serving_v0/campaign.toml",
+    "digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594"
+  },
+  "hidden_scoring": {
+    "profile": {
+      "id": "hidden-performance-scoring-v1",
+      "path": "campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml",
+      "digest": "sha256:b9a592bd555336520d16ab0eefd2d4678c4dcc264845fe8312bb1b0cf80f360f"
+    },
+    "calibration_proposal": {
+      "id": "hidden-performance-calibration-proposal-v1",
+      "path": "config/calibration/model-serving-hidden-performance-proposal-v1.json",
+      "digest": "sha256:5b4ce9eb9aaa483e7c9c268436a79c5bb054d726d9f9178d5d7b4f78a12f86f4"
+    }
+  },
+  "hidden_workload": {
+    "manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8",
+    "selection_seed_commitment": "sha256:ad63be5fe6a96361eaac3247f0279bc1edf8d8c52f694296ae710745a9c4e0ad",
+    "resource_digests": {
+      "correctness_requests": "sha256:efe44a1a532624f7f5487d7e1897cffab4eae84a7ac35eb9a6fbbdc7e359d62f",
+      "performance_profile": "sha256:b5432f3223c18c09aa775fe8acfde21c5cee0e44a9cb46ff2c881288687cc266",
+      "quality_requests": "sha256:b247cab0e3ac415c4a6acfcec4636c49e5731b347d05382553e17f2dfbb18e52",
+      "quality_profile": "sha256:297f7e46f1d78b740ff22baf888a8ac3d7f2487573090b9755e00c197b14e36a",
+      "quality_policy": "sha256:eae72dc6000cdc7ecb0b09c012030bed0d66e668644040f8a8f1faae57a2bee4",
+      "quality_workload": "sha256:9f129b49dda34d6af30d3e6a59f6ea945756b67fae32fbefca0ed9444492e8f4"
+    }
+  },
+  "profiles": [
+    {
+      "id": "model",
+      "path": "config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json",
+      "digest": "sha256:d09c705b8259f226a69944c59a1792e9dae41b7f026598f12771d71ea3c06762"
+    },
+    {
+      "id": "runtime",
+      "path": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+      "digest": "sha256:b3d857e09a6c0d3a28b4741a60ba3b4bb4c38b042736193247914480d37a7143"
+    },
+    {
+      "id": "gateway",
+      "path": "config/gateway_profiles/openrouter-deepinfra-development-v0.json",
+      "digest": "sha256:150cd3e8558a5ccc719cf7b74e27877a3548b8dfc4185bb8e8addb50e7b2a2fc"
+    },
+    {
+      "id": "provider_selection",
+      "path": "config/provider_qualification/deepseek-v4-flash-deepinfra-development-selection.json",
+      "digest": "sha256:70f020895b4a34acb55bf6ae1dc213543b22f48ce5189abcc80e8bc4697ddce1"
+    },
+    {
+      "id": "billing_catalog",
+      "path": "config/billing_catalogs/openrouter-deepinfra-deepseek-v4-flash-20260821.json",
+      "digest": "sha256:dcc6352175758385c4e4b7e1ca5c92d2befb2a84bc0a05999638741fc5400c97"
+    },
+    {
+      "id": "compute_development",
+      "path": "config/compute/modal-vllm-development.json",
+      "digest": "sha256:75e4be27b718613bc8e228987952f28cd666f78d28a3b9af2b46da2d842eac2f"
+    },
+    {
+      "id": "sandbox_development",
+      "path": "config/sandbox_profiles/darwin-loopback-network-v0.json",
+      "digest": "sha256:c91921f9ce3f95bc94dd98823773b390e779fdf0292b3576865f4ca892376d32"
+    },
+    {
+      "id": "peer_tool",
+      "path": "config/peer_tool_profiles/peer-tool-v0.json",
+      "digest": "sha256:c916564f77260c3471e940000a76c5bc780004baafb2014832ca446dedf730a9"
+    }
+  ],
+  "unresolved_gates": [
+    "registered_budget_plan",
+    "registered_enforcement_profile",
+    "registered_hidden_phase_profiles",
+    "registered_analysis_plan",
+    "registered_block_plan",
+    "registered_collaboration_backend_profile",
+    "evaluator_private_bundle_retention",
+    "registered_research_broker",
+    "registered_platform_build"
+  ]
+}
