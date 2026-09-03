@@ -266,8 +266,43 @@ def load_enforcement_requirements(path: Path) -> RegisteredProfile:
         or profile.document.get("implementation_profile") is not None
     ):
         raise RegisteredProfileError("enforcement requirements must fail closed")
+    network = _mapping(profile.document, "network")
+    filesystem = _mapping(profile.document, "filesystem")
+    process = _mapping(profile.document, "process")
+    expected_network = {
+        "default": "deny",
+        "allowed_endpoints": "session_bound_broker_transports_only",
+        "loopback": "deny_except_exact_registered_broker_sockets",
+        "provider_credentials_in_harness": False,
+    }
+    expected_filesystem = {
+        "read": "runtime_and_session_workspace_allowlist",
+        "write": "session_workspace_only",
+        "evaluator_private_paths": "deny",
+        "cloud_credentials": "deny",
+    }
+    expected_process = {
+        "subprocesses": "runtime_tool_policy_only",
+        "cpu_memory_and_process_limits": "required",
+        "kernel_or_container_enforcement": "required",
+    }
+    if network != expected_network:
+        raise RegisteredProfileError("enforcement network requirements differ")
+    if filesystem != expected_filesystem:
+        raise RegisteredProfileError("enforcement filesystem requirements differ")
+    if process != expected_process:
+        raise RegisteredProfileError("enforcement process requirements differ")
     required = profile.document.get("required_conformance")
-    if not isinstance(required, list) or len(required) != 7 or len(set(required)) != 7:
+    expected_conformance = [
+        "gateway_only_network",
+        "unrelated_loopback_denied",
+        "provider_egress_denied",
+        "evaluator_private_files_denied",
+        "ambient_credentials_absent",
+        "filesystem_write_scope_enforced",
+        "process_resource_limits_enforced",
+    ]
+    if required != expected_conformance:
         raise RegisteredProfileError("enforcement conformance set differs")
     return profile
 

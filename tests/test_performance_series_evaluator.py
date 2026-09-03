@@ -22,10 +22,20 @@ from tests.quality_fixture import REPOSITORY_ROOT
 
 
 class _RepetitionEvaluator:
-    def __init__(self, profile_digest: str, scalar: int, used_seconds: int) -> None:
+    def __init__(
+        self,
+        profile_digest: str,
+        scalar: int,
+        used_seconds: int,
+        *,
+        eligible: bool = True,
+        failures: tuple[str, ...] = (),
+    ) -> None:
         self.profile_digest = profile_digest
         self.scalar = scalar
         self._used_seconds = used_seconds
+        self.eligible = eligible
+        self.failures = failures
         self.calls = 0
 
     def hidden_evaluate(self, candidate, reservation, evaluation_key):
@@ -47,9 +57,9 @@ class _RepetitionEvaluator:
 
     def resolve(self, receipt, candidate, reservation, scope):
         return EvaluationResult(
-            eligible=True,
+            eligible=self.eligible,
             criterion_units=self.scalar,
-            failures=(),
+            failures=self.failures,
             evidence_digest=digest_value({"receipt": receipt.value}),
             diagnostics={},
         )
@@ -157,6 +167,23 @@ class PerformanceSeriesEvaluatorTests(unittest.TestCase):
             [evaluator.calls for evaluator in self.evaluators.values()],
             [0, 0, 0],
         )
+
+    def test_ineligible_repetition_without_failures_fails_closed(self) -> None:
+        self.evaluators[2].eligible = False
+
+        receipt = self.evaluator.hidden_evaluate(
+            self.candidate, self.reservation, "hidden:performance"
+        )
+        result = self.evaluator.resolve(
+            receipt,
+            self.candidate,
+            self.reservation,
+            EvaluationScope.HIDDEN,
+        )
+
+        self.assertFalse(result.eligible)
+        self.assertEqual(result.criterion_units, 0)
+        self.assertIn("repetition 2: repetition is ineligible", result.failures)
 
 
 if __name__ == "__main__":

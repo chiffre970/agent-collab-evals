@@ -251,11 +251,17 @@ def summarize_candidate(
         raise ScoringValidationError("candidate repetition count differs")
     if len({value.repetition for value in values}) != len(values):
         raise ScoringValidationError("candidate repetition numbers repeat")
-    failures = tuple(
+    reported_failures = tuple(
         f"repetition {value.repetition}: {failure}"
         for value in values
         for failure in value.failures
     )
+    eligibility_failures = tuple(
+        f"repetition {value.repetition}: repetition is ineligible"
+        for value in values
+        if not value.eligible and not value.failures
+    )
+    failures = reported_failures + eligibility_failures
     reference_max = max(profile.reference_repetition_scalar_ppm)
     if failures:
         return CandidateScore(

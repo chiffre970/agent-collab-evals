@@ -385,10 +385,11 @@ smallest useful seams before adding the runtime and collaboration machinery.
   result. No-spend tests cover the real profile factory, exact Modal command,
   durable authorization, compute reconciliation and raw-evidence replay.
 - A no-spend integration now executes the complete hidden evaluator through
-  the real phase adapters: one correctness job, six paired quality jobs and one
-  hidden-performance job. The composite admits only after all three phases
-  resolve, reports the hidden performance criterion, sums 81 uncapped simulated
-  seconds and independently reconciles all eight planned compute executions.
+  the real phase adapters: one correctness job, six paired quality jobs, and
+  three hidden-performance jobs. The composite admits only after all three
+  phases resolve, reports the aggregated hidden performance criterion, sums
+  125 uncapped simulated seconds, and independently reconciles all 10 planned
+  compute executions.
 - The `modal_hidden_phase_compute.py` preflight provides one fail-closed
   operator path for bounded live qualifications. It accepts only
   correctness or performance, resolves a digest-pinned private bundle, creates

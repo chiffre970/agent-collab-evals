@@ -67,6 +67,22 @@ class RegisteredProfileTests(unittest.TestCase):
             ):
                 load_hidden_evaluation_profile(changed)
 
+    def test_enforcement_network_tampering_fails_closed(self) -> None:
+        source = (
+            REPOSITORY_ROOT
+            / "config/enforcement_profiles/model-serving-v0-requirements.json"
+        )
+        with source.open("r", encoding="utf-8") as handle:
+            document = json.load(handle)
+        document["network"]["default"] = "allow"
+        with tempfile.TemporaryDirectory() as temporary:
+            changed = Path(temporary) / "enforcement.json"
+            changed.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(
+                RegisteredProfileError, "network requirements differ"
+            ):
+                load_enforcement_requirements(changed)
+
     def test_disabled_research_broker_denies_every_request(self) -> None:
         broker = DisabledResearchBroker.from_profile(
             REPOSITORY_ROOT / "config/research_profiles/disabled-v1.json"
