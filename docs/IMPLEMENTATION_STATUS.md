@@ -478,9 +478,14 @@ The following remain gates, not implied capabilities:
    the implemented four-condition schedule, combined platform audit export and
    the preregistered statistical analysis. A strict composition candidate pins
    every currently available profile, the calibration lineage and the fresh
-   hidden workload identity. It always rejects execution and names the missing
-   authorities. Block assignment and per-run resolution pass locally; they are
-   not yet wired to campaign execution.
+   hidden workload identity. It always rejects scored execution and names the
+   missing authorities. A separate no-spend authority now pins the source tree,
+   composition candidate, block plan and explicit fake-runtime, no-model and
+   no-compute policies. Its structural runner resolves and executes every
+   four-condition campaign lifecycle, retains per-run evidence and verifies a
+   combined canonical audit. This rehearsal is non-scoreable and does not
+   exercise native handoffs or peer collaboration surfaces. The registered
+   composition root and real adapter wiring remain missing.
 5. An experiment-grade delivery outbox/receipt transaction. The development
    controller records a completed delivery after the harness call; the future
    authoritative ledger must atomically bind admission, runtime receipt and
@@ -526,4 +531,8 @@ next implementation gates are registered provider, runtime, compute, budget,
 enforcement, stability, shortcut, analysis, block-plan, and platform-build
 authorities, followed by the executable composition root. Resolved-run
 assignment is implemented, but the full registered configuration authority is
-not. No live multi-condition model run is authorized yet.
+not. A one-block, four-condition structural rehearsal passes with zero model
+calls and zero compute executions. Its authority and audit fail closed on
+configuration, material, source and retained-evidence drift. It uses the fake
+runtime and explicitly records that treatment surfaces were not exercised. No
+live multi-condition model run is authorized yet.

@@ -70,6 +70,34 @@ class CliTests(unittest.TestCase):
                     ]
                 )
 
+    def test_rehearse_study_runs_complete_four_condition_block_without_spend(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = main(
+                    [
+                        "rehearse-study",
+                        "--state-root",
+                        directory,
+                        "--rehearsal-id",
+                        "cli-rehearsal",
+                    ]
+                )
+
+            report = json.loads(output.getvalue())
+            self.assertEqual(result, 0)
+            self.assertTrue(report["ok"])
+            self.assertEqual(report["execution_class"], "no_spend")
+            self.assertFalse(report["scoreable"])
+            self.assertFalse(report["treatment_surfaces_exercised"])
+            self.assertEqual(report["block_count"], 1)
+            self.assertEqual(report["run_count"], 4)
+            self.assertEqual(report["model_calls"], 0)
+            self.assertEqual(report["compute_executions"], 0)
+            self.assertTrue(Path(report["audit_path"]).is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

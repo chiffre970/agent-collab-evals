@@ -121,7 +121,12 @@ The repository now contains the first scenario-shaped vertical slice:
   campaign, runtime, environment and evidence Volume are profile inputs rather
   than environment variables. Scored GPU functions have no secret, block
   external networking, mount model data read-only and hand a bounded evidence
-  bundle to a separate trusted persistence function.
+  bundle to a separate trusted persistence function; and
+- a four-condition structural study runner that pins its source tree,
+  composition candidate, randomized block plan and explicit no-model/no-compute
+  authorities. It resolves every run, exercises campaign start, delivery,
+  reconciliation and closure, retains canonical per-run evidence, and verifies
+  a combined audit without authorizing spend, treatment claims or scoring.
 
 The serving evaluator design also incorporates the documented lesson from
 Hugging Face's Fast Gemma Challenge: teacher-forced perplexity alone is not
@@ -135,6 +140,7 @@ Run the local slice without model or GPU spend:
 collab-evals validate-scenario
 collab-evals fake-solo
 collab-evals fake-candidate-lifecycle
+collab-evals rehearse-study
 python -m unittest discover -s tests -v
 ```
 
@@ -148,8 +154,10 @@ reference exposed a hidden-performance SLO calibration issue. The pinned
 three-measurement calibration is complete and its deterministic proposal is
 retained, but not yet promoted to a registered profile. The source calibration
 bundle is retired and a fresh hidden seed is required after policy freeze.
-Registered compute and evaluator promotion, research brokerage, study
-composition and four-condition execution remain explicit later gates. See
+The no-spend structural four-condition rehearsal now passes, but it deliberately
+uses the fake runtime and does not exercise treatment surfaces. Registered
+compute and evaluator promotion, research brokerage, the scored composition
+root and real four-condition execution remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents

@@ -49,11 +49,21 @@ from .evaluation import (
 )
 from .service_identity import ServiceIdentityRegistry
 from .session_identity import SessionIdentityRegistry
+from .study_registration import StudyCompositionCandidate
+from .study_rehearsal import (
+    NoSpendStudyAuthority,
+    NoSpendStudyRunner,
+    verify_no_spend_study_audit,
+)
+from .study_schedule import BlockInput, RandomizedBlockPlan
 
 
 DEFAULT_CAMPAIGN = Path("campaigns/model_serving_v0/campaign.toml")
 DEFAULT_MODAL_COMPUTE_PROFILE = Path(
     "config/compute/modal-vllm-development.json"
+)
+DEFAULT_STUDY_CANDIDATE = Path(
+    "config/studies/model-serving-flash-v0.registration-candidate.json"
 )
 
 
@@ -107,6 +117,21 @@ def _parser() -> argparse.ArgumentParser:
     action.add_argument("--collect", action="store_true")
     modal_compute.add_argument("--collect-timeout-seconds", type=int, default=0)
     modal_compute.add_argument("--allow-gpu-spend", action="store_true")
+
+    rehearsal = subparsers.add_parser(
+        "rehearse-study",
+        help="run one complete four-condition structural rehearsal without spend",
+    )
+    rehearsal.add_argument(
+        "--composition", type=Path, default=DEFAULT_STUDY_CANDIDATE
+    )
+    rehearsal.add_argument(
+        "--state-root", type=Path, default=Path("tmp/study-rehearsals")
+    )
+    rehearsal.add_argument("--rehearsal-id")
+    rehearsal.add_argument("--master-seed", type=int, default=970)
+    rehearsal.add_argument("--task-seed", type=int, default=1729)
+    rehearsal.add_argument("--organisation-size", type=int, default=4)
     return parser
 
 
@@ -479,6 +504,65 @@ def _modal_compute_development(arguments: argparse.Namespace) -> dict[str, objec
     }
 
 
+def _rehearse_study(arguments: argparse.Namespace) -> dict[str, object]:
+    repository_root = Path(__file__).resolve().parents[2]
+    composition = StudyCompositionCandidate.load(
+        arguments.composition.resolve(), repository_root=repository_root
+    )
+    rehearsal_id = arguments.rehearsal_id or f"rehearsal-{uuid.uuid4().hex}"
+    state_root = arguments.state_root.resolve() / rehearsal_id
+    materialized = composition.campaign.materialize(arguments.task_seed)
+    plan = RandomizedBlockPlan.create(
+        master_seed=arguments.master_seed,
+        organisation_size=arguments.organisation_size,
+        blocks=(
+            BlockInput(
+                block_id=f"{rehearsal_id}-block-001",
+                replicate_id=f"{rehearsal_id}-replicate-001",
+                variant_id=str(composition.campaign.raw["campaign_id"]),
+                task_seed=arguments.task_seed,
+                task_material_digest=materialized.material_digest,
+            ),
+        ),
+    )
+    plan.write_once(state_root / "block-plan.json")
+    authority = NoSpendStudyAuthority.create(
+        state_root / "authority.json",
+        rehearsal_id=rehearsal_id,
+        composition=composition,
+        block_plan=plan,
+        repository_root=repository_root,
+    )
+    result = NoSpendStudyRunner(
+        composition=composition,
+        block_plan=plan,
+        authority=authority,
+        state_root=state_root / "execution",
+    ).run()
+    verify_no_spend_study_audit(
+        result.audit_path,
+        expected_digest=result.audit_digest,
+        composition=composition,
+        block_plan=plan,
+        authority=authority,
+    )
+    return {
+        "ok": True,
+        "execution_class": "no_spend",
+        "scoreable": False,
+        "treatment_surfaces_exercised": False,
+        "rehearsal_id": result.rehearsal_id,
+        "authority_digest": result.authority_digest,
+        "block_plan_digest": result.block_plan_digest,
+        "audit_path": str(result.audit_path),
+        "audit_digest": result.audit_digest,
+        "block_count": result.block_count,
+        "run_count": result.run_count,
+        "model_calls": 0,
+        "compute_executions": 0,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "validate-scenario":
@@ -498,6 +582,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif arguments.command == "modal-compute-development":
         output = _modal_compute_development(arguments)
+    elif arguments.command == "rehearse-study":
+        output = _rehearse_study(arguments)
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))
