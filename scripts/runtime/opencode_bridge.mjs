@@ -109,6 +109,11 @@ function query(targetDirectory = directory) {
 
 function redactConfig(config) {
   const copy = structuredClone(config);
+  for (const plugin of copy.plugin ?? []) {
+    if (Array.isArray(plugin) && plugin[0].endsWith("/native_admission_plugin.mjs")) {
+      plugin[1] = { endpoint: "<native-admission>", token: "<redacted>" };
+    }
+  }
   for (const provider of Object.values(copy.provider ?? {})) {
     if (provider?.options && "apiKey" in provider.options) {
       provider.options.apiKey = "<redacted>";
@@ -121,6 +126,12 @@ function redactConfig(config) {
       }
       if ("AGENT_COLLAB_PEER_TOKEN" in server.environment) {
         server.environment.AGENT_COLLAB_PEER_TOKEN = "<redacted>";
+      }
+      if ("AGENT_COLLAB_CANDIDATE_ENDPOINT" in server.environment) {
+        server.environment.AGENT_COLLAB_CANDIDATE_ENDPOINT = "<candidate-gateway>";
+      }
+      if ("AGENT_COLLAB_CANDIDATE_TOKEN" in server.environment) {
+        server.environment.AGENT_COLLAB_CANDIDATE_TOKEN = "<redacted>";
       }
     }
   }
@@ -282,11 +293,17 @@ async function dispatch(message) {
     case "init": {
       if (runtime) throw new Error("bridge is already initialized");
       directory = message.directory;
-      if (message.config.mcp?.peer) {
+      for (const plugin of message.config.plugin ?? []) {
+        if (Array.isArray(plugin) && plugin[0].endsWith("/native_admission_plugin.mjs")) {
+          plugin[0] = new URL("./native_admission_plugin.mjs", import.meta.url).href;
+        }
+      }
+      for (const name of ["peer", "candidate"]) {
+        if (!message.config.mcp?.[name]) continue;
         // Resolve the packaged sidecar in either the host or container image.
-        message.config.mcp.peer.command = [
+        message.config.mcp[name].command = [
           process.execPath,
-          fileURLToPath(new URL("./peer_tool_server.mjs", import.meta.url)),
+          fileURLToPath(new URL(`./${name}_tool_server.mjs`, import.meta.url)),
         ];
       }
       runtime = await createOpencode({

@@ -11,12 +11,15 @@ import signal
 import socket
 import subprocess
 import threading
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
 from ..budget import GatewayAccessToken
+from ..candidate_gateway import CandidateToolAccess, CandidateToolGateway
+from ..native_admission import NativeAdmissionTools
 from ..canonical import canonical_json_bytes, digest_file, digest_value, load_json
 from ..delivery import HarnessDeliveryReceipt
 from ..domain import (
@@ -231,7 +234,14 @@ class _Bridge:
         native_handoffs: bool,
         peer_access: PeerToolAccess | None,
         timeout_seconds: int,
+        candidate_access: CandidateToolAccess | None = None,
+        native_access: CandidateToolAccess | None = None,
     ) -> None:
+        if any(
+            access is not None and access.broker_socket is not None
+            for access in (candidate_access, native_access)
+        ):
+            raise RuntimeError("candidate and native Unix relays are not wired into the runtime yet")
         state_root.mkdir(parents=True, exist_ok=True)
         directory.mkdir(parents=True, exist_ok=True)
         if not gateway_token:
@@ -291,6 +301,8 @@ class _Bridge:
                     gateway_token,
                     native_handoffs,
                     peer_access,
+                    candidate_access,
+                    native_access,
                 ),
             )["surface"]
         except Exception:
@@ -401,6 +413,8 @@ class _SessionState:
     event_cursor: int = 0
     bridge_event_cursor: int = 0
     checkpoint: Mapping[str, Any] | None = None
+    candidate_access: CandidateToolAccess | None = None
+    native_access: CandidateToolAccess | None = None
 
 
 @dataclass(slots=True)
@@ -423,6 +437,8 @@ class OpenCodeHarnessRuntime:
         process_sandbox: ProcessSandbox,
         peer_profile: PeerToolIntegrationProfile | None = None,
         peer_gateway: PeerToolGateway | None = None,
+        candidate_gateway: CandidateToolGateway | None = None,
+        native_gateway: CandidateToolGateway | None = None,
         timeout_seconds: int = 300,
     ) -> None:
         if timeout_seconds < 1:
@@ -430,6 +446,10 @@ class OpenCodeHarnessRuntime:
         self._profile = profile
         self._state_base = state_base
         self._gateway_tokens = gateway_tokens
+        self._candidate_gateway = candidate_gateway
+        self._native_gateway = native_gateway
+        if native_gateway is not None and not isinstance(native_gateway.tools, NativeAdmissionTools):
+            raise TypeError("native gateway must use the admission service")
         self._process_sandbox = process_sandbox
         if (peer_profile is None) != (peer_gateway is None):
             raise ValueError("peer profile and gateway must be configured together")
@@ -453,6 +473,9 @@ class OpenCodeHarnessRuntime:
             "durable_sessions": True,
             "native_handoffs": True,
             "native_identity_limit_enforced": False,
+            "development_native_admission_installed": self._native_gateway is not None,
+            "native_admission_profile_digest": self._native_profile_digest(),
+            "candidate_tool_profile_digest": self._candidate_profile_digest(),
             "observational_events": True,
             "peer_tool": self._peer_profile is not None,
             "peer_tool_profile_digest": (
@@ -483,6 +506,15 @@ class OpenCodeHarnessRuntime:
         return handle
 
     def _validate_spec(self, spec: OrganisationSpec) -> None:
+        if self._native_gateway is not None:
+            if spec.condition is not CoordinationCondition.NATIVE_MULTIAGENT:
+                raise RuntimeError("native admission is installed only in the native condition")
+            self._native_gateway.tools.validate_scope(spec.campaign_run_id, spec.organisation_size)
+        if self._candidate_gateway is not None and (
+            self._profile.status != "development"
+            or spec.condition is not CoordinationCondition.SOLO
+        ):
+            raise RuntimeError("candidate tool transport is qualified only for development solo wiring")
         if (
             spec.condition is CoordinationCondition.NATIVE_MULTIAGENT
             and self._profile.status != "development"
@@ -514,8 +546,14 @@ class OpenCodeHarnessRuntime:
         if not credential.token_id or not credential.value:
             raise ValueError("gateway token issuer returned an invalid credential")
         peer_access = None
+        candidate_access = None
+        native_access = None
         try:
             peer_access = self._issue_peer_access(state.spec, actor)
+            if self._candidate_gateway is not None:
+                candidate_access = self._candidate_gateway.issue(actor)
+            if self._native_gateway is not None:
+                native_access = self._native_gateway.issue(actor)
             bridge = self._start_bridge(
                 state.spec,
                 directory,
@@ -523,10 +561,16 @@ class OpenCodeHarnessRuntime:
                 credential.value,
                 credential.broker_socket,
                 peer_access,
+                candidate_access,
+                native_access,
             )
         except Exception:
             try:
-                self._revoke_peer_access(peer_access)
+                try:
+                    self._revoke_peer_access(peer_access)
+                finally:
+                    self._revoke_candidate_access(candidate_access)
+                    self._revoke_native_access(native_access)
             finally:
                 self._gateway_tokens.revoke(
                     credential.token_id, "runtime bridge creation failed"
@@ -542,6 +586,10 @@ class OpenCodeHarnessRuntime:
             if handle.value in self._session_to_organisation:
                 raise ValueError(f"session already exists: {handle.value}")
             self._gateway_tokens.activate(credential.token_id, handle)
+            if candidate_access is not None:
+                self._candidate_gateway.activate(candidate_access, handle)
+            if native_access is not None:
+                self._native_gateway.activate(native_access, handle)
             if peer_access is not None:
                 assert self._peer_gateway is not None
                 self._peer_gateway.activate(peer_access, handle)
@@ -553,6 +601,8 @@ class OpenCodeHarnessRuntime:
                 bridge,
                 credential.token_id,
                 peer_access,
+                candidate_access=candidate_access,
+                native_access=native_access,
             )
             state.sessions[handle.value] = session
             self._session_to_organisation[handle.value] = organisation.value
@@ -562,7 +612,11 @@ class OpenCodeHarnessRuntime:
                 bridge.close()
             finally:
                 try:
-                    self._revoke_peer_access(peer_access)
+                    try:
+                        self._revoke_peer_access(peer_access)
+                    finally:
+                        self._revoke_candidate_access(candidate_access)
+                        self._revoke_native_access(native_access)
                 finally:
                     self._gateway_tokens.revoke(
                         credential.token_id, "session creation failed"
@@ -682,6 +736,8 @@ class OpenCodeHarnessRuntime:
             )
         payload = {
             "schema": "opencode-harness-snapshot/v4",
+            "candidate_tool_profile_digest": self._candidate_profile_digest(),
+            "native_admission_profile_digest": self._native_profile_digest(),
             "runtime_profile_id": self._profile.profile_id,
             "runtime_profile_digest": self._profile.resolved_digest,
             "peer_tool_profile_digest": (
@@ -701,10 +757,26 @@ class OpenCodeHarnessRuntime:
             "sessions": sessions,
             "stopped": state.stopped,
         }
+        if self._native_gateway is not None:
+            evidence = []
+            for session in sessions:
+                children = tuple(
+                    value["session_id"] for value in session["checkpoint"]["reconciliation"]["sessions"]
+                    if value["session_id"] != session["session_id"]
+                )
+                check = self._native_gateway.tools.reconcile(session["session_id"], children)
+                if not check["valid"]:
+                    raise RuntimeError("native admission does not reconcile with the runtime tree")
+                evidence.append(check)
+            payload["native_admission_evidence"] = evidence
         return HarnessSnapshot(organisation.value, payload)
 
     def resume(self, snapshot: HarnessSnapshot) -> HarnessOrganisation:
         payload = _mapping(snapshot.payload, "harness snapshot")
+        if payload.get("candidate_tool_profile_digest") != self._candidate_profile_digest():
+            raise ValueError("candidate tool profile changed across resume")
+        if payload.get("native_admission_profile_digest") != self._native_profile_digest():
+            raise ValueError("native admission profile changed across resume")
         if payload.get("schema") != "opencode-harness-snapshot/v4":
             raise ValueError("unsupported OpenCode harness snapshot schema")
         if payload.get("runtime_profile_digest") != self._profile.resolved_digest:
@@ -758,7 +830,7 @@ class OpenCodeHarnessRuntime:
         ):
             raise ValueError("snapshot sessions do not match the condition topology")
         restored = _OrganisationState(handle, spec)
-        try:
+        with ExitStack() as rollback:
             for item_value in session_items:
                 item = _mapping(item_value, "snapshot session")
                 expected_peer_enabled = self._is_peer_condition(spec.condition)
@@ -782,51 +854,48 @@ class OpenCodeHarnessRuntime:
                     actor_id=actor.actor_id,
                     model_endpoint=spec.model_endpoint,
                 )
+                rollback.callback(
+                    self._gateway_tokens.revoke,
+                    credential.token_id, "organization resume rolled back",
+                )
                 if not credential.token_id or not credential.value:
                     raise ValueError(
                         "gateway token issuer returned an invalid credential"
                     )
                 peer_access = self._issue_peer_access(spec, actor)
-                try:
-                    bridge = self._start_bridge(
-                        spec,
-                        directory,
-                        state_root,
-                        credential.value,
-                        credential.broker_socket,
-                        peer_access,
-                    )
-                except Exception:
-                    self._revoke_peer_access(peer_access)
-                    self._gateway_tokens.revoke(
-                        credential.token_id, "runtime bridge resume failed"
-                    )
-                    raise
-                try:
-                    session_id = str(item["session_id"])
-                    if session_id in self._session_to_organisation:
-                        raise ValueError(f"session already exists: {session_id}")
-                    bridge.request(
-                        "get_session", session_id=session_id, directory=str(directory)
-                    )
-                    self._gateway_tokens.activate(
-                        credential.token_id, SessionHandle(session_id)
-                    )
-                    if peer_access is not None:
-                        assert self._peer_gateway is not None
-                        self._peer_gateway.activate(
-                            peer_access, SessionHandle(session_id)
-                        )
-                    surface = bridge.request("surface")
-                    if surface != item["surface"]:
-                        raise RuntimeError("effective OpenCode surface changed across resume")
-                except Exception:
-                    bridge.close()
-                    self._revoke_peer_access(peer_access)
-                    self._gateway_tokens.revoke(
-                        credential.token_id, "session resume failed"
-                    )
-                    raise
+                rollback.callback(self._revoke_peer_access, peer_access)
+                candidate_access = None
+                if self._candidate_gateway is not None:
+                    candidate_access = self._candidate_gateway.issue(actor)
+                    rollback.callback(self._revoke_candidate_access, candidate_access)
+                native_access = None
+                if self._native_gateway is not None:
+                    native_access = self._native_gateway.issue(actor)
+                    rollback.callback(self._revoke_native_access, native_access)
+                bridge = self._start_bridge(
+                    spec, directory, state_root, credential.value,
+                    credential.broker_socket, peer_access, candidate_access, native_access,
+                )
+                rollback.callback(bridge.close)
+                session_id = str(item["session_id"])
+                if session_id in self._session_to_organisation:
+                    raise ValueError(f"session already exists: {session_id}")
+                bridge.request(
+                    "get_session", session_id=session_id, directory=str(directory)
+                )
+                self._gateway_tokens.activate(
+                    credential.token_id, SessionHandle(session_id)
+                )
+                if candidate_access is not None:
+                    self._candidate_gateway.activate(candidate_access, SessionHandle(session_id))
+                if native_access is not None:
+                    self._native_gateway.activate(native_access, SessionHandle(session_id))
+                if peer_access is not None:
+                    assert self._peer_gateway is not None
+                    self._peer_gateway.activate(peer_access, SessionHandle(session_id))
+                surface = bridge.request("surface")
+                if surface != item["surface"]:
+                    raise RuntimeError("effective OpenCode surface changed across resume")
                 delivered_jobs: dict[str, HarnessDeliveryReceipt] = {}
                 raw_deliveries = item["delivered_jobs"]
                 if not isinstance(raw_deliveries, list):
@@ -856,20 +925,13 @@ class OpenCodeHarnessRuntime:
                     events=list(item["events"]),
                     event_cursor=int(item["event_cursor"]),
                     checkpoint=_mapping(item["checkpoint"], "event checkpoint"),
+                    candidate_access=candidate_access,
+                    native_access=native_access,
                 )
                 restored.sessions[session_id] = session
                 self._session_to_organisation[session_id] = handle.value
-        except Exception:
-            for session in restored.sessions.values():
-                session.bridge.close()
-                self._gateway_tokens.revoke(
-                    session.gateway_token_id, "organization resume rolled back"
-                )
-                self._revoke_peer_access(session.peer_access)
-                self._session_to_organisation.pop(
-                    session.handle.value, None
-                )
-            raise
+                rollback.callback(self._session_to_organisation.pop, session_id, None)
+            rollback.pop_all()
         self._organisations[handle.value] = restored
         return handle
 
@@ -882,6 +944,8 @@ class OpenCodeHarnessRuntime:
             session.bridge.close()
             self._gateway_tokens.revoke(session.gateway_token_id, "runtime suspended")
             self._revoke_peer_access(session.peer_access)
+            self._revoke_candidate_access(session.candidate_access)
+            self._revoke_native_access(session.native_access)
             self._session_to_organisation.pop(session.handle.value, None)
         self._organisations.pop(organisation.value)
         return snapshot
@@ -906,6 +970,8 @@ class OpenCodeHarnessRuntime:
                         session.gateway_token_id, reason
                     ),
                     lambda session=session: self._revoke_peer_access(session.peer_access),
+                    lambda session=session: self._revoke_candidate_access(session.candidate_access),
+                    lambda session=session: self._revoke_native_access(session.native_access),
                 ):
                     try:
                         cleanup()
@@ -998,6 +1064,8 @@ class OpenCodeHarnessRuntime:
         gateway_token: str,
         broker_socket: Path | None,
         peer_access: PeerToolAccess | None,
+        candidate_access: CandidateToolAccess | None = None,
+        native_access: CandidateToolAccess | None = None,
     ) -> _Bridge:
         return _Bridge(
             state_root=state_root,
@@ -1010,7 +1078,36 @@ class OpenCodeHarnessRuntime:
             native_handoffs=spec.condition is CoordinationCondition.NATIVE_MULTIAGENT,
             peer_access=peer_access,
             timeout_seconds=self._timeout_seconds,
+            candidate_access=candidate_access,
+            native_access=native_access,
         )
+
+    def _candidate_profile_digest(self) -> str | None:
+        if self._candidate_gateway is None:
+            return None
+        return digest_value({
+            "gateway": self._candidate_gateway.profile_digest,
+            "sidecar": digest_file(_BRIDGE_PATH.parent / "candidate_tool_server.mjs"),
+        })
+
+    def _native_profile_digest(self) -> str | None:
+        if self._native_gateway is None:
+            return None
+        return digest_value({
+            "gateway": self._native_gateway.profile_digest,
+            "hook": digest_file(_BRIDGE_PATH.parent / "native_admission_plugin.mjs"),
+            "status": "development_enforcement_integration",
+        })
+
+    def _revoke_native_access(self, access: CandidateToolAccess | None) -> None:
+        if access is not None:
+            assert self._native_gateway is not None
+            self._native_gateway.revoke(access)
+
+    def _revoke_candidate_access(self, access: CandidateToolAccess | None) -> None:
+        if access is not None:
+            assert self._candidate_gateway is not None
+            self._candidate_gateway.revoke(access)
 
     def _issue_peer_access(
         self, spec: OrganisationSpec, actor: AgentIdentity
@@ -1081,11 +1178,17 @@ def _runtime_config(
     gateway_token: str,
     native_handoffs: bool,
     peer_access: PeerToolAccess | None = None,
+    candidate_access: CandidateToolAccess | None = None,
+    native_access: CandidateToolAccess | None = None,
 ) -> Mapping[str, Any]:
     denied_tools = {"bash": False, "edit": False, "webfetch": False, "write": False}
     peer_tools = {
         f"peer_{name}": peer_access is not None for name in _PEER_TOOL_NAMES
     }
+    peer_tools.update({
+        f"candidate_{name}": candidate_access is not None
+        for name in ("submit", "evaluate", "result")
+    })
     permissions = {
         "edit": "deny",
         "bash": "deny",
@@ -1169,5 +1272,21 @@ def _runtime_config(
                 "enabled": True,
                 "timeout": 10_000,
             }
+        }
+    if native_access is not None:
+        config["plugin"] = [[
+            (_BRIDGE_PATH.parent / "native_admission_plugin.mjs").as_uri(),
+            {"endpoint": native_access.endpoint, "token": native_access.token},
+        ]]
+    if candidate_access is not None:
+        config.setdefault("mcp", {})["candidate"] = {
+            "type": "local",
+            "command": ["node", str(_BRIDGE_PATH.parent / "candidate_tool_server.mjs")],
+            "environment": {
+                "AGENT_COLLAB_CANDIDATE_ENDPOINT": candidate_access.endpoint,
+                "AGENT_COLLAB_CANDIDATE_TOKEN": candidate_access.token,
+            },
+            "enabled": True,
+            "timeout": 60_000,
         }
     return config

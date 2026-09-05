@@ -134,6 +134,40 @@ forces the solo denial, native task, isolated-peer, and shared-peer surfaces,
 then reconciles their durable evidence. It makes no external model or compute
 call and is never scoreable.
 
+Exercise the real solo candidate tools with synthetic evaluation:
+
+```bash
+.venv/bin/python -m agent_collab_evals rehearse-solo-candidates --run-id solo-candidate-001
+```
+
+This submits a predefined declarative candidate through real OpenCode, requests
+synthetic public evaluation, releases results between two controller jobs, and
+closes with budget and simulated-compute checks. It does not call an external
+model or GPU. Use a new run ID for each invocation. This transport is
+development-only and solo-only.
+
+Add `--restart-runtime` to persist the campaign checkpoint, stop OpenCode and
+the candidate gateway, reconstruct candidate services from disk, and resume
+before reading the released result. The rehearsal checks session continuity,
+capability rotation, and delivery replay without duplicate evaluation. The
+synthetic model gateway remains running; this is a clean checkpoint recovery
+test, not a whole-deployment crash qualification.
+
+The shared candidate/native-admission gateway also supports per-capability
+Unix sockets with host HTTP disabled. Local socket tests cover both services.
+OCI relay wiring, matched peer-arm candidate tools, and registered denial
+auditing remain pending; this transport support does not authorize OCI runs.
+
+Inspect prerequisites without executing any workload:
+
+```bash
+.venv/bin/python -m agent_collab_evals readiness
+```
+
+This report does not authorize execution. Linux deployment, image and engine
+pinning, native admission qualification, candidate capability transport, and
+registered-study authority gates remain distinct requirements.
+
 The registered-sandbox candidate additionally supports one dedicated Unix
 socket per model-gateway token and peer-tool token. Exercise the direct socket
 paths and in-container loopback relays locally with:

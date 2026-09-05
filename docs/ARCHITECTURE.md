@@ -338,11 +338,19 @@ One primary session receives each job. Native handoffs are denied and no collabo
 
 One primary session receives each job and may automatically invoke the runtime's stock general-purpose subagents. No custom roles, supervisor prompt or worker-to-worker channel is added. The primary and resumable child sessions may persist within the campaign according to native runtime semantics. Concurrency and total live identities are capped at `N`.
 
-This cap is a registered-execution requirement, not an implemented property of
-the development OpenCode adapter. Disabling recursive delegation does not cap
-sibling sessions. The adapter reports `native_identity_limit_enforced: false`
-and rejects non-development native profiles until admission is implemented and
-qualified. Observed child counts do not substitute for admission enforcement.
+This cap remains a registered-execution requirement. An optional development
+admission integration now reserves durable child slots before the stock task
+tool executes. Completion binds each slot to the returned child session; an
+unresolved dispatch holds its slot and rejects closure. Existing children can
+resume without consuming another slot, but cannot have simultaneous admitted
+calls. The integration does not modify task arguments, task outputs, roles, or
+prompts. It is separate from observational instrumentation and is source-pinned
+in the runtime capability digest. See [ADR 0003](decisions/0003-native-admission.md).
+
+The adapter reports `development_native_admission_installed` separately from
+`native_identity_limit_enforced: false` and continues to reject registered native
+profiles until interception and containment are qualified. Observed child counts
+do not substitute for admission enforcement.
 
 This condition and `peer_collab` differ in both coordination topology and resource-allocation mechanics. Their contrast evaluates two complete operating approaches; it does not isolate peer topology alone.
 

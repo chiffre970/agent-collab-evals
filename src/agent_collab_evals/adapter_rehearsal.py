@@ -30,6 +30,8 @@ from .canonical import (
 )
 from .compute_backend import FrozenComputeRunManifest
 from .controller import CampaignController
+from .candidate_gateway import SessionToolGateway
+from .native_admission import NativeAdmissionTools
 from .delivery import job_document
 from .collaboration import CollaborationVisibility
 from .domain import (
@@ -180,6 +182,13 @@ def run_adapter_condition_rehearsal(
     peer_gateway = PeerToolGateway(collaboration, identities)
     events = LocalEventSink(run_root / "events")
     delivery = SqliteDeliveryOutbox(run_root / "delivery.sqlite3")
+    native_gateway = None
+    if condition is CoordinationCondition.NATIVE_MULTIAGENT:
+        native_sessions = SessionIdentityRegistry()
+        native_gateway = SessionToolGateway(
+            NativeAdmissionTools(run_root / "native-admission", native_sessions, run_id, organisation_size),
+            native_sessions,
+        )
     runtime: OpenCodeHarnessRuntime | None = None
     handle = None
     stopped = False
@@ -191,6 +200,7 @@ def run_adapter_condition_rehearsal(
             process_sandbox=DarwinSandboxExec(sandbox_profile),
             peer_profile=peer_profile,
             peer_gateway=peer_gateway,
+            native_gateway=native_gateway,
             timeout_seconds=runtime_timeout_seconds,
         )
         controller = CampaignController(
@@ -222,6 +232,8 @@ def run_adapter_condition_rehearsal(
                 pass
         raise
     finally:
+        if native_gateway is not None:
+            native_gateway.close()
         peer_gateway.close()
         gateway.close()
 
@@ -262,7 +274,7 @@ def run_adapter_condition_rehearsal(
     if not treatment_evidence["complete"]:
         raise RuntimeError("real-adapter treatment surface was not exercised")
     audit = {
-        "schema_version": "real-adapter-condition-rehearsal/v2",
+        "schema_version": "real-adapter-condition-rehearsal/v3",
         "run_id": run_id,
         "execution_class": "local_synthetic_model",
         "scoreable": False,
@@ -276,6 +288,7 @@ def run_adapter_condition_rehearsal(
         "task_material_digest": materialized.material_digest,
         "task_seed": task_seed,
         "runtime_profile_digest": runtime_profile.resolved_digest,
+        "native_admission_profile_digest": runtime.capabilities()["native_admission_profile_digest"],
         "gateway_profile_digest": gateway_profile.resolved_digest,
         "sandbox_profile_digest": sandbox_profile.resolved_digest,
         "sandbox_enforcement": DarwinSandboxExec(sandbox_profile).evidence(),
@@ -366,6 +379,7 @@ def verify_adapter_condition_rehearsal(
         "task_material_digest",
         "task_seed",
         "runtime_profile_digest",
+        "native_admission_profile_digest",
         "gateway_profile_digest",
         "sandbox_profile_digest",
         "sandbox_enforcement",
@@ -395,7 +409,7 @@ def verify_adapter_condition_rehearsal(
     if canonical_json_bytes(audit) != content:
         raise RuntimeError("adapter rehearsal audit is not canonical")
     fixed = {
-        "schema_version": "real-adapter-condition-rehearsal/v2",
+        "schema_version": "real-adapter-condition-rehearsal/v3",
         "execution_class": "local_synthetic_model",
         "scoreable": False,
         "external_model_calls": 0,
@@ -539,6 +553,33 @@ def verify_adapter_condition_rehearsal(
         != list(range(actor_count))
     ):
         raise RuntimeError("adapter rehearsal snapshot identity differs")
+    if condition is CoordinationCondition.NATIVE_MULTIAGENT:
+        if not (run_root / "native-admission/native.sqlite3").is_file():
+            raise RuntimeError("native admission ledger is missing")
+        native_tools = NativeAdmissionTools(
+            run_root / "native-admission", SessionIdentityRegistry(), run_id, organisation_size
+        )
+        expected_native_profile = digest_value({
+            "gateway": digest_value({"transport": "development-session-tools-http/v1", "tools": native_tools.profile_digest}),
+            "hook": digest_file(repository / "scripts/runtime/native_admission_plugin.mjs"),
+            "status": "development_enforcement_integration",
+        })
+        native_evidence = []
+        for actor in snapshot_payload["sessions"]:
+            children = tuple(
+                value["session_id"] for value in actor["checkpoint"]["reconciliation"]["sessions"]
+                if value["session_id"] != actor["session_id"]
+            )
+            evidence = native_tools.reconcile(actor["session_id"], children)
+            if not evidence["valid"]:
+                raise RuntimeError("native admission ledger does not reconcile")
+            native_evidence.append(evidence)
+        if snapshot_payload.get("native_admission_evidence") != native_evidence:
+            raise RuntimeError("native admission snapshot evidence differs")
+    else:
+        expected_native_profile = None
+    if audit["native_admission_profile_digest"] != expected_native_profile or snapshot_payload.get("native_admission_profile_digest") != expected_native_profile:
+        raise RuntimeError("native admission profile differs")
     for actor in snapshot_payload["sessions"]:
         expected_receipts = [
             receipt.document for receipt in delivery.receipts

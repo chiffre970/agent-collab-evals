@@ -12,6 +12,8 @@ from .adapter_rehearsal import (
     run_solo_adapter_rehearsal,
     verify_solo_adapter_rehearsal,
 )
+from .candidate_rehearsal import run_candidate_rehearsal
+from .readiness import readiness_report
 from .adapters.fake_serving_evaluator import FakeModelServingEvaluator
 from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_artifact_storage import LocalArtifactStorage
@@ -153,6 +155,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     adapter_rehearsal.add_argument("--run-id")
     adapter_rehearsal.add_argument("--task-seed", type=int, default=1729)
+    candidates = subparsers.add_parser(
+        "rehearse-solo-candidates", help="exercise real agent candidate tools with synthetic evaluation and no spend"
+    )
+    candidates.add_argument("campaign", nargs="?", type=Path, default=DEFAULT_CAMPAIGN)
+    candidates.add_argument("--state-root", type=Path, default=Path("tmp/candidate-rehearsals"))
+    candidates.add_argument("--run-id", required=True)
+    candidates.add_argument("--restart-runtime", action="store_true", help="reconstruct candidate services and resume OpenCode between jobs")
+    readiness = subparsers.add_parser("readiness", help="inspect remaining deployment and registration gates without running workloads")
+    readiness.add_argument("--composition", type=Path, default=DEFAULT_STUDY_CANDIDATE)
     return parser
 
 
@@ -641,6 +652,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = _rehearse_study(arguments)
     elif arguments.command == "rehearse-solo-adapters":
         output = _rehearse_solo_adapters(arguments)
+    elif arguments.command == "rehearse-solo-candidates":
+        output = run_candidate_rehearsal(
+            arguments.campaign, arguments.state_root, arguments.run_id,
+            restart_runtime=arguments.restart_runtime,
+        )
+    elif arguments.command == "readiness":
+        output = readiness_report(Path(__file__).resolve().parents[2], arguments.composition)
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))

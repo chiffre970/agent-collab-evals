@@ -269,6 +269,8 @@ class StorageBackend(Protocol):
         session: SessionTransport,
         content: bytes,
         media_type: str = "application/octet-stream",
+        *,
+        idempotency_key: str | None = None,
     ) -> ArtifactRecord: ...
 
     def describe_owned(

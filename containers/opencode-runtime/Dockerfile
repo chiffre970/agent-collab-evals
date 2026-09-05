@@ -13,10 +13,14 @@ RUN npm ci --omit=dev \
 
 COPY scripts/runtime/opencode_bridge.mjs ./opencode_bridge.mjs
 COPY scripts/runtime/peer_tool_server.mjs ./peer_tool_server.mjs
+COPY scripts/runtime/candidate_tool_server.mjs ./candidate_tool_server.mjs
+COPY scripts/runtime/native_admission_plugin.mjs ./native_admission_plugin.mjs
 COPY scripts/runtime/session_launcher.py /opt/agent-collab/bin/session-launcher
 RUN chmod 0555 \
       /opt/agent-collab/runtime/opencode_bridge.mjs \
       /opt/agent-collab/runtime/peer_tool_server.mjs \
+      /opt/agent-collab/runtime/candidate_tool_server.mjs \
+      /opt/agent-collab/runtime/native_admission_plugin.mjs \
       /opt/agent-collab/bin/session-launcher
 
 USER 1000:1000

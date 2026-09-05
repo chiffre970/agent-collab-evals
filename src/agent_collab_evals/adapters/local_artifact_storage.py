@@ -142,8 +142,14 @@ class LocalArtifactStorage:
         session: SessionTransport,
         content: bytes,
         media_type: str = "application/octet-stream",
+        *,
+        idempotency_key: str | None = None,
     ) -> ArtifactRecord:
         context = self._sessions.resolve(session)
+        if idempotency_key is not None and (
+            not isinstance(idempotency_key, str) or not 1 <= len(idempotency_key) <= 256
+        ):
+            raise ValueError("artifact idempotency key is invalid")
         if not content:
             raise ValueError("artifact content must not be empty")
         if len(content) > self._policy.max_artifact_bytes:
@@ -167,6 +173,22 @@ class LocalArtifactStorage:
                 os.fsync(stream.fileno())
             self._sync_blob_directory()
             with self._transaction() as connection:
+                if idempotency_key is not None:
+                    previous = connection.execute(
+                        "SELECT artifact_ref FROM artifact_write_keys "
+                        "WHERE campaign_run_id=? AND actor_id=? AND idempotency_key=?",
+                        (context.campaign_run_id, context.actor_id, idempotency_key),
+                    ).fetchone()
+                    if previous is not None:
+                        record = self._stored_record(connection, ArtifactRef(previous["artifact_ref"]))
+                        self._require_owner(record, context.campaign_run_id, context.actor_id)
+                        if record.digest != digest or record.media_type != media_type or self._verified_content(record) != content:
+                            raise ValueError("artifact idempotency key was reused differently")
+                        # This attempt's unadmitted blob is not part of the store.
+                        destination.unlink()
+                        self._sync_blob_directory()
+                        created = False
+                        return record
                 self._enforce_quotas(
                     connection,
                     context.campaign_run_id,
@@ -197,6 +219,11 @@ class LocalArtifactStorage:
                     ref,
                     None,
                 )
+                if idempotency_key is not None:
+                    connection.execute(
+                        "INSERT INTO artifact_write_keys VALUES (?, ?, ?, ?)",
+                        (context.campaign_run_id, context.actor_id, idempotency_key, ref.value),
+                    )
         except Exception:
             if created:
                 destination.unlink(missing_ok=True)
@@ -568,6 +595,13 @@ class LocalArtifactStorage:
                     max_artifact_bytes INTEGER NOT NULL,
                     max_actor_bytes INTEGER NOT NULL,
                     max_campaign_bytes INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS artifact_write_keys(
+                    campaign_run_id TEXT NOT NULL,
+                    actor_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    artifact_ref TEXT NOT NULL REFERENCES artifacts(artifact_ref),
+                    PRIMARY KEY(campaign_run_id, actor_id, idempotency_key)
                 );
                 CREATE TABLE IF NOT EXISTS storage_campaign_actors(
                     campaign_run_id TEXT NOT NULL,

@@ -12,7 +12,7 @@
     "qualify:provider-route": "node --env-file=.env scripts/preflight/provider_route_qualification.mjs",
     "retain:provider-route": ".venv/bin/python scripts/preflight/retain_provider_qualification.py",
     "check:openrouter": "node --check scripts/preflight/openrouter.mjs && node scripts/preflight/openrouter.mjs --validate-profile",
-    "check:opencode": "node --check scripts/runtime/opencode_conformance.mjs && node --check scripts/runtime/opencode_bridge.mjs && node --check scripts/runtime/peer_tool_server.mjs && node --check scripts/runtime/peer_tool_conformance.mjs",
+    "check:opencode": "node --check scripts/runtime/opencode_conformance.mjs && node --check scripts/runtime/opencode_bridge.mjs && node --check scripts/runtime/peer_tool_server.mjs && node --check scripts/runtime/peer_tool_conformance.mjs && node --check scripts/runtime/candidate_tool_server.mjs && node --check scripts/runtime/native_admission_plugin.mjs",
     "check:model-gateway": ".venv/bin/python scripts/preflight/model_gateway_live.py",
     "preflight:model-gateway": "node --env-file=.env scripts/preflight/model_gateway_live.mjs",
     "spike:opencode": "node scripts/runtime/opencode_conformance.mjs",

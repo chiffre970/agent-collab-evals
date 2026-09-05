@@ -21,6 +21,7 @@ from agent_collab_evals.adapters.opencode_harness import (
 )
 from agent_collab_evals.sandbox import SandboxProfile
 from agent_collab_evals.budget import GatewayAccessToken
+from agent_collab_evals.candidate_gateway import CandidateToolAccess
 from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.domain import (
     AgentIdentity,
@@ -59,6 +60,64 @@ class _TokenIssuer:
 
 
 class OpenCodeRuntimeProfileTests(unittest.TestCase):
+    def test_runtime_rejects_unwired_capability_relays_before_launch(self):
+        with self.assertRaisesRegex(RuntimeError, "Unix relays are not wired"):
+            _Bridge(
+                state_root=Path("/unused/state"), directory=Path("/unused/workspace"),
+                profile=Mock(), endpoint="http://127.0.0.1:4317/v1", gateway_token="opaque",
+                broker_socket=None, process_sandbox=Mock(), native_handoffs=False,
+                peer_access=None, timeout_seconds=1,
+                candidate_access=CandidateToolAccess(
+                    "capability", "http://127.0.0.1:4319/v1/call", "opaque", Path("/unused/socket"),
+                ),
+            )
+
+    def test_candidate_resume_rolls_back_after_receipt_load_and_cleanup_failure(self):
+        profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
+        issuer = Mock(wraps=_TokenIssuer())
+        gateway = Mock(profile_digest=digest_value({"service": "candidate-test"}))
+        access = CandidateToolAccess("candidate-test", "http://127.0.0.1:4319/v1/call", "opaque-test")
+        gateway.issue.return_value = access
+        bridge = Mock()
+        bridge.request.return_value = {"surface": "same"}
+        bridge.close.side_effect = RuntimeError("simulated close failure")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = OpenCodeHarnessRuntime(
+                profile, root / "state", issuer, process_sandbox=_sandbox(), candidate_gateway=gateway,
+            )
+            run_id = "candidate-resume-cleanup"
+            snapshot = HarnessSnapshot("opencode:" + run_id, {
+                "schema": "opencode-harness-snapshot/v4",
+                "candidate_tool_profile_digest": runtime._candidate_profile_digest(),
+                "runtime_profile_digest": profile.resolved_digest,
+                "sandbox_profile_digest": runtime._process_sandbox.profile_digest,
+                "stopped": False,
+                "spec": {
+                    "campaign_run_id": run_id, "condition": "solo", "organisation_size": 1,
+                    "workspace_root": str(root / "workspace"), "model_endpoint": "http://127.0.0.1:4317/v1",
+                },
+                "sessions": [{
+                    "session_id": "primary", "actor_ordinal": 0, "peer_tool_enabled": False,
+                    "directory": str(root / "workspace/actor-0000"),
+                    "state_root": str(runtime._organisation_state_root(run_id) / "actor-0000"),
+                    "surface": {"surface": "same"}, "delivered_jobs": [{}],
+                    "events": [], "event_cursor": 0, "checkpoint": {},
+                }],
+            })
+            with (
+                patch.object(runtime, "_start_bridge", return_value=bridge),
+                patch("agent_collab_evals.adapters.opencode_harness.HarnessDeliveryReceipt.from_document", side_effect=RuntimeError("simulated receipt load failure")),
+                self.assertRaisesRegex(RuntimeError, "simulated close failure"),
+            ):
+                runtime.resume(snapshot)
+            gateway.activate.assert_called_once_with(access, SessionHandle("primary"))
+            gateway.revoke.assert_called_once_with(access)
+            issuer.revoke.assert_called_once()
+            bridge.close.assert_called_once()
+            self.assertEqual(runtime._session_to_organisation, {})
+            self.assertEqual(runtime._organisations, {})
+
     def test_native_runtime_cannot_be_promoted_without_identity_admission(self) -> None:
         profile = replace(OpenCodeRuntimeProfile.load(PROFILE_PATH), status="registered")
         with tempfile.TemporaryDirectory() as directory:
@@ -79,7 +138,8 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         runtime = object.__new__(OpenCodeHarnessRuntime)
         sessions = {
             str(index): SimpleNamespace(
-                bridge=Mock(), gateway_token_id=f"token-{index}", peer_access=None
+                bridge=Mock(), gateway_token_id=f"token-{index}", peer_access=None,
+                candidate_access=None, native_access=None,
             )
             for index in range(2)
         }

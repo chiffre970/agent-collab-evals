@@ -9,7 +9,7 @@
     "digest": null,
     "node_executable": "/usr/local/bin/node",
     "bridge_executable": "/opt/agent-collab/runtime/opencode_bridge.mjs",
-    "bridge_digest": "sha256:001382598cfb7f9958ccc8f55c4e743b901c1721518d3d94a9835a8daf6a7b7f",
+    "bridge_digest": "sha256:c5b18723d488a3bc9b83249f8f0028018910bc22b779fcbea797a769a012d5b9",
     "launcher_executable": "/opt/agent-collab/bin/session-launcher",
     "launcher_digest": "sha256:4cc18db8387c3fbb5de0fb32e4e7d6889c47d984f734002aba7e72e6c433c393"
   },

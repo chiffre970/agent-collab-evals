@@ -38,7 +38,7 @@ class AdapterRehearsalIntegrationTests(unittest.TestCase):
             audit = json.loads(content)
             self.assertEqual(result.audit_digest, digest_bytes(content))
             self.assertFalse(audit["scoreable"])
-            self.assertEqual(audit["schema_version"], "real-adapter-condition-rehearsal/v2")
+            self.assertEqual(audit["schema_version"], "real-adapter-condition-rehearsal/v3")
             self.assertEqual(audit["task_seed"], 1729)
             self.assertTrue((result.audit_path.parent / "model-requests.json").is_file())
             self.assertEqual(audit["external_model_calls"], 0)

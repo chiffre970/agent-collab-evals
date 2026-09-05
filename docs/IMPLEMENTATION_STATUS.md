@@ -529,9 +529,9 @@ The following remain gates, not implied capabilities:
    sandbox, session gateway, budget ledger, delivery outbox and closure gates
    against an in-process deterministic stream. Its audit is replayed from the
    retained ledger, outbox, event log, compute authority and harness snapshot.
-   The registered composition root and agent-facing candidate submission and
-   evaluation tools remain missing. This is a coordination rehearsal, not an
-   end-to-end agent optimization experiment.
+   The registered composition root and live agent-to-evaluator integration
+   remain missing. Separate development candidate-tool wiring is described
+   below; neither rehearsal is an optimization experiment.
 5. Registered single-dispatcher binding for the delivery outbox. The durable
    outbox and idempotent harness receipts now close the earlier ledger-write and
    partial-fan-out gap. V0 still needs the registered composition to pin one
@@ -588,12 +588,12 @@ second rehearsal now passes all four conditions through the real runtime and
 control adapters with a deterministic in-process model, zero external model
 calls, zero compute, exercised treatment surfaces, and independently reconciled
 evidence. It remains unscoreable and uses the partial development sandbox. The
-next concrete gates are native fleet admission and an image-backed OCI startup
+next concrete gates are native admission qualification and an image-backed OCI startup
 and qualification run. The image command now forwards stdin, resolves the local
 OpenCode executable, and packages the peer sidecar with a container-local path.
 These changes are checked locally, but do not establish container conformance.
-Then wire the agent-facing candidate/evaluation path and freeze the remaining
-registered authorities and executable composition root.
+Then qualify the development candidate/evaluation path against live compute and
+freeze the remaining registered authorities and executable composition root.
 No live multi-condition model run is authorized yet.
 
 ## Review follow-up: September 5, 2026
@@ -621,7 +621,7 @@ Completed locally:
   one canonical prompt and make no second model call. Missing pre-crash event
   history still rejects closure; recovery does not make that run scoreable.
 
-Remaining plan:
+Plan after the initial review fixes:
 
 1. Implement and qualify native identity/concurrency admission at `N`. The
    runtime explicitly reports this limitation and rejects registered native
@@ -637,3 +637,82 @@ Validation: the default suite ran 276 tests (263 passed, 13 skipped). Six
 additional enabled local integration tests passed, including the four-condition
 rehearsal and interruption recovery. JavaScript syntax and whitespace checks
 passed. No external model or GPU calls were made. OCI execution was not tested.
+
+## Next four gates: implementation progress
+
+1. **Native admission: development integration implemented.** The SQLite
+   service reserves child slots before stock task dispatch and retains them
+   across process restarts. A separately pinned before/after hook connects
+   stock OpenCode to the service without transforming tasks. The real
+   four-condition rehearsal passes with this integration in the native arm.
+   Schema v3 replay additionally reconciles the native ledger with the runtime
+   tree. Registered interception and containment qualification remain open.
+2. **OCI qualification: blocked on deployment prerequisites.** The current
+   host is macOS, neither Docker nor Podman is installed, and the image is not
+   pinned. The gateway and OCI runtime need a Linux deployment. The new
+   `readiness` command reports these facts and the registered authority gaps;
+   it does not interpret engine availability as conformance evidence. The image
+   recipe includes the candidate sidecar and native hook. Their service gateway
+   supports per-capability Unix sockets, but OCI relays still need wiring before
+   qualification.
+3. **Solo candidate flow: no-spend end-to-end wiring implemented.** Real
+   OpenCode submits a typed candidate through an MCP sidecar and session-bound
+   service, requests public evaluation, and reads the result after a fixed
+   controller-owned release boundary. The existing storage, submission,
+   evaluator, selection, and accounting services handle the lifecycle. The
+   controller closes with model-budget and simulated-compute gates; evidence
+   and a storage seal are retained. Model outputs, scores, and compute are
+   synthetic. This is an integration proof, not an optimization result or live
+   evaluator qualification. Clean candidate-session resume is now exercised
+   with real OpenCode and reconstructed durable services. Registered recovery,
+   matched peer-arm wiring, and capability denial auditing remain explicit gates.
+4. **Registered-study promotion: inventoried, not authorized.** Existing
+   missing budget, analysis, block, provider/runtime, compute, stability/shortcut,
+   enforcement, and platform-build authorities remain unresolved. Nothing in
+   this implementation chooses a study spending envelope or authorizes live
+   scored runs.
+
+The candidate upload path now accepts an optional actor-scoped storage
+idempotency key. The key and artifact reference commit together, so retries
+reuse the original artifact instead of creating conflicting submission IDs.
+
+Validation for the preceding increment: 283 tests ran in the default suite (269 passed,
+14 skipped). Seven opt-in real-runtime integration tests passed across the
+four-condition rehearsal, candidate flow, and existing restart/peer tests.
+JavaScript syntax checks and `git diff --check` passed. All model and evaluator
+outputs used in these runs were synthetic; no external model or GPU spend was
+incurred. Commit `dde55d9` contains the preceding hardening work; this increment
+and the follow-up below form the next implementation checkpoint.
+
+### Candidate recovery and capability transport follow-up
+
+- Completed: development solo resume reconstructs the durable candidate services,
+  rotates the capability, restores the original OpenCode session, and reads its
+  public result. The optional `--restart-runtime` rehearsal persists and reloads
+  the checkpoint and verifies that acknowledged delivery replay causes no extra
+  model call or compute reservation. Its schema v2 audit records these checks.
+- Completed: resume rollback releases every provisional bridge and capability,
+  including when receipt restoration or another cleanup step fails.
+- Completed: candidate and native-admission services can use separate
+  per-capability Unix listeners with no host HTTP listener. Local integration
+  tests exercise both services and candidate submission retries across normal
+  capability rotation. Revocation removes the listener and session binding.
+- Pending: OCI relay wiring and Linux conformance. The harness rejects these
+  new Unix capability transports until relay integration is implemented. Neither
+  a pinned image nor a Linux container deployment is available on this host.
+- Pending: matched peer-arm candidate wiring, registered capability denial
+  auditing, live agent-to-evaluator composition, and registered recovery.
+  The restart test covers clean checkpoints, not an entire deployment crash;
+  the synthetic model gateway stays running. Existing missing-event recovery
+  remains unscoreable.
+
+No new live model or GPU runs were authorized. The unrelated
+progress-assessment draft is excluded from this implementation checkpoint.
+
+Validation: the default suite ran 289 tests (272 passed, 17 skipped), with
+`ResourceWarning` treated as an error. Ten enabled local integration tests also
+passed: four existing OpenCode recovery/peer tests, two adapter rehearsals,
+two candidate-runtime rehearsals, and two Unix capability tests. JavaScript
+syntax, CLI help, readiness inventory, and whitespace checks passed. All model
+responses and evaluator outcomes were synthetic; these tests incurred no
+external model or GPU spend.

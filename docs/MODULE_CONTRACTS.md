@@ -303,6 +303,14 @@ interface CampaignDefinition:
 
 ## Harness runtime port
 
+The optional native admission integration is an enforcement component distinct
+from instrumentation. It reserves a durable child slot before the stock task
+tool runs and binds completion to the returned session identity. Neither task
+arguments nor outputs are transformed. The runtime snapshot includes its
+source-pinned profile and ledger reconciliation. Until its interception and
+containment are qualified, this component remains development-only and cannot
+authorize a registered native condition.
+
 ```text
 interface HarnessRuntime:
   capabilities() -> HarnessCapabilities
@@ -314,6 +322,29 @@ interface HarnessRuntime:
   resume(snapshot) -> HarnessOrganisation
   stop(org, reason: StopReason) -> HarnessSnapshot
 ```
+
+The development candidate service exposes only `submit`, `evaluate`, and
+`result`, with identity derived from its active session transport. Candidate
+validation is supplied by the campaign; storage and submission remain separate
+ports. Agent requests cannot choose the job scope, filesystem root, result
+release boundary, selection, or hidden evaluation. This first transport is
+solo-only. Development resume issues a fresh capability and binds it to the
+restored session. The no-spend restart rehearsal reconstructs storage,
+submission, evaluator, and compute services from their durable stores before
+reading the original result. Registered recovery and containment remain open.
+
+`SessionToolGateway` supports either loopback HTTP or a separate Unix listener
+for each capability, never both. Each Unix listener accepts only its assigned
+capability identity. Revocation expires the session binding and removes the
+listener. This is transport support for candidate and native-admission services,
+not qualification of the still-pending OCI relays or matched peer-arm wiring.
+
+`StorageBackend.put` accepts an optional actor-scoped `idempotency_key`. The
+adapter commits the key-to-artifact mapping with the admitted artifact record.
+An identical retry returns that artifact after checking its bytes and ownership;
+different bytes or media type under the same key fail. Candidate uploads use a
+job-namespaced key so an HTTP retry cannot create a new artifact reference and
+conflict with a previously admitted submission.
 
 `OrganisationSpec` includes the condition, persistent workspace handles, model endpoint routed through `BudgetGateway`, tool grants, native-handoff policy and the frozen peer activation policy. Its maximum live identities are derived from `organisation_size`: one for `solo`, and at most `N` for every other condition.
 

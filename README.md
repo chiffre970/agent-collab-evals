@@ -185,8 +185,11 @@ composition exercises all four treatment surfaces against a deterministic local
 model. Only the latter exercises native and peer tools; it still uses the
 partial development sandbox. Registered
 enforcement, compute and evaluator promotion, research brokerage, the scored
-composition root, native fleet admission, and the agent-facing candidate and
-evaluation tools remain explicit later gates. See
+composition root, native admission qualification, and live agent-to-evaluator
+wiring remain explicit later gates. A development admission hook now reserves
+native child slots, and a separate no-spend solo rehearsal exercises candidate
+submission and evaluation tools through real OpenCode. Neither authorizes a
+scored run. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents
