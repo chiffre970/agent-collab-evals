@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { createOpencode } from "@opencode-ai/sdk";
 
@@ -215,6 +216,7 @@ async function reconcileSessionTree(rootSessionIDs, targetDirectory) {
       message_ids: messages.map((message) => message.info.id),
       message_count: messages.length,
       messages_digest: digest(messages),
+      messages_json: canonical(messages),
     });
   }
   const statuses = checked(
@@ -280,6 +282,13 @@ async function dispatch(message) {
     case "init": {
       if (runtime) throw new Error("bridge is already initialized");
       directory = message.directory;
+      if (message.config.mcp?.peer) {
+        // Resolve the packaged sidecar in either the host or container image.
+        message.config.mcp.peer.command = [
+          process.execPath,
+          fileURLToPath(new URL("./peer_tool_server.mjs", import.meta.url)),
+        ];
+      }
       runtime = await createOpencode({
         port: message.port,
         timeout: message.timeout_ms ?? 20_000,
@@ -305,8 +314,29 @@ async function dispatch(message) {
         }),
         "get session",
       );
-    case "prompt":
-      return checked(
+    case "find_prompt": {
+      const messages = checked(
+        await runtime.client.session.messages({
+          path: { id: message.session_id },
+          query: query(message.directory),
+        }),
+        "find prompt",
+      );
+      const matches = messages.filter(
+        (item) =>
+          item?.info?.role === "user" &&
+          item?.parts?.some(
+            (part) => part?.type === "text" && part?.text === message.text,
+          ),
+      );
+      return {
+        match_count: matches.length,
+        message_id: matches.length === 1 ? matches[0]?.info?.id ?? null : null,
+        response_digest: matches.length === 1 ? digest(matches[0]) : null,
+      };
+    }
+    case "prompt": {
+      const response = checked(
         await runtime.client.session.prompt({
           path: { id: message.session_id },
           query: query(message.directory),
@@ -321,6 +351,11 @@ async function dispatch(message) {
         }),
         "prompt session",
       );
+      return {
+        message_id: response?.info?.id ?? null,
+        response_digest: digest(response),
+      };
+    }
     case "children":
       return checked(
         await runtime.client.session.children({

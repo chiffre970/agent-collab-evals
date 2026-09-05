@@ -264,10 +264,18 @@ interface CampaignController:
 
 The controller may schedule jobs and manage lifecycle. It may not decide agent roles, handoffs, peer messages, artifact merging or task solutions.
 
-`close()` requires a configured `BudgetReconciliationGate`. It first stops the
-harness and revokes its session credentials, waiting for authenticated in-flight
-model requests to reach a durable terminal state. It then reconciles the
-campaign ledger. The controller emits `campaign.closed` and returns a
+`deliver()` first commits the complete recipient set and canonical job to a
+durable `DeliveryOutbox`. Each harness acknowledgement is then stored against
+its prepared intent. The job becomes complete only after every intended session
+has returned a matching `HarnessDeliveryReceipt`. A partial fan-out or process
+restart reuses acknowledged recipients and retries only missing intents through
+the harness's idempotent delivery contract.
+
+`close()` requires configured delivery, budget and compute reconciliation
+gates. It verifies the exact delivered job, session and runtime-receipt set
+before stopping the harness. It then revokes session credentials, waits for
+authenticated in-flight model requests to reach a durable terminal state and
+reconciles the campaign ledgers. The controller emits `campaign.closed` and returns a
 `CampaignResult` only when no reservation is active, forfeited, overrun or
 missing its required raw stream and provider-metadata receipts. Otherwise, it
 emits `campaign.invalid`, marks the handle invalid and raises without returning
@@ -300,7 +308,7 @@ interface HarnessRuntime:
   capabilities() -> HarnessCapabilities
   start_organisation(spec: OrganisationSpec) -> HarnessOrganisation
   create_primary(org, actor: AgentIdentity) -> SessionHandle
-  deliver(session, job: Job) -> void
+  deliver(session, job: Job) -> HarnessDeliveryReceipt
   events(org) -> async EventStream
   snapshot(org) -> HarnessSnapshot
   resume(snapshot) -> HarnessOrganisation
@@ -309,7 +317,32 @@ interface HarnessRuntime:
 
 `OrganisationSpec` includes the condition, persistent workspace handles, model endpoint routed through `BudgetGateway`, tool grants, native-handoff policy and the frozen peer activation policy. Its maximum live identities are derived from `organisation_size`: one for `solo`, and at most `N` for every other condition.
 
-`deliver` is idempotent for the same session, `job_id` and canonical materials digest. Repeating an interrupted fan-out completes missing deliveries without duplicating accepted work; reusing a `job_id` with a different materials digest fails closed.
+`deliver` is idempotent for the same session, `job_id` and canonical materials
+digest. It returns the same receipt after an accepted retry. The receipt binds
+the session, job, materials, effective runtime profile and retained runtime
+acknowledgement. Repeating an interrupted fan-out completes missing deliveries
+without duplicating accepted work; reusing a `job_id` with different materials
+fails closed. After an uncertain process boundary, the OpenCode adapter searches
+the durable session for the exact canonical job prompt before sending. One match
+reconstructs a receipt, no match permits delivery and multiple matches fail
+closed.
+
+```text
+interface DeliveryOutbox:
+  prepare(campaign_run_id, sessions, job) -> ordered list<DeliveryIntent>
+  acknowledged(intent) -> HarnessDeliveryReceipt?
+  acknowledge(intent, receipt) -> HarnessDeliveryReceipt
+  complete(campaign_run_id, job_id) -> ordered list<HarnessDeliveryReceipt>
+  completed_job_ids(campaign_run_id) -> ordered list<string>
+  reconcile(campaign_run_id, sessions, delivered_job_ids) -> DeliveryReconciliation
+```
+
+The SQLite adapter commits every intent before the first runtime call and
+stores canonical job, recipient, receipt and audit records. Reconciliation
+reconstructs every identifier and digest and requires exact job and session
+sets. The registered runner remains the single campaign dispatcher; adding
+multiple concurrent controller processes requires a separately registered
+cross-process claim or lease protocol.
 
 The OpenCode adapter must:
 
@@ -800,8 +833,11 @@ The sandbox must prevent bypassing the budget gateway or capability brokers. Log
 
 The sandbox is supplied through a `ProcessSandbox` port rather than built into
 `OpenCodeHarnessRuntime`. It validates that the configured model endpoint is
-the loopback gateway, wraps the complete runtime process tree and exposes a
-pinned profile digest. Harness snapshot schema `opencode-harness-snapshot/v3`
+the loopback gateway. Each launch receives a server-derived context containing
+the exact actor workspace, isolated runtime-state root, read-only runtime-assets
+root and model-broker endpoint; caller/model arguments cannot select those
+boundaries. The adapter wraps the complete runtime process tree and exposes a
+pinned profile digest. Harness snapshot schema `opencode-harness-snapshot/v4`
 retains that digest, and resume fails if it changes. The current macOS
 `sandbox-exec` development adapter enforces only a loopback-wide network
 boundary: every loopback port remains reachable, and filesystem and
@@ -811,6 +847,15 @@ contract above. Scored execution requires a separate adapter or containment
 layer that restricts accessible local services and enforces the declared
 filesystem and process-resource limits. Every operating system requires its
 own equivalent kernel- or container-level conformance proof.
+
+The V0 OCI candidate uses a networkless container plus two independent,
+per-session Unix sockets: one for the model budget gateway and one for the
+peer-tool gateway when that tool is enabled. A fixed in-container launcher
+relays those sockets to distinct registered loopback ports. The sockets remain
+bound to their original opaque tokens and authorities; mounting a socket does
+not make it a bearer capability or permit a token issued for another session.
+The profile, launcher, image, engine, fixed service UID/GID, mount preparation,
+and conformance evidence are all registered inputs.
 
 ## Collaboration profile builder
 

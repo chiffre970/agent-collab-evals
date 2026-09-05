@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import socketserver
 import threading
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
@@ -399,6 +400,12 @@ class _GatewayAccessState:
     revoked: bool = False
 
 
+class _ThreadingUnixHTTPServer(
+    socketserver.ThreadingMixIn, socketserver.UnixStreamServer
+):
+    daemon_threads = True
+
+
 class ModelBudgetGateway:
     """Authenticate OpenCode sessions, reserve spend, and proxy model streams."""
 
@@ -409,6 +416,8 @@ class ModelBudgetGateway:
         upstream: ModelUpstream,
         *,
         serve_http: bool = True,
+        unix_socket_root: Path | None = None,
+        advertised_endpoint: str | None = None,
     ) -> None:
         if account.rate_card_digest != digest_value(profile.rate_card):
             raise ValueError("budget account and gateway rate cards differ")
@@ -420,14 +429,46 @@ class ModelBudgetGateway:
         self._tokens: dict[str, _GatewayAccessState] = {}
         self._token_ids: dict[str, str] = {}
         self._sessions: dict[str, str] = {}
+        if (unix_socket_root is None) != (advertised_endpoint is None):
+            raise ValueError(
+                "Unix gateway transport requires both a socket root and endpoint"
+            )
+        if unix_socket_root is not None and serve_http:
+            raise ValueError("Unix gateway transport cannot also expose host HTTP")
+        if advertised_endpoint is not None:
+            parsed = urlsplit(advertised_endpoint)
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname != "127.0.0.1"
+                or parsed.path != "/v1"
+                or parsed.query
+                or parsed.fragment
+                or parsed.port is None
+            ):
+                raise ValueError("Unix gateway endpoint must be fixed container loopback")
+        self._unix_socket_root = (
+            unix_socket_root.resolve() if unix_socket_root is not None else None
+        )
+        if self._unix_socket_root is not None:
+            self._unix_socket_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._unix_socket_root.chmod(0o700)
+        self._advertised_endpoint = advertised_endpoint
+        self._unix_transports: dict[
+            str,
+            tuple[_ThreadingUnixHTTPServer, threading.Thread, Path, Path],
+        ] = {}
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API.
-                gateway._handle(self)
+                gateway._handle(
+                    self, getattr(self.server, "expected_token_id", None)
+                )
 
             def log_message(self, format: str, *args: object) -> None:
                 return
+
+        self._handler = Handler
 
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -443,6 +484,8 @@ class ModelBudgetGateway:
 
     @property
     def endpoint(self) -> str:
+        if self._advertised_endpoint is not None:
+            return self._advertised_endpoint
         if self._server is None:
             return "http://model-gateway.invalid/v1"
         host, port = self._server.server_address
@@ -466,12 +509,16 @@ class ModelBudgetGateway:
         token_id = f"model-token-{secrets.token_hex(12)}"
         token = secrets.token_urlsafe(32)
         token_digest = self._token_digest(token)
+        broker_socket = self._start_unix_transport(token_id)
         with self._lock:
+            if token_digest in self._tokens or token_id in self._token_ids:
+                self._stop_unix_transport(token_id)
+                raise RuntimeError("model gateway generated a duplicate token")
             self._tokens[token_digest] = _GatewayAccessState(
                 token_id, campaign_run_id, actor_id
             )
             self._token_ids[token_id] = token_digest
-        return GatewayAccessToken(token_id, token)
+        return GatewayAccessToken(token_id, token, broker_socket)
 
     def activate(self, token_id: str, session: SessionHandle) -> None:
         with self._lock:
@@ -501,6 +548,7 @@ class ModelBudgetGateway:
             self._tokens.pop(token_digest, None)
             if state.session is not None:
                 self._sessions.pop(state.session.value, None)
+        self._stop_unix_transport(token_id)
 
     def close(self) -> None:
         with self._lock:
@@ -517,11 +565,67 @@ class ModelBudgetGateway:
         if self._thread is not None:
             self._thread.join(timeout=5)
 
-    def _handle(self, handler: BaseHTTPRequestHandler) -> None:
+    def _start_unix_transport(self, token_id: str) -> Path | None:
+        if self._unix_socket_root is None:
+            return None
+        directory = self._unix_socket_root / f"s-{token_id[-12:]}"
+        directory.mkdir(mode=0o755)
+        socket_path = directory / "model.sock"
+        if len(str(socket_path).encode("utf-8")) >= 100:
+            directory.rmdir()
+            raise ValueError("Unix gateway socket path exceeds the portable limit")
+        try:
+            server = _ThreadingUnixHTTPServer(str(socket_path), self._handler)
+            server.expected_token_id = token_id  # type: ignore[attr-defined]
+            # The parent is a random, per-token directory below a mode-0700
+            # root. The container's remapped nonroot UID must still be able to
+            # connect after the dedicated directory is mounted.
+            socket_path.chmod(0o666)
+            thread = threading.Thread(
+                target=server.serve_forever,
+                name=f"model-budget-gateway-{token_id}",
+                daemon=True,
+            )
+            thread.start()
+        except BaseException:
+            socket_path.unlink(missing_ok=True)
+            directory.rmdir()
+            raise
+        with self._lock:
+            self._unix_transports[token_id] = (
+                server,
+                thread,
+                socket_path,
+                directory,
+            )
+        return socket_path
+
+    def _stop_unix_transport(self, token_id: str) -> None:
+        with self._lock:
+            transport = self._unix_transports.pop(token_id, None)
+        if transport is None:
+            return
+        server, thread, socket_path, directory = transport
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        socket_path.unlink(missing_ok=True)
+        try:
+            directory.rmdir()
+        except FileNotFoundError:
+            pass
+
+    def _handle(
+        self,
+        handler: BaseHTTPRequestHandler,
+        expected_token_id: str | None = None,
+    ) -> None:
         if handler.path != "/v1/chat/completions":
             self._send_json(handler, 404, {"error": "unknown model gateway endpoint"})
             return
-        state = self._authorize(handler.headers.get("Authorization", ""))
+        state = self._authorize(
+            handler.headers.get("Authorization", ""), expected_token_id
+        )
         if state is None:
             self._send_json(handler, 403, {"error": "model gateway access denied"})
             return
@@ -770,13 +874,23 @@ class ModelBudgetGateway:
             raw_metadata_receipt=raw_metadata,
         )
 
-    def _authorize(self, authorization: str) -> _GatewayAccessState | None:
+    def _authorize(
+        self, authorization: str, expected_token_id: str | None = None
+    ) -> _GatewayAccessState | None:
         if not authorization.startswith("Bearer "):
             return None
         token_digest = self._token_digest(authorization[7:])
         with self._request_condition:
             state = self._tokens.get(token_digest)
-            if state is None or state.session is None or state.revoked:
+            if (
+                state is None
+                or state.session is None
+                or state.revoked
+                or (
+                    expected_token_id is not None
+                    and state.token_id != expected_token_id
+                )
+            ):
                 return None
             state.active_requests += 1
             return _GatewayAccessState(

@@ -14,6 +14,13 @@ smallest useful seams before adding the runtime and collaboration machinery.
 - Multi-actor delivery submits every top-level session concurrently and joins
   results in stable actor order. A partial failure remains safely retryable
   because each harness delivery is idempotent by job and materials digest.
+  The SQLite delivery outbox commits the canonical job and complete recipient
+  set before fan-out, retains runtime-profile-bound acknowledgements, restores
+  completed job state after restart and reconciles exact jobs, sessions,
+  receipts and audit records before campaign closure. An observational event
+  write failure cannot erase or repeat the authoritative delivery. After an
+  uncertain restart, the OpenCode adapter reconciles the exact canonical prompt
+  against durable session messages before it sends anything again.
 - `model_serving_v0` transitively hashes its mission, schemas, workloads,
   hidden evaluator interface and reference candidate. Candidate validation
   rejects unknown fields and changes to the fixed model revision or hardware.
@@ -211,6 +218,30 @@ smallest useful seams before adding the runtime and collaboration machinery.
   profile digest persists in runtime snapshots and across resume. This adapter
   does not isolate the gateway from other loopback services or enforce
   filesystem and process-resource limits.
+- The process-sandbox port now receives an immutable server-derived launch
+  context for every actor: the exact workspace, isolated runtime state,
+  runtime-assets root and model endpoint. The OpenCode adapter constructs this
+  context after creating the canonical paths. This is the minimum interface a
+  registered container adapter needs to bind filesystem and broker policy; the
+  development macOS adapter validates the endpoint but does not overclaim use
+  of the path information.
+- ADR 0002 selects a rootless Docker-compatible OCI boundary for registered V0
+  agent processes. Its strict candidate profile and command builder require no
+  network, dedicated session model and peer-tool Unix sockets, a read-only root, explicit
+  read-only and actor-writable mounts, a bounded `noexec` temporary filesystem,
+  no secrets, a nonroot user, dropped capabilities, `no-new-privileges`, and
+  fixed CPU, memory, process-count, and lifetime limits. The launcher and
+  bridge sources are digest-pinned. The adapter rejects the committed
+  candidate because its runtime image and live conformance gates remain
+  unresolved.
+- The model and peer-tool gateways now optionally create one short Unix-domain
+  socket per issued token and advertise their fixed loopback endpoints inside
+  the OCI container. Each listener accepts only its own activated token; a
+  valid token from another listener receives `403`. Revocation stops the
+  listener and removes its socket. The dependency-free session launcher relays
+  both fixed endpoints and enforces a process-tree timeout. Direct and relayed
+  local conformance requests preserve the existing budget, receipt,
+  collaboration, visibility, and identity authorities.
 - A provider-neutral candidate lifecycle now runs without external spend. The
   durable SQLite submission registry derives campaign and actor from the
   session transport, verifies artifact ownership, applies fixed per-actor
@@ -218,6 +249,15 @@ smallest useful seams before adding the runtime and collaboration machinery.
   Admission uses a recoverable provisional record followed by an idempotent
   artifact-bound compute reservation, so interruption and concurrent registry
   retries converge without a cross-database atomicity claim.
+- A zero-spend real-adapter rehearsal now executes all four conditions against
+  the pinned OpenCode runtime and deterministic in-process model. It delivers
+  the same scenario and coordination-conformance jobs to every arm. Solo proves
+  both coordination tools absent; native multiagent completes stock OpenCode
+  task handoffs; both peer arms publish and read through the same peer-tool
+  integration. The isolated arm records zero cross-actor reads, while the
+  collaborative arm records cross-actor reads. Every run closes through the
+  durable delivery, budget, compute, event, snapshot, and collaboration
+  evidence paths and remains explicitly unscoreable.
 - A separate durable compute ledger pins actor allocations that exactly
   partition the organisation GPU-second limit and a distinct hidden-evaluator
   allowance. Reservations are idempotent and artifact-bound, cannot borrow
@@ -484,12 +524,19 @@ The following remain gates, not implied capabilities:
    no-compute policies. Its structural runner resolves and executes every
    four-condition campaign lifecycle, retains per-run evidence and verifies a
    combined canonical audit. This rehearsal is non-scoreable and does not
-   exercise native handoffs or peer collaboration surfaces. The registered
-   composition root and real adapter wiring remain missing.
-5. An experiment-grade delivery outbox/receipt transaction. The development
-   controller records a completed delivery after the harness call; the future
-   authoritative ledger must atomically bind admission, runtime receipt and
-   campaign state so a ledger-write failure cannot leave unaudited work.
+   exercise native handoffs or peer collaboration surfaces. A separate
+   no-spend four-condition composition now exercises real OpenCode, the development
+   sandbox, session gateway, budget ledger, delivery outbox and closure gates
+   against an in-process deterministic stream. Its audit is replayed from the
+   retained ledger, outbox, event log, compute authority and harness snapshot.
+   The registered composition root and agent-facing candidate submission and
+   evaluation tools remain missing. This is a coordination rehearsal, not an
+   end-to-end agent optimization experiment.
+5. Registered single-dispatcher binding for the delivery outbox. The durable
+   outbox and idempotent harness receipts now close the earlier ledger-write and
+   partial-fan-out gap. V0 still needs the registered composition to pin one
+   campaign dispatcher. Multiple concurrent controller processes would require
+   a separately designed cross-process claim or lease protocol.
 
 ## Next implementation gate
 
@@ -525,14 +572,68 @@ are complete. The separate hidden scoring input and fresh post-freeze hidden
 bundle are complete. The bundle is retained without its seed on a dedicated,
 write-once evaluator-private Modal Volume; a committed receipt binds complete
 read-back verification. Registered hidden-phase, SQLite collaboration, and
-deny-all research profiles now pass semantic validation. The enforcement
-requirements are frozen but deliberately lack an implementation profile. The
-next implementation gates are registered provider, runtime, compute, budget,
-enforcement, stability, shortcut, analysis, block-plan, and platform-build
-authorities, followed by the executable composition root. Resolved-run
+deny-all research profiles now pass semantic validation. A fail-closed OCI
+enforcement candidate, digest-pinned bridge and launcher, dedicated-session
+Unix-socket gateways, and exact command builder now exist. Promotion still
+requires a pinned runtime image and engine plus retained live conformance
+evidence. The remaining implementation gates are registered provider, runtime,
+compute, budget, enforcement, stability, shortcut, analysis, block-plan, and
+platform-build authorities, followed by the executable composition root. Resolved-run
 assignment is implemented, but the full registered configuration authority is
 not. A one-block, four-condition structural rehearsal passes with zero model
 calls and zero compute executions. Its authority and audit fail closed on
 configuration, material, source and retained-evidence drift. It uses the fake
-runtime and explicitly records that treatment surfaces were not exercised. No
-live multi-condition model run is authorized yet.
+runtime and explicitly records that treatment surfaces were not exercised. A
+second rehearsal now passes all four conditions through the real runtime and
+control adapters with a deterministic in-process model, zero external model
+calls, zero compute, exercised treatment surfaces, and independently reconciled
+evidence. It remains unscoreable and uses the partial development sandbox. The
+next concrete gates are native fleet admission and an image-backed OCI startup
+and qualification run. The image command now forwards stdin, resolves the local
+OpenCode executable, and packages the peer sidecar with a container-local path.
+These changes are checked locally, but do not establish container conformance.
+Then wire the agent-facing candidate/evaluation path and freeze the remaining
+registered authorities and executable composition root.
+No live multi-condition model run is authorized yet.
+
+## Review follow-up: September 5, 2026
+
+Completed locally:
+
+- Require disjoint workspace, runtime-state, and runtime-assets roots, with
+  separate broker roots. The harness uses `scripts/runtime` as its assets root,
+  not the repository root. Darwin remains explicitly network-only.
+- Correct OCI stdin forwarding, executable lookup, and peer-sidecar packaging.
+  The candidate remains execution-disabled with no pinned image.
+- Roll back partially created organizations on startup failure. Shutdown
+  attempts every actor's bridge and credential cleanup even when evidence
+  capture fails, and propagates those failures. Bridge termination signals its
+  dedicated process group while the bridge is running.
+- Retain the task seed in rehearsal audit schema v2. Replay rematerializes the
+  task and compares both its digest and complete jobs with the outbox.
+- Retain exact synthetic model requests and runtime message transcripts.
+  Replay matches request digests against budget records, derives tool calls
+  from reconciled provider streams, and checks completed tools and child
+  responses against the retained session tree. Summary counters are no longer
+  accepted as independent proof.
+- Add a real-OpenCode interruption test after prompt persistence but before
+  outbox acknowledgement. Restart from the older snapshot must find exactly
+  one canonical prompt and make no second model call. Missing pre-crash event
+  history still rejects closure; recovery does not make that run scoreable.
+
+Remaining plan:
+
+1. Implement and qualify native identity/concurrency admission at `N`. The
+   runtime explicitly reports this limitation and rejects registered native
+   execution; it does not claim that observation enforces the cap.
+2. Build and pin the OCI image and engine, then qualify the deployment boundary.
+   No container engine is installed in the current development environment.
+3. Wire agent-owned candidate creation, submission, and visible evaluation into
+   a solo end-to-end run with reconciled closure.
+4. Complete the registered authorities and remaining evaluator gates before
+   seeking approval for scored multi-condition pilots.
+
+Validation: the default suite ran 276 tests (263 passed, 13 skipped). Six
+additional enabled local integration tests passed, including the four-condition
+rehearsal and interruption recovery. JavaScript syntax and whitespace checks
+passed. No external model or GPU calls were made. OCI execution was not tested.

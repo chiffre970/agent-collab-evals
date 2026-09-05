@@ -2,11 +2,98 @@
 
 from __future__ import annotations
 
+import stat
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Mapping
 
 from .canonical import digest_file, digest_value, load_json
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxLaunchContext:
+    """Server-derived paths and broker endpoint for one runtime process tree."""
+
+    workspace_root: Path
+    runtime_state_root: Path
+    runtime_assets_root: Path
+    model_endpoint: str
+    broker_socket: Path | None = None
+    peer_endpoint: str | None = None
+    peer_broker_socket: Path | None = None
+
+    def __post_init__(self) -> None:
+        paths = (
+            self.workspace_root,
+            self.runtime_state_root,
+            self.runtime_assets_root,
+        )
+        if any(not path.is_absolute() for path in paths):
+            raise ValueError("sandbox launch paths must be absolute")
+        if any(not path.is_dir() for path in paths):
+            raise ValueError("sandbox launch paths must be existing directories")
+        if not self.model_endpoint:
+            raise ValueError("sandbox model endpoint is required")
+        if self.peer_broker_socket is not None and self.peer_endpoint is None:
+            raise ValueError(
+                "sandbox peer broker socket requires its endpoint"
+            )
+        for label, socket_path in (
+            ("model", self.broker_socket),
+            ("peer", self.peer_broker_socket),
+        ):
+            if socket_path is None:
+                continue
+            if not socket_path.is_absolute():
+                raise ValueError(f"sandbox {label} broker socket path must be absolute")
+            try:
+                mode = socket_path.stat().st_mode
+            except FileNotFoundError as error:
+                raise ValueError(
+                    f"sandbox {label} broker socket does not exist"
+                ) from error
+            if not stat.S_ISSOCK(mode):
+                raise ValueError(
+                    f"sandbox {label} broker transport must be a Unix socket"
+                )
+        roots = [path.resolve() for path in paths]
+        for left, right in combinations(roots, 2):
+            if left == right or left in right.parents or right in left.parents:
+                raise ValueError("sandbox workspace, state, and assets must be disjoint")
+        for socket_path in (self.broker_socket, self.peer_broker_socket):
+            if socket_path is None:
+                continue
+            parent = socket_path.parent.resolve()
+            for root in roots:
+                if parent == root or parent in root.parents or root in parent.parents:
+                    raise ValueError("sandbox broker roots must be disjoint from runtime roots")
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxedProcess:
+    """Complete subprocess specification returned by a sandbox adapter."""
+
+    command: tuple[str, ...]
+    working_directory: Path
+    environment: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        if not self.command or any(not value for value in self.command):
+            raise ValueError("sandboxed process command must be nonempty")
+        if (
+            not self.working_directory.is_absolute()
+            or not self.working_directory.is_dir()
+        ):
+            raise ValueError("sandboxed process working directory is invalid")
+        if any(
+            not isinstance(key, str)
+            or not key
+            or not isinstance(value, str)
+            for key, value in self.environment.items()
+        ):
+            raise ValueError("sandboxed process environment is invalid")
+        object.__setattr__(self, "environment", dict(self.environment))
 
 
 @dataclass(frozen=True, slots=True)

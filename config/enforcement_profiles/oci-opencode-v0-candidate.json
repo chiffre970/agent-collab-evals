@@ -1,0 +1,72 @@
+{
+  "schema_version": "oci-process-sandbox-profile/v1",
+  "profile_id": "oci-opencode-v0-candidate",
+  "status": "implementation_candidate",
+  "execution_authorized": false,
+  "engine": "docker-compatible-rootless-oci",
+  "image": {
+    "reference": null,
+    "digest": null,
+    "node_executable": "/usr/local/bin/node",
+    "bridge_executable": "/opt/agent-collab/runtime/opencode_bridge.mjs",
+    "bridge_digest": "sha256:001382598cfb7f9958ccc8f55c4e743b901c1721518d3d94a9835a8daf6a7b7f",
+    "launcher_executable": "/opt/agent-collab/bin/session-launcher",
+    "launcher_digest": "sha256:4cc18db8387c3fbb5de0fb32e4e7d6889c47d984f734002aba7e72e6c433c393"
+  },
+  "network": {
+    "mode": "none",
+    "model_broker_transport": "dedicated_session_unix_socket",
+    "peer_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "container_model_endpoint": "http://127.0.0.1:4317/v1",
+    "container_peer_endpoint": "http://127.0.0.1:4318/v1/call",
+    "provider_egress": "denied"
+  },
+  "filesystem": {
+    "root": "read_only",
+    "runtime_assets": "read_only_image_layer",
+    "workspace": "read_write_bind",
+    "runtime_state": "read_write_bind",
+    "broker_socket_parents": "read_only_bind",
+    "temporary": "bounded_noexec_tmpfs",
+    "other_host_paths": "not_mounted"
+  },
+  "process": {
+    "uid": 1000,
+    "gid": 1000,
+    "capabilities": "drop_all",
+    "no_new_privileges": true,
+    "cpu_limit": "2.0",
+    "memory_limit": "4g",
+    "pids_limit": 256,
+    "timeout_seconds": 7200,
+    "tmpfs_size": "512m"
+  },
+  "credentials": {
+    "secrets": "none",
+    "environment_allowlist": [
+      "LANG",
+      "HOME",
+      "TMPDIR",
+      "XDG_DATA_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+      "AGENT_COLLAB_PROVIDER_ID",
+      "AGENT_COLLAB_MODEL_ID"
+    ]
+  },
+  "required_conformance": [
+    "gateway_only_network",
+    "peer_gateway_only_network",
+    "unrelated_loopback_denied",
+    "provider_egress_denied",
+    "evaluator_private_files_denied",
+    "ambient_credentials_absent",
+    "filesystem_write_scope_enforced",
+    "process_resource_limits_enforced"
+  ],
+  "unresolved_gates": [
+    "pinned_runtime_image",
+    "live_oci_conformance"
+  ]
+}

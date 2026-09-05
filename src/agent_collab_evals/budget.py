@@ -35,6 +35,7 @@ class GatewayAccessToken:
 
     token_id: str
     value: str = field(repr=False)
+    broker_socket: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)

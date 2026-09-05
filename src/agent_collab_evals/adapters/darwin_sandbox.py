@@ -5,9 +5,10 @@ from __future__ import annotations
 import ipaddress
 import platform
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import urlsplit
 
-from ..sandbox import SandboxProfile
+from ..sandbox import SandboxLaunchContext, SandboxedProcess, SandboxProfile
 
 
 class DarwinSandboxExec:
@@ -57,15 +58,25 @@ class DarwinSandboxExec:
                 "development network sandbox accepts only a loopback model endpoint"
             )
 
-    def wrap(self, command: tuple[str, ...]) -> tuple[str, ...]:
+    def prepare(
+        self,
+        command: tuple[str, ...],
+        context: SandboxLaunchContext,
+        environment: Mapping[str, str],
+    ) -> SandboxedProcess:
         if not command:
             raise ValueError("sandbox command must be nonempty")
+        self.validate_model_endpoint(context.model_endpoint)
         if platform.system() != "Darwin":
             raise RuntimeError("darwin-sandbox-exec is unavailable on this platform")
         executable = Path(self._profile.executable)
         if executable != Path("/usr/bin/sandbox-exec") or not executable.is_file():
             raise RuntimeError("pinned sandbox-exec executable is unavailable")
-        return (str(executable), "-p", self._POLICY, *command)
+        return SandboxedProcess(
+            command=(str(executable), "-p", self._POLICY, *command),
+            working_directory=context.runtime_assets_root,
+            environment=environment,
+        )
 
     def evidence(self) -> dict[str, object]:
         return {

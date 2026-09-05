@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import socket
 import subprocess
 import threading
@@ -17,6 +18,7 @@ from urllib.parse import urlparse
 
 from ..budget import GatewayAccessToken
 from ..canonical import canonical_json_bytes, digest_file, digest_value, load_json
+from ..delivery import HarnessDeliveryReceipt
 from ..domain import (
     AgentIdentity,
     CoordinationCondition,
@@ -34,6 +36,7 @@ from ..peer_tool import (
     PeerToolIntegrationProfile,
 )
 from ..ports import ProcessSandbox
+from ..sandbox import SandboxLaunchContext
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _BRIDGE_PATH = _REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs"
@@ -223,6 +226,7 @@ class _Bridge:
         profile: OpenCodeRuntimeProfile,
         endpoint: str,
         gateway_token: str,
+        broker_socket: Path | None,
         process_sandbox: ProcessSandbox,
         native_handoffs: bool,
         peer_access: PeerToolAccess | None,
@@ -242,17 +246,34 @@ class _Bridge:
         self._responses: queue.Queue[object] = queue.Queue()
         self._stderr: list[str] = []
         self._lock = threading.Lock()
-        command = process_sandbox.wrap((node, str(_BRIDGE_PATH)))
+        process = process_sandbox.prepare(
+            (node, str(_BRIDGE_PATH)),
+            SandboxLaunchContext(
+                workspace_root=directory.resolve(),
+                runtime_state_root=state_root.resolve(),
+                runtime_assets_root=_BRIDGE_PATH.parent.resolve(),
+                model_endpoint=endpoint,
+                broker_socket=broker_socket,
+                peer_endpoint=(
+                    peer_access.endpoint if peer_access is not None else None
+                ),
+                peer_broker_socket=(
+                    peer_access.broker_socket if peer_access is not None else None
+                ),
+            ),
+            environment,
+        )
         self._process = subprocess.Popen(
-            command,
-            cwd=_REPOSITORY_ROOT,
-            env=environment,
+            process.command,
+            cwd=process.working_directory,
+            env=process.environment,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             bufsize=1,
+            start_new_session=True,
         )
         self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
@@ -323,7 +344,7 @@ class _Bridge:
 
     def close(self) -> None:
         if self._process.poll() is not None:
-            self._close_streams()
+            self._terminate()
             return
         if self._unusable:
             self._terminate()
@@ -334,14 +355,21 @@ class _Bridge:
             self._terminate()
 
     def _terminate(self) -> None:
-        if self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=5)
-        self._close_streams()
+        # The bridge and its SDK server share a dedicated process group.
+        # Killing only the bridge can leave the server and its tools alive.
+        try:
+            if self._process.poll() is None:
+                try:
+                    os.killpg(self._process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    os.killpg(self._process.pid, signal.SIGKILL)
+                    self._process.wait(timeout=5)
+        finally:
+            self._close_streams()
 
     def _close_streams(self) -> None:
         for stream in (
@@ -368,7 +396,7 @@ class _SessionState:
     bridge: _Bridge
     gateway_token_id: str
     peer_access: PeerToolAccess | None = None
-    delivered_jobs: dict[str, str] = field(default_factory=dict)
+    delivered_jobs: dict[str, HarnessDeliveryReceipt] = field(default_factory=dict)
     events: list[Mapping[str, Any]] = field(default_factory=list)
     event_cursor: int = 0
     bridge_event_cursor: int = 0
@@ -424,6 +452,7 @@ class OpenCodeHarnessRuntime:
             "runtime_profile_digest": self._profile.resolved_digest,
             "durable_sessions": True,
             "native_handoffs": True,
+            "native_identity_limit_enforced": False,
             "observational_events": True,
             "peer_tool": self._peer_profile is not None,
             "peer_tool_profile_digest": (
@@ -454,6 +483,11 @@ class OpenCodeHarnessRuntime:
         return handle
 
     def _validate_spec(self, spec: OrganisationSpec) -> None:
+        if (
+            spec.condition is CoordinationCondition.NATIVE_MULTIAGENT
+            and self._profile.status != "development"
+        ):
+            raise RuntimeError("registered native identity admission is not implemented")
         parsed = urlparse(spec.model_endpoint)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("OpenCode model endpoint must be an absolute HTTP(S) URL")
@@ -479,20 +513,24 @@ class OpenCodeHarnessRuntime:
         )
         if not credential.token_id or not credential.value:
             raise ValueError("gateway token issuer returned an invalid credential")
-        peer_access = self._issue_peer_access(state.spec, actor)
+        peer_access = None
         try:
+            peer_access = self._issue_peer_access(state.spec, actor)
             bridge = self._start_bridge(
                 state.spec,
                 directory,
                 state_root,
                 credential.value,
+                credential.broker_socket,
                 peer_access,
             )
         except Exception:
-            self._revoke_peer_access(peer_access)
-            self._gateway_tokens.revoke(
-                credential.token_id, "runtime bridge creation failed"
-            )
+            try:
+                self._revoke_peer_access(peer_access)
+            finally:
+                self._gateway_tokens.revoke(
+                    credential.token_id, "runtime bridge creation failed"
+                )
             raise
         try:
             created = bridge.request(
@@ -520,20 +558,26 @@ class OpenCodeHarnessRuntime:
             self._session_to_organisation[handle.value] = organisation.value
             return handle
         except Exception:
-            bridge.close()
-            self._revoke_peer_access(peer_access)
-            self._gateway_tokens.revoke(
-                credential.token_id, "session creation failed"
-            )
+            try:
+                bridge.close()
+            finally:
+                try:
+                    self._revoke_peer_access(peer_access)
+                finally:
+                    self._gateway_tokens.revoke(
+                        credential.token_id, "session creation failed"
+                    )
             raise
 
-    def deliver(self, session: SessionHandle, job: Job) -> None:
+    def deliver(
+        self, session: SessionHandle, job: Job
+    ) -> HarnessDeliveryReceipt:
         state = self._session(session)
         previous = state.delivered_jobs.get(job.job_id)
         if previous is not None:
-            if previous != job.materials_digest:
+            if previous.materials_digest != job.materials_digest:
                 raise ValueError(f"job identifier reused with different materials: {job.job_id}")
-            return
+            return previous
         prompt = canonical_json_bytes(
             {
                 "job_id": job.job_id,
@@ -542,13 +586,67 @@ class OpenCodeHarnessRuntime:
                 "public_materials": job.public_materials,
             }
         ).decode("utf-8")
-        state.bridge.request(
-            "prompt",
-            session_id=session.value,
-            directory=str(state.directory),
-            text=prompt,
+        existing = _mapping(
+            state.bridge.request(
+                "find_prompt",
+                session_id=session.value,
+                directory=str(state.directory),
+                text=prompt,
+            ),
+            "OpenCode prompt reconciliation",
         )
-        state.delivered_jobs[job.job_id] = job.materials_digest
+        if set(existing) != {"match_count", "message_id", "response_digest"}:
+            raise RuntimeError("OpenCode prompt reconciliation fields differ")
+        match_count = existing["match_count"]
+        if type(match_count) is not int or match_count < 0:
+            raise RuntimeError("OpenCode prompt reconciliation count is invalid")
+        if match_count > 1:
+            raise RuntimeError("OpenCode session contains duplicate job prompts")
+        if match_count == 1:
+            acknowledgement = {
+                "message_id": existing["message_id"],
+                "response_digest": existing["response_digest"],
+                "source": "session_message_reconciliation",
+            }
+        else:
+            prompted = _mapping(
+                state.bridge.request(
+                    "prompt",
+                    session_id=session.value,
+                    directory=str(state.directory),
+                    text=prompt,
+                ),
+                "OpenCode prompt acknowledgement",
+            )
+            if set(prompted) != {"message_id", "response_digest"}:
+                raise RuntimeError("OpenCode prompt acknowledgement fields differ")
+            acknowledgement = {
+                **prompted,
+                "source": "prompt_response",
+            }
+        message_id = acknowledgement["message_id"]
+        response_digest = acknowledgement["response_digest"]
+        if message_id is not None and not isinstance(message_id, str):
+            raise RuntimeError("OpenCode prompt message ID is invalid")
+        if (
+            not isinstance(response_digest, str)
+            or not response_digest.startswith("sha256:")
+            or len(response_digest) != 71
+            or any(character not in "0123456789abcdef" for character in response_digest[7:])
+        ):
+            raise RuntimeError("OpenCode prompt response digest is invalid")
+        receipt = HarnessDeliveryReceipt.create(
+            session,
+            job,
+            runtime_profile_digest=digest_value(self.capabilities()),
+            acknowledgement={
+                "message_id": message_id,
+                "response_digest": response_digest,
+                "source": acknowledgement["source"],
+            },
+        )
+        state.delivered_jobs[job.job_id] = receipt
+        return receipt
 
     def events(self, organisation: HarnessOrganisation) -> tuple[Mapping[str, Any], ...]:
         state = self._organisation(organisation)
@@ -573,8 +671,8 @@ class OpenCodeHarnessRuntime:
                     "gateway_token_id": session.gateway_token_id,
                     "peer_tool_enabled": session.peer_access is not None,
                     "delivered_jobs": [
-                        {"job_id": job_id, "materials_digest": materials_digest}
-                        for job_id, materials_digest in session.delivered_jobs.items()
+                        receipt.document
+                        for receipt in session.delivered_jobs.values()
                     ],
                     "surface": surface,
                     "events": session.events,
@@ -583,7 +681,7 @@ class OpenCodeHarnessRuntime:
                 }
             )
         payload = {
-            "schema": "opencode-harness-snapshot/v3",
+            "schema": "opencode-harness-snapshot/v4",
             "runtime_profile_id": self._profile.profile_id,
             "runtime_profile_digest": self._profile.resolved_digest,
             "peer_tool_profile_digest": (
@@ -607,7 +705,7 @@ class OpenCodeHarnessRuntime:
 
     def resume(self, snapshot: HarnessSnapshot) -> HarnessOrganisation:
         payload = _mapping(snapshot.payload, "harness snapshot")
-        if payload.get("schema") != "opencode-harness-snapshot/v3":
+        if payload.get("schema") != "opencode-harness-snapshot/v4":
             raise ValueError("unsupported OpenCode harness snapshot schema")
         if payload.get("runtime_profile_digest") != self._profile.resolved_digest:
             raise ValueError("runtime profile changed across resume")
@@ -695,6 +793,7 @@ class OpenCodeHarnessRuntime:
                         directory,
                         state_root,
                         credential.value,
+                        credential.broker_socket,
                         peer_access,
                     )
                 except Exception:
@@ -728,6 +827,23 @@ class OpenCodeHarnessRuntime:
                         credential.token_id, "session resume failed"
                     )
                     raise
+                delivered_jobs: dict[str, HarnessDeliveryReceipt] = {}
+                raw_deliveries = item["delivered_jobs"]
+                if not isinstance(raw_deliveries, list):
+                    raise ValueError("snapshot delivery receipts are invalid")
+                for raw_delivery in raw_deliveries:
+                    if not isinstance(raw_delivery, dict):
+                        raise ValueError("snapshot delivery receipt is invalid")
+                    receipt = HarnessDeliveryReceipt.from_document(raw_delivery)
+                    if receipt.session_id != session_id:
+                        raise ValueError("snapshot delivery receipt session differs")
+                    if receipt.runtime_profile_digest != digest_value(
+                        self.capabilities()
+                    ):
+                        raise ValueError("snapshot delivery receipt profile differs")
+                    if receipt.job_id in delivered_jobs:
+                        raise ValueError("snapshot delivery receipt job repeats")
+                    delivered_jobs[receipt.job_id] = receipt
                 session = _SessionState(
                     handle=SessionHandle(session_id),
                     actor=actor,
@@ -736,10 +852,7 @@ class OpenCodeHarnessRuntime:
                     bridge=bridge,
                     gateway_token_id=credential.token_id,
                     peer_access=peer_access,
-                    delivered_jobs={
-                        str(job["job_id"]): str(job["materials_digest"])
-                        for job in item["delivered_jobs"]
-                    },
+                    delivered_jobs=delivered_jobs,
                     events=list(item["events"]),
                     event_cursor=int(item["event_cursor"]),
                     checkpoint=_mapping(item["checkpoint"], "event checkpoint"),
@@ -776,13 +889,32 @@ class OpenCodeHarnessRuntime:
     def stop(
         self, organisation: HarnessOrganisation, reason: str
     ) -> HarnessSnapshot:
-        state = self._active_organisation(organisation)
-        snapshot = self.snapshot(organisation)
-        for session in state.sessions.values():
-            session.bridge.close()
-            self._gateway_tokens.revoke(session.gateway_token_id, reason)
-            self._revoke_peer_access(session.peer_access)
-        state.stopped = True
+        # Cleanup can be retried even if a prior stop invalidated the runtime.
+        state = self._organisation(organisation)
+        errors: list[Exception] = []
+        snapshot = None
+        try:
+            snapshot = self.snapshot(organisation)
+        except Exception as error:
+            errors.append(error)
+        finally:
+            for session in state.sessions.values():
+                # Evidence failure must not prevent cleanup of any actor.
+                for cleanup in (
+                    session.bridge.close,
+                    lambda session=session: self._gateway_tokens.revoke(
+                        session.gateway_token_id, reason
+                    ),
+                    lambda session=session: self._revoke_peer_access(session.peer_access),
+                ):
+                    try:
+                        cleanup()
+                    except Exception as error:
+                        errors.append(error)
+            state.stopped = True
+        if errors:
+            raise ExceptionGroup("OpenCode shutdown failed; cleanup attempted", errors)
+        assert snapshot is not None
         payload = dict(snapshot.payload)
         payload.update({"stopped": True, "stop_reason": reason})
         return HarnessSnapshot(snapshot.organisation_id, payload)
@@ -864,6 +996,7 @@ class OpenCodeHarnessRuntime:
         directory: Path,
         state_root: Path,
         gateway_token: str,
+        broker_socket: Path | None,
         peer_access: PeerToolAccess | None,
     ) -> _Bridge:
         return _Bridge(
@@ -872,6 +1005,7 @@ class OpenCodeHarnessRuntime:
             profile=self._profile,
             endpoint=spec.model_endpoint,
             gateway_token=gateway_token,
+            broker_socket=broker_socket,
             process_sandbox=self._process_sandbox,
             native_handoffs=spec.condition is CoordinationCondition.NATIVE_MULTIAGENT,
             peer_access=peer_access,

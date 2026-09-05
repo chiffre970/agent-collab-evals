@@ -35,6 +35,12 @@ from .domain import (
     OrganisationSpec,
     SessionHandle,
 )
+from .delivery import (
+    DeliveryIntent,
+    DeliveryReconciliation,
+    HarnessDeliveryReceipt,
+)
+from .sandbox import SandboxLaunchContext, SandboxedProcess
 from .compute_backend import (
     ComputeEvidencePointer,
     ComputeExecutionReceipt,
@@ -75,7 +81,9 @@ class HarnessRuntime(Protocol):
         self, organisation: HarnessOrganisation, actor: AgentIdentity
     ) -> SessionHandle: ...
 
-    def deliver(self, session: SessionHandle, job: Job) -> None:
+    def deliver(
+        self, session: SessionHandle, job: Job
+    ) -> HarnessDeliveryReceipt:
         """Deliver idempotently by job identifier and materials digest."""
         ...
 
@@ -101,7 +109,12 @@ class ProcessSandbox(Protocol):
 
     def validate_model_endpoint(self, endpoint: str) -> None: ...
 
-    def wrap(self, command: tuple[str, ...]) -> tuple[str, ...]: ...
+    def prepare(
+        self,
+        command: tuple[str, ...],
+        context: SandboxLaunchContext,
+        environment: Mapping[str, str],
+    ) -> SandboxedProcess: ...
 
     def evidence(self) -> Mapping[str, object]: ...
 
@@ -110,6 +123,36 @@ class EventSink(Protocol):
     def append(
         self, campaign_run_id: str, kind: str, payload: Mapping[str, Any]
     ) -> int: ...
+
+
+class DeliveryOutbox(Protocol):
+    def prepare(
+        self,
+        campaign_run_id: str,
+        sessions: tuple[SessionHandle, ...],
+        job: Job,
+    ) -> tuple[DeliveryIntent, ...]: ...
+
+    def acknowledged(
+        self, intent: DeliveryIntent
+    ) -> HarnessDeliveryReceipt | None: ...
+
+    def acknowledge(
+        self, intent: DeliveryIntent, receipt: HarnessDeliveryReceipt
+    ) -> HarnessDeliveryReceipt: ...
+
+    def complete(
+        self, campaign_run_id: str, job_id: str
+    ) -> tuple[HarnessDeliveryReceipt, ...]: ...
+
+    def completed_job_ids(self, campaign_run_id: str) -> tuple[str, ...]: ...
+
+    def reconcile(
+        self,
+        campaign_run_id: str,
+        sessions: tuple[SessionHandle, ...],
+        delivered_job_ids: tuple[str, ...],
+    ) -> DeliveryReconciliation: ...
 
 
 class CampaignSnapshotStore(Protocol):

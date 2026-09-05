@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import socketserver
 import threading
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from .canonical import digest_file, digest_value, load_json, parse_json
 from .collaboration import (
@@ -110,13 +112,21 @@ class PeerToolAccess:
     token_id: str
     endpoint: str
     token: str = field(repr=False)
+    broker_socket: Path | None = None
 
 
 @dataclass(slots=True)
 class _AccessState:
+    token_id: str
     actor: AgentIdentity
     scope: CollaborationScope
     transport: SessionTransport | None = None
+
+
+class _ThreadingUnixHTTPServer(
+    socketserver.ThreadingMixIn, socketserver.UnixStreamServer
+):
+    daemon_threads = True
 
 
 class PeerToolGateway:
@@ -128,21 +138,59 @@ class PeerToolGateway:
         identities: SessionIdentityRegistry,
         *,
         serve_http: bool = True,
+        unix_socket_root: Path | None = None,
+        advertised_endpoint: str | None = None,
     ) -> None:
         self._backend = backend
         self._identities = identities
         self._lock = threading.RLock()
         self._scopes: dict[str, CollaborationScope] = {}
         self._access: dict[str, _AccessState] = {}
+        self._token_ids: dict[str, str] = {}
+        if (unix_socket_root is None) != (advertised_endpoint is None):
+            raise ValueError(
+                "Unix peer transport requires both a socket root and endpoint"
+            )
+        if unix_socket_root is not None and serve_http:
+            raise ValueError("Unix peer transport cannot also expose host HTTP")
+        if advertised_endpoint is not None:
+            parsed = urlsplit(advertised_endpoint)
+            if (
+                parsed.scheme != "http"
+                or parsed.hostname != "127.0.0.1"
+                or parsed.port is None
+                or parsed.path != "/v1/call"
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+            ):
+                raise ValueError(
+                    "Unix peer endpoint must be fixed container loopback"
+                )
+        self._unix_socket_root = (
+            unix_socket_root.resolve() if unix_socket_root is not None else None
+        )
+        if self._unix_socket_root is not None:
+            self._unix_socket_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+            self._unix_socket_root.chmod(0o700)
+        self._advertised_endpoint = advertised_endpoint
+        self._unix_transports: dict[
+            str,
+            tuple[_ThreadingUnixHTTPServer, threading.Thread, Path, Path],
+        ] = {}
         gateway = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API.
-                gateway._handle(self)
+                gateway._handle(
+                    self, getattr(self.server, "expected_token_id", None)
+                )
 
             def log_message(self, format: str, *args: object) -> None:
                 return
 
+        self._handler = Handler
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         if serve_http:
@@ -157,6 +205,8 @@ class PeerToolGateway:
 
     @property
     def endpoint(self) -> str:
+        if self._advertised_endpoint is not None:
+            return self._advertised_endpoint
         if self._server is None:
             return "http://peer-tool.invalid/v1/call"
         host, port = self._server.server_address
@@ -182,8 +232,18 @@ class PeerToolGateway:
             token_id = f"peer-token-{secrets.token_hex(12)}"
             token = secrets.token_urlsafe(32)
             token_digest = self._token_digest(token)
-            self._access[token_digest] = _AccessState(actor, scope)
-        return PeerToolAccess(token_id, self.endpoint, token)
+            if token_digest in self._access or token_id in self._token_ids:
+                raise RuntimeError("peer gateway generated a duplicate token")
+            self._access[token_digest] = _AccessState(token_id, actor, scope)
+            self._token_ids[token_id] = token_digest
+        try:
+            broker_socket = self._start_unix_transport(token_id)
+        except BaseException:
+            with self._lock:
+                self._access.pop(token_digest, None)
+                self._token_ids.pop(token_id, None)
+            raise
+        return PeerToolAccess(token_id, self.endpoint, token, broker_socket)
 
     def activate(self, access: PeerToolAccess, session: SessionHandle) -> None:
         token_digest = self._token_digest(access.token)
@@ -199,8 +259,12 @@ class PeerToolGateway:
             state = self._access.pop(token_digest, None)
             if state is None:
                 return
+            if state.token_id != access.token_id:
+                raise PermissionError("peer-tool token identifier differs")
+            self._token_ids.pop(state.token_id, None)
             if state.transport is not None:
                 self._identities.revoke(state.transport)
+        self._stop_unix_transport(access.token_id)
 
     def invoke(
         self,
@@ -222,17 +286,72 @@ class PeerToolGateway:
     def close(self) -> None:
         with self._lock:
             states = tuple(self._access.values())
+            token_ids = tuple(self._token_ids)
             self._access.clear()
+            self._token_ids.clear()
             for state in states:
                 if state.transport is not None:
                     self._identities.revoke(state.transport)
+        for token_id in token_ids:
+            self._stop_unix_transport(token_id)
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
         if self._thread is not None:
             self._thread.join(timeout=5)
 
-    def _handle(self, handler: BaseHTTPRequestHandler) -> None:
+    def _start_unix_transport(self, token_id: str) -> Path | None:
+        if self._unix_socket_root is None:
+            return None
+        directory = self._unix_socket_root / f"p-{token_id[-12:]}"
+        directory.mkdir(mode=0o755)
+        socket_path = directory / "peer.sock"
+        if len(str(socket_path).encode("utf-8")) >= 100:
+            directory.rmdir()
+            raise ValueError("Unix peer socket path exceeds the portable limit")
+        try:
+            server = _ThreadingUnixHTTPServer(str(socket_path), self._handler)
+            server.expected_token_id = token_id  # type: ignore[attr-defined]
+            socket_path.chmod(0o666)
+            thread = threading.Thread(
+                target=server.serve_forever,
+                name=f"peer-tool-gateway-{token_id}",
+                daemon=True,
+            )
+            thread.start()
+        except BaseException:
+            socket_path.unlink(missing_ok=True)
+            directory.rmdir()
+            raise
+        with self._lock:
+            self._unix_transports[token_id] = (
+                server,
+                thread,
+                socket_path,
+                directory,
+            )
+        return socket_path
+
+    def _stop_unix_transport(self, token_id: str) -> None:
+        with self._lock:
+            transport = self._unix_transports.pop(token_id, None)
+        if transport is None:
+            return
+        server, thread, socket_path, directory = transport
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        socket_path.unlink(missing_ok=True)
+        try:
+            directory.rmdir()
+        except FileNotFoundError:
+            pass
+
+    def _handle(
+        self,
+        handler: BaseHTTPRequestHandler,
+        expected_token_id: str | None = None,
+    ) -> None:
         if handler.path != "/v1/call":
             self._send(handler, 404, {"error": "unknown peer-tool endpoint"})
             return
@@ -262,6 +381,11 @@ class PeerToolGateway:
                 raise ValueError("peer-tool arguments must be an object")
             with self._lock:
                 state = self._require_access(token_digest)
+                if (
+                    expected_token_id is not None
+                    and state.token_id != expected_token_id
+                ):
+                    raise PermissionError("peer-tool access denied")
                 if state.transport is None:
                     raise PermissionError("peer-tool session is not active")
                 result = self._invoke(

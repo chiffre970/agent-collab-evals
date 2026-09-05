@@ -9,6 +9,7 @@ from agent_collab_evals.adapters.fake_harness import FakeHarnessRuntime
 from agent_collab_evals.adapters.local_events import LocalEventSink
 from agent_collab_evals.adapters.local_snapshots import LocalCampaignSnapshotStore
 from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
+from agent_collab_evals.adapters.sqlite_delivery import SqliteDeliveryOutbox
 from agent_collab_evals.adapters.no_compute_reconciliation import (
     NoComputeExecutionReconciler,
 )
@@ -31,7 +32,44 @@ def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconcile
     )
 
 
+def _outbox(root: Path) -> SqliteDeliveryOutbox:
+    return SqliteDeliveryOutbox(root / "delivery.sqlite3")
+
+
 class CampaignControllerTests(unittest.TestCase):
+    def test_startup_failure_stops_partially_created_organisation(self) -> None:
+        class FailSecondActor(FakeHarnessRuntime):
+            stopped = False
+
+            def create_primary(self, organisation, actor):
+                if actor.ordinal == 1:
+                    raise RuntimeError("second actor unavailable")
+                return super().create_primary(organisation, actor)
+
+            def stop(self, organisation, reason):
+                self.stopped = True
+                return super().stop(organisation, reason)
+
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = FailSecondActor()
+            controller = CampaignController(runtime, LocalEventSink(Path(directory)))
+            with self.assertRaisesRegex(RuntimeError, "second actor unavailable"):
+                controller.start(self._spec("startup", CoordinationCondition.PEER_ISOLATED))
+            self.assertTrue(runtime.stopped)
+
+    def test_delivery_requires_a_durable_outbox(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = CampaignController(
+                FakeHarnessRuntime(),
+                LocalEventSink(Path(directory) / "events"),
+            )
+            handle = controller.start(
+                self._spec("missing-delivery-outbox", CoordinationCondition.SOLO)
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "durable outbox"):
+                controller.deliver(handle, _job("blocked"))
+
     def test_delivery_can_retry_after_partial_fanout(self) -> None:
         class FailSecondSessionOnce(FakeHarnessRuntime):
             failed = False
@@ -40,12 +78,14 @@ class CampaignControllerTests(unittest.TestCase):
                 if session.value.endswith(":session:1") and not self.failed:
                     self.failed = True
                     raise RuntimeError("injected delivery failure")
-                super().deliver(session, job)
+                return super().deliver(session, job)
 
         with tempfile.TemporaryDirectory() as directory:
             runtime = FailSecondSessionOnce()
             controller = CampaignController(
-                runtime, LocalEventSink(Path(directory) / "events")
+                runtime,
+                LocalEventSink(Path(directory) / "events"),
+                delivery_outbox=_outbox(Path(directory)),
             )
             handle = controller.start(
                 self._spec("retry-run", CoordinationCondition.PEER_ISOLATED)
@@ -60,6 +100,98 @@ class CampaignControllerTests(unittest.TestCase):
             for session in handle.sessions:
                 self.assertEqual(runtime.delivered_jobs(session), ("retryable",))
 
+    def test_event_failure_cannot_erase_or_repeat_completed_delivery(self) -> None:
+        class CountingHarness(FakeHarnessRuntime):
+            delivery_count = 0
+
+            def deliver(self, session, job):  # type: ignore[no-untyped-def]
+                self.delivery_count += 1
+                return super().deliver(session, job)
+
+        class FailDeliveryEventOnce:
+            def __init__(self, delegate: LocalEventSink) -> None:
+                self.delegate = delegate
+                self.failed = False
+
+            def append(self, campaign_run_id, kind, payload):  # type: ignore[no-untyped-def]
+                if kind == "job.delivered" and not self.failed:
+                    self.failed = True
+                    raise RuntimeError("injected event failure")
+                return self.delegate.append(campaign_run_id, kind, payload)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = CountingHarness()
+            outbox = _outbox(root)
+            controller = CampaignController(
+                runtime,
+                FailDeliveryEventOnce(LocalEventSink(root / "events")),
+                delivery_outbox=outbox,
+            )
+            handle = controller.start(
+                self._spec("event-failure", CoordinationCondition.SOLO)
+            )
+            job = _job("durable")
+
+            with self.assertRaisesRegex(RuntimeError, "event failure"):
+                controller.deliver(handle, job)
+            controller.deliver(handle, job)
+
+            self.assertEqual(runtime.delivery_count, 1)
+            self.assertEqual(handle.delivered_job_ids, [job.job_id])
+            reconciled = outbox.reconcile(
+                "event-failure", handle.sessions, (job.job_id,)
+            )
+            self.assertEqual(len(reconciled.receipts), 1)
+
+    def test_concurrent_retry_crosses_runtime_boundary_once(self) -> None:
+        class SlowCountingHarness(FakeHarnessRuntime):
+            entered = threading.Event()
+            release = threading.Event()
+            delivery_count = 0
+
+            def deliver(self, session, job):  # type: ignore[no-untyped-def]
+                self.delivery_count += 1
+                self.entered.set()
+                if not self.release.wait(timeout=2):
+                    raise RuntimeError("test did not release delivery")
+                return super().deliver(session, job)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = SlowCountingHarness()
+            controller = CampaignController(
+                runtime,
+                LocalEventSink(root / "events"),
+                delivery_outbox=_outbox(root),
+            )
+            handle = controller.start(
+                self._spec("concurrent-retry", CoordinationCondition.SOLO)
+            )
+            job = _job("same-job")
+            failures: list[BaseException] = []
+
+            def call_deliver() -> None:
+                try:
+                    controller.deliver(handle, job)
+                except BaseException as error:  # pragma: no cover - assertion path
+                    failures.append(error)
+
+            first = threading.Thread(target=call_deliver)
+            second = threading.Thread(target=call_deliver)
+            first.start()
+            self.assertTrue(runtime.entered.wait(timeout=2))
+            second.start()
+            runtime.release.set()
+            first.join(timeout=2)
+            second.join(timeout=2)
+
+            self.assertFalse(first.is_alive())
+            self.assertFalse(second.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(runtime.delivery_count, 1)
+            self.assertEqual(handle.delivered_job_ids, [job.job_id])
+
     def test_two_jobs_cross_a_process_style_resume(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -67,7 +199,10 @@ class CampaignControllerTests(unittest.TestCase):
             store = LocalCampaignSnapshotStore(root / "snapshots")
             first_runtime = FakeHarnessRuntime()
             first = CampaignController(
-                first_runtime, events, NoModelBudgetReconciler()
+                first_runtime,
+                events,
+                NoModelBudgetReconciler(),
+                delivery_outbox=_outbox(root),
             )
             handle = first.start(self._spec("durable-run", CoordinationCondition.SOLO))
             first.deliver(handle, _job("first"))
@@ -80,6 +215,7 @@ class CampaignControllerTests(unittest.TestCase):
                 events,
                 NoModelBudgetReconciler(),
                 _no_compute(root, "durable-run"),
+                _outbox(root),
             )
             resumed = second.resume(store.load("durable-run"))
             self.assertEqual(resumed.sessions, handle.sessions)
@@ -99,6 +235,7 @@ class CampaignControllerTests(unittest.TestCase):
                     "campaign.snapshotted",
                     "campaign.resumed",
                     "job.delivered",
+                    "campaign.delivery_reconciled",
                     "campaign.budget_reconciled",
                     "campaign.compute_reconciled",
                     "campaign.closed",
@@ -130,12 +267,14 @@ class CampaignControllerTests(unittest.TestCase):
 
             def deliver(self, session, job):  # type: ignore[no-untyped-def]
                 self.barrier.wait()
-                super().deliver(session, job)
+                return super().deliver(session, job)
 
         with tempfile.TemporaryDirectory() as directory:
             runtime = BarrierHarness()
             controller = CampaignController(
-                runtime, LocalEventSink(Path(directory) / "events")
+                runtime,
+                LocalEventSink(Path(directory) / "events"),
+                delivery_outbox=_outbox(Path(directory)),
             )
             handle = controller.start(
                 self._spec("parallel-delivery", CoordinationCondition.PEER_ISOLATED)
@@ -150,7 +289,9 @@ class CampaignControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             runtime = FakeHarnessRuntime()
             controller = CampaignController(
-                runtime, LocalEventSink(Path(directory) / "events")
+                runtime,
+                LocalEventSink(Path(directory) / "events"),
+                delivery_outbox=_outbox(Path(directory)),
             )
             handle = controller.start(
                 self._spec("missing-budget-gate", CoordinationCondition.SOLO)
@@ -181,6 +322,7 @@ class CampaignControllerTests(unittest.TestCase):
                 events,
                 InvalidBudget(),
                 _no_compute(root, "invalid-budget"),
+                _outbox(root),
             )
             handle = controller.start(
                 self._spec("invalid-budget", CoordinationCondition.SOLO)
@@ -193,7 +335,11 @@ class CampaignControllerTests(unittest.TestCase):
             self.assertIsNotNone(caught.exception.reconciliation)
             self.assertEqual(
                 [event["kind"] for event in events.read("invalid-budget")],
-                ["campaign.started", "campaign.invalid"],
+                [
+                    "campaign.started",
+                    "campaign.delivery_reconciled",
+                    "campaign.invalid",
+                ],
             )
 
     def test_close_requires_compute_reconciliation_configuration(self) -> None:
@@ -203,6 +349,7 @@ class CampaignControllerTests(unittest.TestCase):
                 runtime,
                 LocalEventSink(Path(directory) / "events"),
                 NoModelBudgetReconciler(),
+                delivery_outbox=_outbox(Path(directory)),
             )
             handle = controller.start(
                 self._spec("missing-compute-gate", CoordinationCondition.SOLO)
@@ -228,6 +375,7 @@ class CampaignControllerTests(unittest.TestCase):
                 events,
                 NoModelBudgetReconciler(),
                 InvalidCompute(),
+                _outbox(root),
             )
             handle = controller.start(
                 self._spec("invalid-compute", CoordinationCondition.SOLO)
@@ -243,6 +391,7 @@ class CampaignControllerTests(unittest.TestCase):
                 [event["kind"] for event in events.read("invalid-compute")],
                 [
                     "campaign.started",
+                    "campaign.delivery_reconciled",
                     "campaign.budget_reconciled",
                     "campaign.invalid",
                 ],
@@ -261,6 +410,7 @@ class CampaignControllerTests(unittest.TestCase):
                 events,
                 WrongCampaignBudget(),
                 _no_compute(root, "budget-mismatch"),
+                _outbox(root),
             )
             handle = controller.start(
                 self._spec("budget-mismatch", CoordinationCondition.SOLO)

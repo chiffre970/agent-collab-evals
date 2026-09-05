@@ -8,6 +8,10 @@ import uuid
 from pathlib import Path
 from typing import Sequence
 
+from .adapter_rehearsal import (
+    run_solo_adapter_rehearsal,
+    verify_solo_adapter_rehearsal,
+)
 from .adapters.fake_serving_evaluator import FakeModelServingEvaluator
 from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_artifact_storage import LocalArtifactStorage
@@ -24,6 +28,7 @@ from .adapters.sqlite_compute_spend import (
     SqliteComputeSpendAuthorizationService,
 )
 from .adapters.sqlite_compute import SqliteComputeBroker
+from .adapters.sqlite_delivery import SqliteDeliveryOutbox
 from .adapters.sqlite_execution_backend import SqliteComputeBackend
 from .adapters.sqlite_submissions import SqliteSubmissionRegistry
 from .artifacts import ArtifactStoragePolicy
@@ -132,6 +137,22 @@ def _parser() -> argparse.ArgumentParser:
     rehearsal.add_argument("--master-seed", type=int, default=970)
     rehearsal.add_argument("--task-seed", type=int, default=1729)
     rehearsal.add_argument("--organisation-size", type=int, default=4)
+
+    adapter_rehearsal = subparsers.add_parser(
+        "rehearse-solo-adapters",
+        help=(
+            "run real OpenCode and control adapters against a local synthetic "
+            "model without external spend"
+        ),
+    )
+    adapter_rehearsal.add_argument(
+        "campaign", nargs="?", type=Path, default=DEFAULT_CAMPAIGN
+    )
+    adapter_rehearsal.add_argument(
+        "--state-root", type=Path, default=Path("tmp/adapter-rehearsals")
+    )
+    adapter_rehearsal.add_argument("--run-id")
+    adapter_rehearsal.add_argument("--task-seed", type=int, default=1729)
     return parser
 
 
@@ -176,6 +197,9 @@ def _fake_solo(
     )
 
     events = LocalEventSink(resolved_state_root / "events")
+    delivery_outbox = SqliteDeliveryOutbox(
+        resolved_state_root / campaign_run_id / "delivery.sqlite3"
+    )
     snapshots = LocalCampaignSnapshotStore(resolved_state_root / "snapshots")
     first_harness = FakeHarnessRuntime()
     first_controller = CampaignController(
@@ -183,6 +207,7 @@ def _fake_solo(
         events,
         NoModelBudgetReconciler(),
         NoComputeExecutionReconciler(compute_authority),
+        delivery_outbox,
     )
     handle = first_controller.start(
         OrganisationSpec(
@@ -202,6 +227,9 @@ def _fake_solo(
         events,
         NoModelBudgetReconciler(),
         NoComputeExecutionReconciler(compute_authority),
+        SqliteDeliveryOutbox(
+            resolved_state_root / campaign_run_id / "delivery.sqlite3"
+        ),
     )
     resumed = resumed_controller.resume(snapshots.load(campaign_run_id))
     result = resumed_controller.close(resumed, "fake vertical slice complete")
@@ -563,6 +591,33 @@ def _rehearse_study(arguments: argparse.Namespace) -> dict[str, object]:
     }
 
 
+def _rehearse_solo_adapters(arguments: argparse.Namespace) -> dict[str, object]:
+    run_id = arguments.run_id or f"adapter-rehearsal-{uuid.uuid4().hex}"
+    result = run_solo_adapter_rehearsal(
+        campaign_path=arguments.campaign,
+        state_root=arguments.state_root,
+        run_id=run_id,
+        task_seed=arguments.task_seed,
+    )
+    verify_solo_adapter_rehearsal(
+        result.audit_path,
+        expected_digest=result.audit_digest,
+        campaign_path=arguments.campaign,
+    )
+    return {
+        "ok": True,
+        "run_id": result.run_id,
+        "execution_class": "local_synthetic_model",
+        "scoreable": False,
+        "external_model_calls": 0,
+        "external_compute_executions": 0,
+        "synthetic_model_calls": result.synthetic_model_calls,
+        "synthetic_charged_usd_nanos": result.charged_usd_nanos,
+        "audit_path": str(result.audit_path),
+        "audit_digest": result.audit_digest,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     if arguments.command == "validate-scenario":
@@ -584,6 +639,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = _modal_compute_development(arguments)
     elif arguments.command == "rehearse-study":
         output = _rehearse_study(arguments)
+    elif arguments.command == "rehearse-solo-adapters":
+        output = _rehearse_solo_adapters(arguments)
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))

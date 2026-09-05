@@ -13,6 +13,7 @@ from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_events import LocalEventSink
 from .adapters.no_compute_reconciliation import NoComputeExecutionReconciler
 from .adapters.no_model_budget import NoModelBudgetReconciler
+from .adapters.sqlite_delivery import SqliteDeliveryOutbox
 from .canonical import (
     canonical_json_bytes,
     digest_bytes,
@@ -23,7 +24,7 @@ from .canonical import (
 )
 from .compute_backend import FrozenComputeRunManifest
 from .controller import CampaignController
-from .domain import OrganisationSpec, top_level_actor_count
+from .domain import OrganisationSpec, SessionHandle, top_level_actor_count
 from .study_registration import StudyCompositionCandidate
 from .study_schedule import RandomizedBlockPlan, ResolvedRunManifest
 
@@ -37,6 +38,7 @@ _AUTHORITY_NAMES = (
     "block_plan",
     "budget",
     "compute",
+    "delivery",
     "enforcement",
     "platform_build",
     "provider_runtime",
@@ -284,11 +286,15 @@ class NoSpendStudyRunner:
                 )
                 events = LocalEventSink(run_root / "events")
                 runtime = FakeHarnessRuntime()
+                delivery_outbox = SqliteDeliveryOutbox(
+                    run_root / "delivery.sqlite3"
+                )
                 controller = CampaignController(
                     runtime,
                     events,
                     NoModelBudgetReconciler(),
                     NoComputeExecutionReconciler(compute_authority),
+                    delivery_outbox,
                 )
                 handle = controller.start(
                     OrganisationSpec(
@@ -302,6 +308,11 @@ class NoSpendStudyRunner:
                 for job in materialized.jobs:
                     controller.deliver(handle, job)
                 result = controller.close(handle, "no-spend structural rehearsal")
+                delivery_reconciliation = delivery_outbox.reconcile(
+                    resolved.run_id,
+                    handle.sessions,
+                    tuple(result.delivered_job_ids),
+                )
                 event_log = events.read(resolved.run_id)
                 expected_sessions = top_level_actor_count(
                     resolved.condition, self._block_plan.organisation_size
@@ -333,7 +344,18 @@ class NoSpendStudyRunner:
                     "compute_authority_digest": compute_authority.manifest_digest,
                     "task_material_digest": resolved.task_material_digest,
                     "top_level_session_count": len(handle.sessions),
+                    "session_ids": [session.value for session in handle.sessions],
                     "delivered_job_ids": list(result.delivered_job_ids),
+                    "delivery_outbox_profile_digest": (
+                        delivery_outbox.profile_digest
+                    ),
+                    "delivery_reconciliation_digest": (
+                        delivery_reconciliation.evidence_digest
+                    ),
+                    "delivery_receipt_ids": [
+                        receipt.receipt_id
+                        for receipt in delivery_reconciliation.receipts
+                    ],
                     "event_count": len(event_log),
                     "event_log_digest": digest_value(event_log),
                     "final_harness_snapshot_path": str(
@@ -510,7 +532,11 @@ def _verify_run_audit(
         "compute_authority_digest",
         "task_material_digest",
         "top_level_session_count",
+        "session_ids",
         "delivered_job_ids",
+        "delivery_outbox_profile_digest",
+        "delivery_reconciliation_digest",
+        "delivery_receipt_ids",
         "event_count",
         "event_log_digest",
         "final_harness_snapshot_path",
@@ -536,7 +562,18 @@ def _verify_run_audit(
         "top_level_session_count": top_level_actor_count(
             expected_resolved.condition, block_plan.organisation_size
         ),
+        "session_ids": [
+            f"fake-org:{expected_resolved.run_id}:session:{ordinal}"
+            for ordinal in range(
+                top_level_actor_count(
+                    expected_resolved.condition, block_plan.organisation_size
+                )
+            )
+        ],
         "delivered_job_ids": expected_jobs,
+        "delivery_outbox_profile_digest": (
+            SqliteDeliveryOutbox.profile_digest_for()
+        ),
         "model_calls": 0,
         "compute_executions": 0,
         "scoreable": False,
@@ -566,6 +603,20 @@ def _verify_run_audit(
         run_root / "compute-run.json", expected_digest=compute_digest
     )
     compute.assert_no_compute(expected_resolved.run_id)
+    sessions = tuple(SessionHandle(value) for value in value["session_ids"])
+    delivery = SqliteDeliveryOutbox(
+        run_root / "delivery.sqlite3"
+    ).reconcile(
+        expected_resolved.run_id,
+        sessions,
+        tuple(expected_jobs),
+    )
+    if (
+        delivery.evidence_digest != value["delivery_reconciliation_digest"]
+        or [receipt.receipt_id for receipt in delivery.receipts]
+        != value["delivery_receipt_ids"]
+    ):
+        raise StudyRehearsalError("delivery reconciliation evidence differs")
     event_log = LocalEventSink(run_root / "events").read(expected_resolved.run_id)
     if len(event_log) != value["event_count"]:
         raise StudyRehearsalError("event count differs")
@@ -600,6 +651,12 @@ def _authority_records(
         "compute": {
             "adapter": "no-compute-execution-reconciler/v1",
             "compute_enabled": False,
+        },
+        "delivery": {
+            "adapter": "sqlite-delivery-outbox/v1",
+            "profile_digest": SqliteDeliveryOutbox.profile_digest_for(),
+            "dispatcher_policy": "single_campaign_controller",
+            "reconciliation_required": True,
         },
         "enforcement": {
             "mode": "in_process_fake_only",

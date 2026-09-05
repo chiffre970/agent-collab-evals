@@ -7,6 +7,7 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.local_events import LocalEventSink
@@ -15,6 +16,7 @@ from agent_collab_evals.adapters.no_compute_reconciliation import (
     NoComputeExecutionReconciler,
 )
 from agent_collab_evals.adapters.no_model_budget import NoModelBudgetReconciler
+from agent_collab_evals.adapters.sqlite_delivery import SqliteDeliveryOutbox
 from agent_collab_evals.adapters.sqlite_collaboration import (
     SqliteCollaborationBackend,
 )
@@ -23,6 +25,8 @@ from agent_collab_evals.adapters.opencode_harness import (
     OpenCodeRuntimeProfile,
 )
 from agent_collab_evals.budget import GatewayAccessToken
+from agent_collab_evals.canonical import canonical_json_bytes
+from agent_collab_evals.delivery import job_document
 from agent_collab_evals.controller import CampaignController
 from agent_collab_evals.domain import (
     CoordinationCondition,
@@ -61,6 +65,10 @@ def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconcile
     return NoComputeExecutionReconciler.from_frozen_manifest(
         root / f"{campaign_run_id}-compute-run.json", campaign_run_id
     )
+
+
+def _delivery(root: Path) -> SqliteDeliveryOutbox:
+    return SqliteDeliveryOutbox(root / "delivery.sqlite3")
 
 
 class _GatewayHandler(BaseHTTPRequestHandler):
@@ -285,6 +293,96 @@ class _TokenIssuer:
     "set RUN_OPENCODE_INTEGRATION=1 to run loopback OpenCode integration",
 )
 class OpenCodeHarnessIntegrationTests(unittest.TestCase):
+    def test_persisted_prompt_survives_crash_before_outbox_acknowledgement(self) -> None:
+        gateway = _GatewayServer(("127.0.0.1", 0), _GatewayHandler)
+        gateway.requests = []
+        thread = threading.Thread(target=gateway.serve_forever, daemon=True)
+        thread.start()
+        tokens = _TokenIssuer()
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
+                spec = OrganisationSpec(
+                    campaign_run_id="uncertain-delivery",
+                    condition=CoordinationCondition.SOLO,
+                    organisation_size=1,
+                    workspace_root=root / "workspaces",
+                    model_endpoint=f"http://127.0.0.1:{gateway.server_port}/v1",
+                )
+                events = LocalEventSink(root / "events")
+                outbox = _delivery(root)
+                first = OpenCodeHarnessRuntime(
+                    profile, root / "runtime-state", tokens,
+                    process_sandbox=_sandbox(), timeout_seconds=30,
+                )
+                controller = CampaignController(
+                    first, events, NoModelBudgetReconciler(),
+                    _no_compute(root, spec.campaign_run_id), outbox,
+                )
+                handle = controller.start(spec)
+                # This is the last durable snapshot before prompt delivery.
+                checkpoint = controller.snapshot(handle)
+                job = Job("recover", "Complete this local mission.", "sha256:recover", {})
+                session = first._session(handle.sessions[0])
+
+                def interrupt_before_ack(*_):
+                    # OpenCode has persisted the prompt, but the outbox has no receipt.
+                    session.bridge._terminate()
+                    raise RuntimeError("controller interrupted before acknowledgement")
+
+                try:
+                    with (
+                        patch.object(outbox, "acknowledge", side_effect=interrupt_before_ack),
+                        self.assertRaisesRegex(RuntimeError, "interrupted before acknowledgement"),
+                    ):
+                        controller.deliver(handle, job)
+                    self.assertEqual(outbox.completed_job_ids(spec.campaign_run_id), ())
+                finally:
+                    session.bridge._terminate()
+                    tokens.revoke(session.gateway_token_id, "interrupted runtime")
+
+                second = OpenCodeHarnessRuntime(
+                    profile, root / "runtime-state", tokens,
+                    process_sandbox=_sandbox(), timeout_seconds=30,
+                )
+                resumed_controller = CampaignController(
+                    second, events, NoModelBudgetReconciler(),
+                    _no_compute(root, spec.campaign_run_id), _delivery(root),
+                )
+                resumed = resumed_controller.resume(checkpoint)
+                try:
+                    resumed_controller.deliver(resumed, job)
+                    self.assertEqual(len(gateway.requests), 1)
+                    receipt = second._session(resumed.sessions[0]).delivered_jobs[job.job_id]
+                    self.assertEqual(
+                        receipt.acknowledgement["source"], "session_message_reconciliation"
+                    )
+                    # Replay again: neither another model call nor another prompt.
+                    resumed_controller.deliver(resumed, job)
+                    self.assertEqual(len(gateway.requests), 1)
+                    recovered_session = second._session(resumed.sessions[0])
+                    persisted = recovered_session.bridge.request(
+                        "find_prompt", session_id=resumed.sessions[0].value,
+                        directory=str(recovered_session.directory),
+                        text=canonical_json_bytes(job_document(job)).decode("utf-8"),
+                    )
+                    self.assertEqual(persisted["match_count"], 1)
+                    # Missing pre-crash event history must not become scoreable.
+                    with self.assertRaises(ExceptionGroup) as rejected:
+                        resumed_controller.close(resumed, "recovered")
+                    self.assertTrue(any(
+                        "events do not reconcile" in str(error)
+                        for error in rejected.exception.exceptions
+                    ))
+                finally:
+                    if not second._organisation(resumed.organisation).stopped:
+                        second.stop(resumed.organisation, "test cleanup")
+        finally:
+            gateway.shutdown()
+            gateway.server_close()
+            thread.join(timeout=5)
+
     def test_two_jobs_cross_a_real_server_restart(self) -> None:
         gateway = _GatewayServer(("127.0.0.1", 0), _GatewayHandler)
         gateway.requests = []
@@ -317,6 +415,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     event_sink,
                     NoModelBudgetReconciler(),
                     _no_compute(root, "opencode-integration"),
+                    _delivery(root),
                 )
                 handle = first_controller.start(spec)
                 first_controller.deliver(
@@ -344,6 +443,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     event_sink,
                     NoModelBudgetReconciler(),
                     _no_compute(root, "opencode-integration"),
+                    _delivery(root),
                 )
                 resumed = second_controller.resume(store.load("opencode-integration"))
                 second_controller.deliver(
@@ -429,6 +529,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     LocalEventSink(root / "events"),
                     NoModelBudgetReconciler(),
                     _no_compute(root, "opencode-peer-integration"),
+                    _delivery(root),
                 )
                 handle = controller.start(spec)
                 controller.deliver(
@@ -522,6 +623,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     LocalEventSink(root / "events"),
                     NoModelBudgetReconciler(),
                     _no_compute(root, "matched-peer-private"),
+                    _delivery(root),
                 )
                 private_spec = OrganisationSpec(
                     campaign_run_id="matched-peer-private",
@@ -550,6 +652,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     LocalEventSink(root / "events"),
                     NoModelBudgetReconciler(),
                     _no_compute(root, "matched-peer-shared"),
+                    _delivery(root),
                 )
 
                 shared_spec = OrganisationSpec(
@@ -586,6 +689,7 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     LocalEventSink(root / "events-resumed"),
                     NoModelBudgetReconciler(),
                     _no_compute(root, "matched-peer-shared"),
+                    _delivery(root),
                 )
                 resumed = resumed_controller.resume(shared_campaign_snapshot)
                 resumed_controller.deliver(

@@ -21,6 +21,8 @@ client. Verify the local core and scenario pack with:
 collab-evals validate-scenario
 collab-evals fake-solo
 collab-evals fake-candidate-lifecycle
+collab-evals rehearse-study
+collab-evals rehearse-solo-adapters
 python -m unittest discover -s tests -v
 ```
 
@@ -36,6 +38,16 @@ persists reference-aware neutral selection, evaluates the selected candidate or
 reference artifact under a separate hidden allowance, and seals the artifact
 store. Its scores are deterministic fixtures; it launches no candidate process
 and uses no model API or GPU.
+
+`rehearse-study` executes the complete randomized four-condition lifecycle
+against local fakes. `rehearse-solo-adapters` instead exercises the real stock
+OpenCode runtime, sandbox, session-scoped model gateway, SQLite budget account,
+delivery outbox and close gates for the solo condition. Its model upstream is
+deterministic and in-process, its compute manifest disables dispatch, and it
+passes no credentials to OpenCode. It writes a canonical audit below
+`tmp/adapter-rehearsals/` and replays the independent durable stores before it
+reports success. Neither command contacts a provider, uses a GPU, or produces a
+scoreable result.
 
 Install the pinned OpenRouter and OpenCode packages:
 
@@ -108,6 +120,38 @@ RUN_MODEL_GATEWAY_INTEGRATION=1 \
 
 The committed gateway profile is conformance-only and uses a synthetic rate
 card. This command does not read `.env`, contact OpenRouter or incur spend.
+
+Run the complete real-adapter four-condition rehearsal with:
+
+```bash
+RUN_MODEL_GATEWAY_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest -v \
+  tests.test_adapter_rehearsal
+```
+
+This uses the pinned OpenCode runtime but a deterministic in-process model. It
+forces the solo denial, native task, isolated-peer, and shared-peer surfaces,
+then reconciles their durable evidence. It makes no external model or compute
+call and is never scoreable.
+
+The registered-sandbox candidate additionally supports one dedicated Unix
+socket per model-gateway token and peer-tool token. Exercise the direct socket
+paths and in-container loopback relays locally with:
+
+```bash
+RUN_MODEL_GATEWAY_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest -v \
+  tests.test_model_gateway_unix
+
+RUN_PEER_TOOL_INTEGRATION=1 \
+  python -W error::ResourceWarning -m unittest -v \
+  tests.test_peer_tool_unix
+```
+
+This test also uses a deterministic local upstream and incurs no API spend. A
+Docker-compatible engine is required only for the separate live OCI
+conformance gate; do not treat this local relay test as container-isolation
+evidence.
 
 Run the dependency-free OpenRouter transport and generation-receipt tests with:
 

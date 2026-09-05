@@ -17,6 +17,7 @@ from agent_collab_evals.adapters.opencode_harness import (
 )
 from agent_collab_evals.adapters.provider_receipts import OpenRouterReceiptVerifier
 from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
+from agent_collab_evals.adapters.sqlite_delivery import SqliteDeliveryOutbox
 from agent_collab_evals.budget import ActorBudgetAllocation, BudgetPlan
 from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
@@ -52,6 +53,10 @@ def _no_compute(root: Path, campaign_run_id: str) -> NoComputeExecutionReconcile
     return NoComputeExecutionReconciler.from_frozen_manifest(
         root / f"{campaign_run_id}-compute-run.json", campaign_run_id
     )
+
+
+def _delivery(root: Path) -> SqliteDeliveryOutbox:
+    return SqliteDeliveryOutbox(root / "delivery.sqlite3")
 
 
 def _budget_account(
@@ -179,6 +184,7 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     LocalEventSink(root / "events"),
                     account,
                     _no_compute(root, campaign_run_id),
+                    _delivery(root),
                 )
                 handle = controller.start(
                     OrganisationSpec(
@@ -261,7 +267,11 @@ class ModelGatewayIntegrationTests(unittest.TestCase):
                     timeout_seconds=30,
                 )
                 controller = CampaignController(
-                    runtime, events, account, _no_compute(root, campaign_run_id)
+                    runtime,
+                    events,
+                    account,
+                    _no_compute(root, campaign_run_id),
+                    _delivery(root),
                 )
                 handle = controller.start(
                     OrganisationSpec(

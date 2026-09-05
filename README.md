@@ -54,6 +54,9 @@ The repository now contains the first scenario-shaped vertical slice:
 
 - a dependency-free domain core with narrow harness, event and snapshot ports;
 - a deterministic fake harness and atomic local campaign persistence;
+- a durable SQLite delivery outbox that records complete fan-out before runtime
+  calls, retains runtime-profile-bound acknowledgements and reconciles exact
+  jobs, sessions and receipts before campaign closure;
 - a pinned stock-OpenCode runtime adapter with per-actor state/workspace
   isolation, out-of-process events and durable session resume;
 - a pinned session-bound MCP peer-tool path whose four-actor private and shared
@@ -79,6 +82,22 @@ The repository now contains the first scenario-shaped vertical slice:
   exposes no provider credentials and binds its profile digest into runtime
   snapshots; it permits every loopback service and does not yet enforce
   filesystem or process-resource limits;
+- a fail-closed OCI sandbox implementation candidate that accepts a
+  server-derived per-session launch context and specifies no network, an exact
+  Unix-socket broker path, read-only runtime mounts, actor-only writable mounts,
+  no ambient secrets, and fixed CPU, memory, process, and lifetime limits. It
+  cannot execute until its image and engine are pinned and its live
+  conformance evidence is retained;
+- per-token Unix-socket transports for the model and peer-tool gateways, plus a
+  small session launcher. Each listener remains bound to its gateway's existing
+  token and authority, rejects tokens issued for other sockets, and is removed
+  on revocation; the launcher provides only the two fixed loopback endpoints
+  inside a networkless container;
+- a zero-spend real-adapter rehearsal that exercises all four condition
+  surfaces through stock OpenCode: denied coordination in solo, native task
+  handoff, actor-private peer publication/readback, and shared cross-actor
+  publication/readback. It uses a deterministic local model and remains
+  explicitly unscoreable;
 - a mandatory close-time budget validity gate that prevents post-stream
   identity, usage, receipt, forfeiture or overrun defects from producing a
   scoreable campaign result, using a manifest-pinned immutable budget plan and
@@ -127,6 +146,12 @@ The repository now contains the first scenario-shaped vertical slice:
   authorities. It resolves every run, exercises campaign start, delivery,
   reconciliation and closure, retains canonical per-run evidence, and verifies
   a combined audit without authorizing spend, treatment claims or scoring.
+- an executable solo real-adapter rehearsal that runs stock OpenCode through
+  the actual macOS sandbox, session gateway, SQLite budget ledger, delivery
+  outbox and close-time gates. Its upstream is deterministic and in-process,
+  compute is frozen off, no credentials enter the child, and the retained
+  audit is independently replayed; it cannot authorize scoring or external
+  model/GPU spend.
 
 The serving evaluator design also incorporates the documented lesson from
 Hugging Face's Fast Gemma Challenge: teacher-forced perplexity alone is not
@@ -141,6 +166,7 @@ collab-evals validate-scenario
 collab-evals fake-solo
 collab-evals fake-candidate-lifecycle
 collab-evals rehearse-study
+collab-evals rehearse-solo-adapters
 python -m unittest discover -s tests -v
 ```
 
@@ -154,10 +180,13 @@ reference exposed a hidden-performance SLO calibration issue. The pinned
 three-measurement calibration is complete and its deterministic proposal is
 retained, but not yet promoted to a registered profile. The source calibration
 bundle is retired and a fresh hidden seed is required after policy freeze.
-The no-spend structural four-condition rehearsal now passes, but it deliberately
-uses the fake runtime and does not exercise treatment surfaces. Registered
-compute and evaluator promotion, research brokerage, the scored composition
-root and real four-condition execution remain explicit later gates. See
+The no-spend structural four-condition rehearsal now passes, and the real-adapter
+composition exercises all four treatment surfaces against a deterministic local
+model. Only the latter exercises native and peer tools; it still uses the
+partial development sandbox. Registered
+enforcement, compute and evaluator promotion, research brokerage, the scored
+composition root, native fleet admission, and the agent-facing candidate and
+evaluation tools remain explicit later gates. See
 [implementation status](docs/IMPLEMENTATION_STATUS.md).
 
 ## Design documents
@@ -175,3 +204,4 @@ root and real four-condition execution remain explicit later gates. See
 - [Campaigns and task families](docs/CAMPAIGNS.md)
 - [Long-term product vision](docs/VISION.md)
 - [ADR 0001: runtime and collaboration substrate](docs/decisions/0001-agent-runtime-and-collaboration-substrate.md)
+- [ADR 0002: registered agent sandbox](docs/decisions/0002-registered-agent-sandbox.md)

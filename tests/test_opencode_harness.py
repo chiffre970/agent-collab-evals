@@ -7,8 +7,9 @@ import queue
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.adapters.opencode_harness import (
@@ -20,9 +21,12 @@ from agent_collab_evals.adapters.opencode_harness import (
 )
 from agent_collab_evals.sandbox import SandboxProfile
 from agent_collab_evals.budget import GatewayAccessToken
+from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.domain import (
+    AgentIdentity,
     CoordinationCondition,
     HarnessSnapshot,
+    Job,
     OrganisationSpec,
     SessionHandle,
 )
@@ -55,6 +59,47 @@ class _TokenIssuer:
 
 
 class OpenCodeRuntimeProfileTests(unittest.TestCase):
+    def test_native_runtime_cannot_be_promoted_without_identity_admission(self) -> None:
+        profile = replace(OpenCodeRuntimeProfile.load(PROFILE_PATH), status="registered")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = OpenCodeHarnessRuntime(
+                profile, root / "state", _TokenIssuer(), process_sandbox=_sandbox()
+            )
+            self.assertFalse(runtime.capabilities()["native_identity_limit_enforced"])
+            with self.assertRaisesRegex(RuntimeError, "identity admission"):
+                runtime.start_organisation(OrganisationSpec(
+                    "native-unqualified", CoordinationCondition.NATIVE_MULTIAGENT,
+                    4, root / "workspace", "http://127.0.0.1:4317/v1",
+                ))
+
+    def test_snapshot_failure_still_closes_all_bridges_and_revokes_tokens(self) -> None:
+        from types import SimpleNamespace
+
+        runtime = object.__new__(OpenCodeHarnessRuntime)
+        sessions = {
+            str(index): SimpleNamespace(
+                bridge=Mock(), gateway_token_id=f"token-{index}", peer_access=None
+            )
+            for index in range(2)
+        }
+        sessions["0"].bridge.close.side_effect = RuntimeError("bridge close failed")
+        state = SimpleNamespace(sessions=sessions, stopped=False)
+        runtime._gateway_tokens = Mock()
+        with (
+            patch.object(runtime, "_organisation", return_value=state),
+            patch.object(runtime, "snapshot", side_effect=RuntimeError("checkpoint failed")),
+            patch.object(runtime, "_revoke_peer_access") as revoke_peer,
+            self.assertRaises(ExceptionGroup) as caught,
+        ):
+            runtime.stop(Mock(), "failure")
+        self.assertEqual(len(caught.exception.exceptions), 2)
+        self.assertTrue(state.stopped)
+        self.assertEqual(runtime._gateway_tokens.revoke.call_count, 2)
+        self.assertEqual(revoke_peer.call_count, 2)
+        for session in sessions.values():
+            session.bridge.close.assert_called_once()
+
     def test_committed_profile_is_strict_and_transitively_digested(self) -> None:
         profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
 
@@ -152,6 +197,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
 
     def test_bridge_timeout_is_terminal(self) -> None:
         class Process:
+            pid = 12345
             return_code: int | None = None
             stdin = io.StringIO()
             stdout = io.StringIO()
@@ -185,12 +231,119 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         bridge._stdout_thread = Thread()
         bridge._stderr_thread = Thread()
 
-        with self.assertRaisesRegex(TimeoutError, "bridge terminated"):
+        with (
+            patch("os.killpg", side_effect=lambda *_: bridge._process.terminate()),
+            self.assertRaisesRegex(TimeoutError, "bridge terminated"),
+        ):
             bridge.request("never_returns")
         self.assertTrue(bridge._unusable)
         self.assertEqual(bridge._process.return_code, -15)
         with self.assertRaisesRegex(RuntimeError, "not running"):
             bridge.request("next")
+
+    def test_delivery_returns_stable_runtime_acknowledgement_receipt(self) -> None:
+        class Bridge:
+            def __init__(self, existing: bool = False) -> None:
+                self.existing = existing
+                self.prompt_count = 0
+
+            def request(self, command: str, **_: object) -> object:
+                if command == "create_session":
+                    return {"id": "session-1"}
+                if command == "find_prompt":
+                    return {
+                        "match_count": 1 if self.existing else 0,
+                        "message_id": "existing-message" if self.existing else None,
+                        "response_digest": (
+                            digest_value({"message": "existing"})
+                            if self.existing
+                            else None
+                        ),
+                    }
+                if command == "prompt":
+                    self.prompt_count += 1
+                    return {
+                        "message_id": "message-1",
+                        "response_digest": digest_value(
+                            {"response": "complete"}
+                        ),
+                    }
+                raise AssertionError(f"unexpected command: {command}")
+
+            def close(self) -> None:
+                return
+
+        profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(OpenCodeHarnessRuntime, "_verify_installation"):
+                runtime = OpenCodeHarnessRuntime(
+                    profile,
+                    root / "state",
+                    _TokenIssuer(),
+                    process_sandbox=_sandbox(),
+                )
+            bridge = Bridge()
+            runtime._start_bridge = lambda *args: bridge  # type: ignore[method-assign]
+            organisation = runtime.start_organisation(
+                OrganisationSpec(
+                    "delivery-receipt-run",
+                    CoordinationCondition.SOLO,
+                    1,
+                    root / "workspace",
+                    "http://127.0.0.1:12345/v1",
+                )
+            )
+            session = runtime.create_primary(
+                organisation,
+                AgentIdentity("delivery-receipt-run", 0),
+            )
+            job = Job(
+                "job-1",
+                "Complete the task.",
+                digest_value({"materials": "job-1"}),
+                {},
+            )
+
+            first = runtime.deliver(session, job)
+            repeated = runtime.deliver(session, job)
+
+            with patch.object(OpenCodeHarnessRuntime, "_verify_installation"):
+                recovered_runtime = OpenCodeHarnessRuntime(
+                    profile,
+                    root / "recovered-state",
+                    _TokenIssuer(),
+                    process_sandbox=_sandbox(),
+                )
+            recovered_bridge = Bridge(existing=True)
+            recovered_runtime._start_bridge = (  # type: ignore[method-assign]
+                lambda *args: recovered_bridge
+            )
+            recovered_organisation = recovered_runtime.start_organisation(
+                OrganisationSpec(
+                    "recovered-delivery-run",
+                    CoordinationCondition.SOLO,
+                    1,
+                    root / "recovered-workspace",
+                    "http://127.0.0.1:12345/v1",
+                )
+            )
+            recovered_session = recovered_runtime.create_primary(
+                recovered_organisation,
+                AgentIdentity("recovered-delivery-run", 0),
+            )
+            recovered = recovered_runtime.deliver(recovered_session, job)
+
+        self.assertEqual(first, repeated)
+        self.assertEqual(bridge.prompt_count, 1)
+        self.assertEqual(first.acknowledgement["message_id"], "message-1")
+        self.assertEqual(first.acknowledgement["source"], "prompt_response")
+        self.assertEqual(first.session_id, session.value)
+        self.assertEqual(recovered_bridge.prompt_count, 0)
+        self.assertEqual(
+            recovered.acknowledgement["source"],
+            "session_message_reconciliation",
+        )
 
     def test_failed_multi_actor_resume_removes_provisional_mappings(self) -> None:
         class Issuer:
@@ -256,7 +409,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
             snapshot = HarnessSnapshot(
                 f"opencode:{campaign_id}",
                 {
-                    "schema": "opencode-harness-snapshot/v3",
+                    "schema": "opencode-harness-snapshot/v4",
                     "runtime_profile_id": profile.profile_id,
                     "runtime_profile_digest": profile.resolved_digest,
                     "sandbox_profile_id": runtime._process_sandbox.profile_id,

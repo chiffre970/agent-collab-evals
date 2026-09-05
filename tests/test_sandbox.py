@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
-from agent_collab_evals.sandbox import SandboxProfile
+from agent_collab_evals.sandbox import SandboxLaunchContext, SandboxProfile
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +32,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 class SandboxProfileTests(unittest.TestCase):
+    @staticmethod
+    def _context() -> SandboxLaunchContext:
+        root = REPOSITORY_ROOT.resolve()
+        return SandboxLaunchContext(
+            workspace_root=root / "campaigns",
+            runtime_state_root=root / "tests",
+            runtime_assets_root=root,
+            model_endpoint="http://127.0.0.1:9000/v1",
+        )
+
     def test_profile_is_pinned_and_direct_provider_endpoint_is_rejected(self) -> None:
         sandbox = DarwinSandboxExec(SandboxProfile.load(PROFILE_PATH))
 
@@ -64,8 +74,7 @@ class SandboxProfileTests(unittest.TestCase):
         thread.start()
         sandbox = DarwinSandboxExec(SandboxProfile.load(PROFILE_PATH))
         try:
-            loopback = subprocess.run(
-                sandbox.wrap(
+            loopback_process = sandbox.prepare(
                     (
                         "/usr/bin/curl",
                         "--noproxy",
@@ -74,17 +83,22 @@ class SandboxProfileTests(unittest.TestCase):
                         "--max-time",
                         "5",
                         f"http://127.0.0.1:{server.server_port}",
-                    )
-                ),
+                    ),
+                    self._context(),
+                    {},
+                )
+            loopback = subprocess.run(
+                loopback_process.command,
                 check=False,
                 capture_output=True,
+                cwd=loopback_process.working_directory,
+                env=loopback_process.environment,
             )
             self.assertEqual(loopback.returncode, 0, loopback.stderr.decode())
             self.assertEqual(loopback.stdout, b"SANDBOX_LOOPBACK_OK")
 
             host = self._nonloopback_address()
-            direct = subprocess.run(
-                sandbox.wrap(
+            direct_process = sandbox.prepare(
                     (
                         "/usr/bin/curl",
                         "--noproxy",
@@ -93,10 +107,16 @@ class SandboxProfileTests(unittest.TestCase):
                         "--max-time",
                         "2",
                         f"http://{host}:{server.server_port}",
-                    )
-                ),
+                    ),
+                    self._context(),
+                    {},
+                )
+            direct = subprocess.run(
+                direct_process.command,
                 check=False,
                 capture_output=True,
+                cwd=direct_process.working_directory,
+                env=direct_process.environment,
             )
             self.assertNotEqual(direct.returncode, 0)
             self.assertNotIn(b"SANDBOX_LOOPBACK_OK", direct.stdout)

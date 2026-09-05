@@ -91,7 +91,7 @@ class StudyRehearsalTests(unittest.TestCase):
                 {self.plan.blocks[0].task_material_digest},
             )
             self.assertTrue(
-                all(run["event_count"] == 5 for run in runs),
+                all(run["event_count"] == 6 for run in runs),
                 runs,
             )
             self.assertTrue(

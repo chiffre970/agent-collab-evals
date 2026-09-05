@@ -37,6 +37,7 @@ StudyManifest
      |
 ExperimentRunner
      +-- CampaignController ----- durable organisation + incoming jobs
+     +-- DeliveryOutbox -------- prepared fan-out + runtime receipts
      +-- ArtifactService -------- workspace snapshots + authorized publications
      +-- SubmissionRegistry ----- owned candidates + public-eval admission
      +-- CollaborationProfileBuilder -- post-run descriptive profile
@@ -91,9 +92,24 @@ Loads and validates the frozen study and block manifests, mechanically resolves 
 
 ### `CampaignController`
 
-Owns the durable organisation lifecycle. It starts the allowed session topology through `HarnessRuntime`, delivers jobs, preserves state between them, enforces campaign deadlines, coordinates snapshots and stops every live session at closure.
+Owns the durable organisation lifecycle. It starts the allowed session topology
+through `HarnessRuntime`, prepares every complete fan-out in `DeliveryOutbox`,
+persists matching runtime acknowledgements, preserves state between jobs,
+enforces campaign deadlines, coordinates snapshots and stops every live session
+at closure. Close fails unless the outbox reconciles the exact job, session and
+receipt set.
 
 It does not decide how agents delegate, communicate, merge work or solve jobs.
+
+### `DeliveryOutbox`
+
+Owns delivery admission and receipts independently of the runtime and
+observational event sink. It stores the canonical job and complete recipient
+set before any harness call. A job becomes complete only after every recipient
+returns an idempotent receipt bound to the effective runtime profile. Partial
+fan-out can resume without repeating acknowledged recipients. V0 permits one
+registered campaign dispatcher; multi-dispatcher execution requires a separate
+cross-process lease protocol.
 
 ### `SubmissionRegistry`
 
@@ -250,13 +266,25 @@ An unexpected returned model identity or fingerprint change is handled by a pred
 The process sandbox remains a separate adapter from OpenCode. The current
 development adapter wraps the complete OpenCode process tree in a pinned macOS
 Seatbelt profile, validates that the configured model endpoint is loopback and
-retains its profile digest in each harness snapshot. Its kernel policy blocks
+retains its profile digest in each harness snapshot. The sandbox port also
+receives the server-derived actor workspace, runtime-state root, runtime-assets
+root and model endpoint for each process launch; a registered adapter must bind
+those values into its kernel/container policy. Its kernel policy blocks
 nonloopback outbound traffic but permits all ports and services on loopback. It
 does not enforce filesystem or process-resource limits. This is a network-only
 development control, not the complete sandbox boundary shown above. Scored runs
 require a registered adapter that restricts local service access and enforces
 the declared filesystem and process-resource boundaries. Other operating
 systems require separate adapters and conformance evidence.
+
+The registered V0 candidate is a rootless Docker-compatible OCI adapter with
+no network connectivity. It mounts dedicated per-session Unix sockets for the
+model and peer-tool gateways, and an in-container launcher exposes only their
+two fixed loopback endpoints. The root filesystem and runtime image are
+read-only; only the actor's workspace, actor-specific runtime state, and a
+bounded non-executable temporary filesystem are writable. The candidate
+remains execution-disabled until its image and engine are pinned and its live
+positive and adversarial conformance evidence is retained.
 
 ## Peer information isolation
 
@@ -309,6 +337,12 @@ One primary session receives each job. Native handoffs are denied and no collabo
 ### `native_multiagent`
 
 One primary session receives each job and may automatically invoke the runtime's stock general-purpose subagents. No custom roles, supervisor prompt or worker-to-worker channel is added. The primary and resumable child sessions may persist within the campaign according to native runtime semantics. Concurrency and total live identities are capped at `N`.
+
+This cap is a registered-execution requirement, not an implemented property of
+the development OpenCode adapter. Disabling recursive delegation does not cap
+sibling sessions. The adapter reports `native_identity_limit_enforced: false`
+and rejects non-development native profiles until admission is implemented and
+qualified. Observed child counts do not substitute for admission enforcement.
 
 This condition and `peer_collab` differ in both coordination topology and resource-allocation mechanics. Their contrast evaluates two complete operating approaches; it does not isolate peer topology alone.
 

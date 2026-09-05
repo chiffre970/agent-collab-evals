@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..canonical import digest_value
+from ..delivery import HarnessDeliveryReceipt
 from ..domain import (
     AgentIdentity,
     HarnessOrganisation,
@@ -21,7 +23,7 @@ from ..domain import (
 class _FakeSession:
     handle: SessionHandle
     actor: AgentIdentity
-    delivered_jobs: dict[str, str] = field(default_factory=dict)
+    delivered_jobs: dict[str, HarnessDeliveryReceipt] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -67,16 +69,30 @@ class FakeHarnessRuntime:
         self._session_to_org[session_id] = organisation.value
         return handle
 
-    def deliver(self, session: SessionHandle, job: Job) -> None:
+    def deliver(
+        self, session: SessionHandle, job: Job
+    ) -> HarnessDeliveryReceipt:
         state = self._session(session)
-        previous_digest = state.delivered_jobs.get(job.job_id)
-        if previous_digest is not None:
-            if previous_digest != job.materials_digest:
+        previous = state.delivered_jobs.get(job.job_id)
+        if previous is not None:
+            if previous.materials_digest != job.materials_digest:
                 raise ValueError(
                     f"job identifier reused with different materials: {job.job_id}"
                 )
-            return
-        state.delivered_jobs[job.job_id] = job.materials_digest
+            return previous
+        receipt = HarnessDeliveryReceipt.create(
+            session,
+            job,
+            runtime_profile_digest=digest_value(self.capabilities()),
+            acknowledgement={
+                "adapter": "fake-harness/v1",
+                "session_id": session.value,
+                "job_id": job.job_id,
+                "materials_digest": job.materials_digest,
+            },
+        )
+        state.delivered_jobs[job.job_id] = receipt
+        return receipt
 
     def events(
         self, organisation: HarnessOrganisation
@@ -99,11 +115,8 @@ class FakeHarnessRuntime:
                     "session_id": session.handle.value,
                     "actor_ordinal": session.actor.ordinal,
                     "delivered_jobs": [
-                        {
-                            "job_id": job_id,
-                            "materials_digest": materials_digest,
-                        }
-                        for job_id, materials_digest in session.delivered_jobs.items()
+                        receipt.document
+                        for receipt in session.delivered_jobs.values()
                     ],
                 }
                 for session in state.sessions.values()
@@ -134,10 +147,20 @@ class FakeHarnessRuntime:
             session = SessionHandle(str(item["session_id"]))
             if session.value in self._session_to_org:
                 raise ValueError(f"session already exists: {session.value}")
-            delivered_jobs = {
-                str(delivered["job_id"]): str(delivered["materials_digest"])
-                for delivered in item["delivered_jobs"]
-            }
+            delivered_jobs = {}
+            for delivered in item["delivered_jobs"]:
+                if not isinstance(delivered, dict):
+                    raise ValueError("fake delivery receipt is invalid")
+                receipt = HarnessDeliveryReceipt.from_document(delivered)
+                if receipt.session_id != session.value:
+                    raise ValueError("fake delivery receipt session differs")
+                if receipt.runtime_profile_digest != digest_value(
+                    self.capabilities()
+                ):
+                    raise ValueError("fake delivery receipt profile differs")
+                if receipt.job_id in delivered_jobs:
+                    raise ValueError("fake delivery receipt job repeats")
+                delivered_jobs[receipt.job_id] = receipt
             restored.sessions[session.value] = _FakeSession(
                 session, actor, delivered_jobs
             )
