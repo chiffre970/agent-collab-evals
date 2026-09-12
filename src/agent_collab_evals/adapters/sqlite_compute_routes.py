@@ -126,6 +126,42 @@ class SqliteComputeRouteInventory:
             if spend.request_status(request, source.manifest.transport_profile_digest) not in {"issued", "consumed"}:
                 raise RuntimeError("pilot compute request needs explicit authorization")
 
+    def cleanup(self, canceller) -> tuple[dict, ...]:
+        """Visit retained requests on abort, including an unsealed partial run.
+
+        No cancellation changes evaluation status or releases reserved budget.
+        Failures are retained per request so remaining calls still get cleanup.
+        """
+        with closing(self._connect()) as connection:
+            self._check(connection)
+            routes = connection.execute("SELECT route_id, adapter_id FROM compute_routes ORDER BY route_id").fetchall()
+        results = []
+        for route_id, adapter_id in routes:
+            try:
+                source, spend = self._source(route_id)
+                transport = self._adapters[adapter_id].transport(self._route_root(route_id), spend)
+            except Exception as error:
+                results.append({"route_id": route_id, "status": "cleanup_failed", "error_type": type(error).__name__})
+                continue
+            for request in source.manifest.requests():
+                try:
+                    status = spend.request_status(request, source.manifest.transport_profile_digest)
+                    if status != "consumed":
+                        result = {"status": "not_dispatched"}
+                    else:
+                        try:
+                            source.backend.resolve(request)
+                        except Exception:
+                            source.backend.validate_cleanup_dispatch(request)
+                            result = transport.cleanup(request, canceller)
+                        else:
+                            result = {"status": "terminal_evidence_verified", "terminal_confirmed": True}
+                    results.append({"request_digest": request.request_digest, **result})
+                except Exception as error:
+                    results.append({"request_digest": request.request_digest, "status": "cleanup_failed",
+                        "error_type": type(error).__name__, "terminal_confirmed": False})
+        return tuple(results)
+
     def sources(self) -> tuple[EvaluationComputeSource, ...]:
         with closing(self._connect()) as connection:
             self._check(connection)

@@ -288,6 +288,16 @@ class SqliteComputeBackend:
         document = self._resolve_evidence(request, row)
         return self._receipt(row), document
 
+    def validate_cleanup_dispatch(self, request: ComputeExecutionRequest) -> None:
+        """Cross-check any acknowledged call before abort cleanup targets it."""
+        self._authority.assert_authorized(request)
+        request_json = canonical_json_bytes(_request_document(request)).decode()
+        with closing(self._connect()) as connection:
+            row = self._execution_row(connection, request.execution_key)
+            self._validate_row(row, request, request_json)
+        if row["external_call_id"] is not None:
+            self._resolve_dispatch(request, row)
+
     def reconcile(
         self, campaign_run_id: str
     ) -> tuple[ComputeExecutionReceipt, ...]:

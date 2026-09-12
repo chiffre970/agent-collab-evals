@@ -210,11 +210,22 @@ executions, and three performance executions.
 
 A passing check proves local composition, not provider availability, deployment
 containment, cancellation, or cost qualification. The current Darwin sandbox
-does not protect the filesystem or unrelated loopback services. Live execution
-and remote-cleanup integration, an isolated deployment, current provider/billing
-qualification, and explicit run-bound spending approval remain required. Do not
+does not protect the filesystem or unrelated loopback services. The shared
+lifecycle has live dependency wiring and targeted abort cleanup, but the public
+operator gate is still closed. An isolated deployment, live cancellation and
+provider/billing qualification, and run-bound dollar enforcement/approval remain
+required. Do not
 treat a config edit, authorization reference, or simulated score as permission
 to start a live experiment.
+
+The live lifecycle requires provider metadata receipts and retains raw receipt
+bytes separately from JSON accounting. It reports GPU seconds separately and
+does not invent a total dollar cost. On abort, cleanup uses retained function-call
+IDs after request/dispatch verification. Cancellation acknowledgments are retained
+but do not prove container/app termination or final billing. Missing IDs and
+cleanup failures remain visible in the aborted audit and require operator review.
+The `runtime_timeout_seconds` setting bounds individual runtime responses; it
+does not bound total GPU cost or the complete pilot's wall time.
 
 For command tests without OpenCode or loopback services, copy the config to a
 local file and set `runtime` to `fake`. The normal config uses `opencode`.

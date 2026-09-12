@@ -13,7 +13,7 @@ from agent_collab_evals.adapters.sqlite_execution_backend import SqliteComputeBa
 from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.compute_backend import ComputeExecutionStatus, FrozenComputeRunManifest
 from agent_collab_evals.pilot_evidence import retain_document
-from agent_collab_evals.solo_live_configuration import LivePilotConfiguration, build_live_stack, prepare_offline_requests
+from agent_collab_evals.solo_live_configuration import LivePilotConfiguration, build_live_stack, make_live_dependencies, prepare_offline_requests
 from agent_collab_evals.solo_pilot_command import run_solo_pilot
 from tests.quality_fixture import REPOSITORY_ROOT, real_hidden_quality_bundle
 
@@ -94,6 +94,11 @@ class SoloLiveConfigurationTests(unittest.TestCase):
         configuration = LivePilotConfiguration.load(self.config(), REPOSITORY_ROOT)
         with self.assertRaises(ValueError):
             configuration.hidden_bundle()
+
+    def test_live_dependency_factory_requires_budgets_before_loading_private_inputs(self):
+        configuration = LivePilotConfiguration.load(self.config(), REPOSITORY_ROOT)
+        with self.assertRaisesRegex(ValueError, "dollar limits"):
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=None, authorize=None)
 
 
 if __name__ == "__main__":

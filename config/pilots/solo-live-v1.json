@@ -18,5 +18,6 @@
   },
   "model_limit_usd_nanos": null,
   "modal_limit_usd_nanos": null,
-  "task_seed": 1729
+  "task_seed": 1729,
+  "runtime_timeout_seconds": 900
 }

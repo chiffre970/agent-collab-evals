@@ -350,6 +350,15 @@ class ModalVllmCliTransport:
         )
         return TransportPoll(status, pointer, used_seconds, failure)
 
+    def cleanup(self, request, canceller):
+        from .modal_cleanup import cancel_retained_dispatch
+
+        self._validate_prepared_request(request, self._candidate_path(request))
+        resolver = self._evidence_resolver or ModalVllmEvidenceResolver(
+            self._profile, self._repository_root, self._state_root, self.profile_digest)
+        return cancel_retained_dispatch(request, self._dispatch_record(_measurement_id(request)),
+            resolver, canceller, self._state_root)
+
     def _prepare_request(
         self, request: ComputeExecutionRequest, candidate: bytes
     ) -> Path:

@@ -346,6 +346,15 @@ class ModalVllmQualityCliTransport:
         )
         return TransportPoll(status, pointer, used_seconds, failure)
 
+    def cleanup(self, request, canceller):
+        from .modal_cleanup import cancel_retained_dispatch
+
+        self._validate_prepared_request(request, self._candidate_path(request))
+        repetition, _ = self._request_identity(request)
+        resolver = ModalVllmQualityEvidenceResolver(self._profile, self._state_root, self.profile_digest)
+        return cancel_retained_dispatch(request, self._dispatch_record(_measurement_id(request), repetition),
+            resolver, canceller, self._state_root)
+
     def _validate_request(
         self, request: ComputeExecutionRequest, candidate: bytes
     ) -> tuple[int, str]:

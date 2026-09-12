@@ -46,7 +46,7 @@ class LivePilotConfiguration:
         expected = {"schema_version", "execution_mode", "execution_authorized", "campaign",
             "gateway_profile", "runtime_profile", "sandbox_profile", "public_compute_profile",
             "hidden_manifest", "hidden_manifest_digest", "modal_cli", "phase_seconds",
-            "model_limit_usd_nanos", "modal_limit_usd_nanos", "task_seed"}
+            "model_limit_usd_nanos", "modal_limit_usd_nanos", "task_seed", "runtime_timeout_seconds"}
         if not isinstance(document, dict) or set(document) != expected:
             raise ValueError("live pilot configuration fields differ")
         if document["schema_version"] != "solo-live-configuration/v1" or document["execution_mode"] != "live":
@@ -60,6 +60,8 @@ class LivePilotConfiguration:
                 raise ValueError(f"{field} must be a positive integer or null")
         if type(document["task_seed"]) is not int or document["task_seed"] < 0:
             raise ValueError("task_seed must be a nonnegative integer")
+        if type(document["runtime_timeout_seconds"]) is not int or not 1 <= document["runtime_timeout_seconds"] <= 3600:
+            raise ValueError("runtime timeout must be between 1 and 3600 seconds")
         seconds = document["phase_seconds"]
         if not isinstance(seconds, dict) or set(seconds) != {"public", "correctness", "quality", "performance"}:
             raise ValueError("live pilot phase allocations differ")
@@ -110,6 +112,37 @@ class LivePilotConfiguration:
             required_gates=tuple(campaign.hidden_contract()["required_gates"]))
         return load_hidden_workload(self.hidden_manifest, expectations, campaign.benchmark_plan(),
             registered_manifest_digest=self.document["hidden_manifest_digest"])
+
+
+def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize):
+    """Compose the live lifecycle below the still-closed operator authority gate.
+
+    `authorize` must enforce the approved run-bound dollar envelope, including
+    reference compute. This factory never supplies approval or reads credentials.
+    """
+    from .adapters.modal_cleanup import ModalCallCanceller
+    from .adapters.opencode_harness import OpenCodeHarnessRuntime
+    from .solo_pilot_command import LivePilotDependencies
+
+    if any(configuration.document[field] is None for field in ("model_limit_usd_nanos", "modal_limit_usd_nanos")):
+        raise ValueError("live execution requires explicit model and Modal dollar limits")
+    if process_sandbox.profile_digest != configuration.sandbox.resolved_digest:
+        raise ValueError("live runtime sandbox differs from configuration")
+    hidden = configuration.hidden_bundle()
+    policy = configuration.campaign.quality_policy()
+    canceller = ModalCallCanceller(configuration.repository, configuration.modal_cli)
+
+    def stack(root, run_id):
+        return build_live_stack(root, configuration, run_id, hidden, policy)[0]
+
+    def harness(root, services, gateway, candidate_gateway):
+        return OpenCodeHarnessRuntime(configuration.runtime, root / "runtime", gateway,
+            process_sandbox=process_sandbox, candidate_gateway=candidate_gateway,
+            timeout_seconds=configuration.document["runtime_timeout_seconds"])
+
+    return LivePilotDependencies(stack, lambda: configuration.model_upstream(api_key), authorize,
+        lambda stack: stack.inventory.cleanup(canceller), harness,
+        configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"])
 
 
 def build_live_stack(root, configuration, run_id, hidden, policy):
@@ -210,7 +243,7 @@ def check_live_pilot(config_path: Path, repository: Path) -> dict:
         "compute_adapter_count": len(adapters), "planned_compute_executions": sum(len(group) for _, group in requests),
         "planned_reserved_seconds": reserved_seconds, "hidden_reserved_seconds": stack.hidden_seconds,
         "actual_spend_usd_nanos": 0,
-        "remaining_gates": ["live command execution and abort/remote-cleanup integration",
+        "remaining_gates": ["live operator authority gate remains disabled; cancellation needs live qualification",
             "explicit run-bound model and Modal dollar-budget approval",
             "current provider route and billing qualification",
             "isolated deployment: current Darwin sandbox does not restrict filesystem or local services"],

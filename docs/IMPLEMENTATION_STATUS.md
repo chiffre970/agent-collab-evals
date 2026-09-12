@@ -555,9 +555,11 @@ safety controls or registered-study requirements.
    synthetic; this is not a live optimization result. Checkpoint `43a45fc`
    commits this implementation and the preceding cleanup fixes. The same
    entrypoint now supports an offline live-config check with real OpenRouter
-   and Modal factories. Next, integrate live execution and remote cleanup into
-   the existing command, qualify the isolated deployment and current provider
-   billing, and obtain a complete dollar envelope. Live mode remains disabled.
+   and Modal factories. The shared lifecycle now has live dependency wiring
+   and retained abort cleanup, tested without paid calls. Next, qualify the
+   isolated deployment, current provider/billing route, and remote cancellation;
+   confirm the complete dollar envelope and bind its enforcement to the operator
+   gate. Live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place
    of that work.
 2. **Then: one bounded exploratory run, after approval.** Confirm the dollar
@@ -1062,9 +1064,46 @@ Validation: 326 default tests ran (306 passed, 20 skipped); the separately enabl
 real OpenCode no-spend command test passed. The offline command also passed
 against the retained local hidden bundle. Actual spend for this work was zero.
 
-Remaining boundary: the paid execution branch and remote-abort cleanup are not
-wired into the operator command. The current Darwin sandbox is not adequate
-filesystem or local-service containment. Complete those concrete integration
-steps, qualify the deployment and current provider/billing route, then obtain
-explicit run-bound model and Modal dollar budgets before the first live attempt.
-No registered-study execution or collaboration effect is established.
+The lifecycle and abort-cleanup follow-up is described next. No registered-study
+execution or collaboration effect is established.
+
+### Live lifecycle and targeted abort cleanup (September 12, 2026)
+
+- The existing solo command now shares one lifecycle across synthetic and live
+  dependencies. `make_live_dependencies` supplies the real provider, Modal stack,
+  OpenCode runtime, request-authorization callback, and remote cleanup callback.
+  Construction grants no spend. The public entrypoint still rejects live mode;
+  no deployment/budget authority has been approved or installed there.
+- Live model accounting requires metadata receipts and retains model charges
+  separately from GPU measurements. Raw stream/metadata bytes are retained by
+  digest outside the JSON accounting snapshot. Total actual spend remains
+  unknown until provider compute billing is reconciled; function seconds are
+  never relabeled as dollars. All results remain non-scoreable.
+- On abort, local runtime/gateway cleanup runs before remote cleanup. The route
+  inventory visits even an unsealed partial run, skips unconsumed requests and
+  verified terminal evidence, and checks acknowledged dispatch digests before
+  targeting a retained call. Cleanup errors are reported per request so other
+  calls still receive cleanup attempts.
+- The Modal adapters support exact-call cancellation through a bounded helper
+  process. It uses `FunctionCall.cancel(terminate_containers=True)` and retains
+  a cancellation-request acknowledgment. This is not terminal-state, app-shutdown,
+  or billing proof. Missing dispatch records remain unresolved; they do not
+  trigger app-wide searches or cancellation of unrelated work. See Modal's
+  [FunctionCall documentation](https://modal.com/docs/sdk/py/latest/FunctionCall).
+- The runtime response timeout is now an explicit pilot-config variable. Dollar
+  limits remain unset, and neither a config edit nor constructing dependencies
+  opens the operator gate.
+
+Validation: 339 default tests ran (319 passed, 20 skipped), and the separately
+enabled real OpenCode no-spend command test passed. The offline live-config check
+also passed. Tests cover the live lifecycle using synthetic dependencies,
+authorization refusal, partial-inventory cleanup, cleanup failure continuation,
+dispatch verification, idempotent cancellation receipts, and raw receipt
+retention. No provider or GPU calls were made.
+
+Remaining boundary: qualify the actual isolated deployment and remote cancellation
+under an approved bounded conformance budget; resolve ambiguous dispatches and
+confirm remote resource/billing termination before claiming cleanup completion.
+Current provider prices/routing and a total model/Modal dollar envelope still
+need approval and executable run-bound enforcement. Only then enable the operator
+gate for one exploratory solo attempt. No broad recovery framework is required.
