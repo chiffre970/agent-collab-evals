@@ -543,7 +543,7 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated September 11, 2026. This sequencing update supersedes earlier "next"
+Updated September 12, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
@@ -552,11 +552,14 @@ safety controls or registered-study requirements.
    held-out evaluator phases, durable routing/authorization, and closure in one
    invocation. It retains configuration, the selected artifact, scores, costs,
    failures, and inventory seal. Model responses and compute evidence are
-   synthetic; this is not a live optimization result. Next, review and commit
-   the accumulated work and wire the existing live provider/Modal factories into
-   this same entrypoint with explicit deployment and spending configuration.
-   Live mode remains disabled pending those checks and approval. Do not create
-   another standalone rehearsal or orchestration layer in place of that work.
+   synthetic; this is not a live optimization result. Checkpoint `43a45fc`
+   commits this implementation and the preceding cleanup fixes. The same
+   entrypoint now supports an offline live-config check with real OpenRouter
+   and Modal factories. Next, integrate live execution and remote cleanup into
+   the existing command, qualify the isolated deployment and current provider
+   billing, and obtain a complete dollar envelope. Live mode remains disabled.
+   Do not create another standalone rehearsal or orchestration layer in place
+   of that work.
 2. **Then: one bounded exploratory run, after approval.** Confirm the dollar
    envelope, deployment boundary, evaluator policy, and stop conditions before
    paid execution. Include startup, evaluation, retries, and cleanup in the
@@ -1027,9 +1030,41 @@ It recorded five synthetic model calls, 12 synthetic compute executions, valid
 budget reconciliation, and zero actual spend. This evidence is local and ignored
 by Git. The command ran against an uncommitted worktree, recorded in its config.
 
-Remaining boundary: no live provider/Modal factory selection is exposed by this
-entrypoint yet. Those factories, a complete approved budget, and adequate
-deployment protections must be wired and checked before enabling paid execution.
 The no-spend command proves integration, not GPU behavior, model optimization,
-peer collaboration, or registered-study readiness. The next work is that live
-configuration and bounded run—not another generic infrastructure layer.
+peer collaboration, or registered-study readiness. The live configuration
+follow-up is described next.
+
+### Offline live-pilot configuration (September 12, 2026)
+
+- Checkpoint `43a45fc` commits the accumulated no-spend pilot, evaluator refactor,
+  and runtime cleanup fixes. The separate progress-assessment draft is unchanged.
+- `solo-pilot --check --config config/pilots/solo-live-v1.json` loads the real
+  OpenRouter model/provider profile and six Modal adapter configurations. It
+  validates the private workload against the campaign and constructs the actual
+  profile factories, evidence resolvers, and durable spend service without
+  credentials, provider calls, Modal subprocesses, or authorization issuance.
+- Live and synthetic transport choices share evaluator composition and request
+  planners. The live check plans public reference/candidate, hidden correctness,
+  six paired quality executions, and three performance executions. Their
+  proposed allowances total 13,200 seconds, including 9,600 hidden seconds.
+  These are reservations, not measured use, execution timeouts, or dollar caps.
+- Model/provider/runtime, Modal deployment references, hidden manifest digest,
+  phase allocations, and proposed dollar limits are outside `.env`. Both dollar
+  limits are unset. Setting `execution_authorized` to true is rejected; the
+  execution command still rejects live mode before run creation.
+- Tests construct real profiles with a valid local hidden-workload fixture and
+  submit every planned request through the real transports and SQLite backend.
+  Each fails for missing durable authorization, without invoking a subprocess
+  or opening a provider connection. No input validators are patched in this
+  composition test.
+
+Validation: 326 default tests ran (306 passed, 20 skipped); the separately enabled
+real OpenCode no-spend command test passed. The offline command also passed
+against the retained local hidden bundle. Actual spend for this work was zero.
+
+Remaining boundary: the paid execution branch and remote-abort cleanup are not
+wired into the operator command. The current Darwin sandbox is not adequate
+filesystem or local-service containment. Complete those concrete integration
+steps, qualify the deployment and current provider/billing route, then obtain
+explicit run-bound model and Modal dollar budgets before the first live attempt.
+No registered-study execution or collaboration effect is established.

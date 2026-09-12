@@ -168,6 +168,7 @@ def _parser() -> argparse.ArgumentParser:
     pilot.add_argument("--config", type=Path, default=Path("config/pilots/solo-no-spend-v1.json"))
     pilot.add_argument("--state-root", type=Path, default=Path("tmp/solo-pilots"))
     pilot.add_argument("--run-id", required=True)
+    pilot.add_argument("--check", action="store_true", help="check live adapter configuration offline; never authorize or dispatch")
     return parser
 
 
@@ -665,7 +666,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = readiness_report(Path(__file__).resolve().parents[2], arguments.composition)
     elif arguments.command == "solo-pilot":
         from .solo_pilot_command import run_solo_pilot
-        output = run_solo_pilot(arguments.config, arguments.state_root, arguments.run_id)
+        if arguments.check:
+            from .solo_live_configuration import check_live_pilot
+            output = check_live_pilot(arguments.config, Path(__file__).resolve().parents[2])
+        else:
+            output = run_solo_pilot(arguments.config, arguments.state_root, arguments.run_id)
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))

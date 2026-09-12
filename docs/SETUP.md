@@ -185,11 +185,36 @@ path: an error or interrupt stops the runtime, closes gateways, and retains an
 aborted audit and available partial accounting. Inspect the failure before
 starting another run. The lower-level recovery tests remain separate.
 
-`execution_mode` must be `no_spend`; changing it to `live` fails before creating
-a run. There is no spend-enabling flag. Live provider/Modal factories and their
-approved deployment/spending configuration still need to be connected to this
-entrypoint. Do not treat an authorization reference or a simulated score as
-permission to start a live experiment.
+Execution requires `execution_mode: no_spend`; changing it to `live` fails before
+creating a run. There is no spend-enabling flag. Live adapter configuration can
+be checked through the same command without credentials or paid calls:
+
+```bash
+.venv/bin/python -W error::ResourceWarning -m agent_collab_evals solo-pilot \
+  --config config/pilots/solo-live-v1.json \
+  --run-id offline-check --check
+```
+
+This loads the retained private workload, constructs the real OpenRouter and
+six Modal adapter configurations, and prepares the complete 12-execution plan.
+It uses temporary local state, never starts OpenCode or Modal, and grants no
+spend authority. The run ID is unused in check mode. The private workload must
+already be available at the configured path; this command does not download it.
+
+The live config references the pinned model/provider, runtime, sandbox, public
+compute profile, and hidden manifest outside `.env`. Dollar budgets are `null`
+pending approval. Per-phase second allocations are proposals, not billing
+estimates, execution timeouts, or dollar caps. The current plan reserves 13,200
+seconds across public reference, public candidate, correctness, six quality
+executions, and three performance executions.
+
+A passing check proves local composition, not provider availability, deployment
+containment, cancellation, or cost qualification. The current Darwin sandbox
+does not protect the filesystem or unrelated loopback services. Live execution
+and remote-cleanup integration, an isolated deployment, current provider/billing
+qualification, and explicit run-bound spending approval remain required. Do not
+treat a config edit, authorization reference, or simulated score as permission
+to start a live experiment.
 
 For command tests without OpenCode or loopback services, copy the config to a
 local file and set `runtime` to `fake`. The normal config uses `opencode`.

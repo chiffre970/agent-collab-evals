@@ -1,4 +1,4 @@
-"""Build the pinned no-spend evaluator stack used by the operator command."""
+"""Shared evaluator composition and synthetic transport wiring for the pilot."""
 
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -44,7 +44,6 @@ class SoloPilotStack:
 def build_no_spend_stack(root: Path, campaign, run_id: str, repository: Path,
                         *, candidate_public_ppm: int = 1100000) -> SoloPilotStack:
     """Use real evaluator contracts with synthetic data, never a live transport."""
-    reference = campaign.reference_candidate_path.read_bytes()
     hidden_digest = digest_value({"synthetic_hidden_bundle": 1, "campaign": campaign.manifest_digest})
     policy = replace(campaign.quality_policy(),
         quality_workload_digest=digest_value({"synthetic_quality_cases": 64}), bootstrap_resamples=100)
@@ -62,44 +61,61 @@ def build_no_spend_stack(root: Path, campaign, run_id: str, repository: Path,
         lambda route_root, spend, recipe=recipe: SyntheticPilotTransport(route_root / "evidence", spend, recipe, policy),
         lambda route_root: SyntheticPilotEvidence(route_root / "evidence"),
     ) for key, recipe in recipes.items()}
+    return compose_pilot_stack(root, campaign, run_id, adapters,
+        public_profile=ModalVllmComputeProfile.load(repository / "config/compute/modal-vllm-development.json", repository_root=repository),
+        hidden_digest=hidden_digest, policy=policy, scoring=scoring,
+        correctness_workload=recipes["correctness"]["workload_digest"],
+        performance_workload=recipes["performance-1"]["workload_digest"],
+        phase_seconds={"correctness": 60, "quality": 60, "performance": 60},
+        collection_seconds=1, execution_mode="no_spend",
+        authority_digest=digest_value({"no_spend": True}),
+        details={"synthetic_recipes": recipes})
+
+
+def compose_pilot_stack(root, campaign, run_id, adapters, *, public_profile,
+                        hidden_digest, policy, scoring, correctness_workload,
+                        performance_workload, phase_seconds, collection_seconds,
+                        execution_mode, authority_digest, details) -> SoloPilotStack:
+    """Share evaluator and reservation construction across transport choices."""
+    reference = campaign.reference_candidate_path.read_bytes()
     inventory = SqliteComputeRouteInventory(root / "compute", run_id, adapters)
     public = ModalServingDevelopmentEvaluator(root / "public.sqlite3", campaign,
-        ModalVllmComputeProfile.load(repository / "config/compute/modal-vllm-development.json", repository_root=repository), inventory.backend("public"))
+        public_profile, inventory.backend("public"))
     correctness_profile = ComputeCandidateEvaluationProfile("pilot-correctness", "correctness",
-        campaign.manifest_digest, hidden_digest, recipes["correctness"]["workload_digest"],
-        adapters["correctness"].backend_profile_digest, 1)
+        campaign.manifest_digest, hidden_digest, correctness_workload,
+        adapters["correctness"].backend_profile_digest, collection_seconds)
     correctness = ComputeCandidateEvaluator(root / "correctness.sqlite3", campaign, correctness_profile, inventory.backend("correctness"))
     quality_profile = ComputeQualityRepetitionProfile("pilot-quality-repetitions", campaign.manifest_digest,
         hidden_digest, policy.quality_profile_digest, policy.quality_workload_digest,
-        adapters["quality"].backend_profile_digest, 3, 1)
+        adapters["quality"].backend_profile_digest, 3, collection_seconds)
     quality_backend = ComputeQualityRepetitionBackend(root / "quality-repetitions.sqlite3", campaign, quality_profile, inventory.backend("quality"))
     quality_series = QualitySeriesProfile("pilot-quality", campaign.manifest_digest, hidden_digest,
         policy.quality_profile_digest, policy.digest, quality_policy_authority_digest(policy), policy.quality_workload_digest,
-        "artifact-" + digest_bytes(reference)[7:39], digest_bytes(reference), quality_profile.digest, 3, 60,
+        "artifact-" + digest_bytes(reference)[7:39], digest_bytes(reference), quality_profile.digest, 3, phase_seconds["quality"],
         (("reference", "candidate"), ("candidate", "reference"), ("reference", "candidate")))
     quality = PairedQualitySeriesEvaluator(root / "quality.sqlite3", quality_series, policy, reference, quality_backend)
     performance_profiles = {r: ComputeCandidateEvaluationProfile(f"pilot-performance-{r}", "performance",
-        campaign.manifest_digest, hidden_digest, recipes[f"performance-{r}"]["workload_digest"],
-        adapters[f"performance-{r}"].backend_profile_digest, 1) for r in range(1, 4)}
+        campaign.manifest_digest, hidden_digest, performance_workload,
+        adapters[f"performance-{r}"].backend_profile_digest, collection_seconds) for r in range(1, 4)}
     performance_series = PerformanceSeriesProfile("pilot-performance", campaign.manifest_digest, hidden_digest,
-        recipes["performance-1"]["workload_digest"], scoring.digest,
-        tuple(performance_profiles[r].digest for r in range(1, 4)), 60)
+        performance_workload, scoring.digest,
+        tuple(performance_profiles[r].digest for r in range(1, 4)), phase_seconds["performance"])
     performance = PerformanceSeriesEvaluator(root / "performance.sqlite3", performance_series, scoring,
         {r: ComputeCandidateEvaluator(root / f"performance-{r}.sqlite3", campaign, performance_profiles[r], inventory.backend(f"performance-{r}")) for r in range(1, 4)})
     hidden_profile = CompositeHiddenEvaluationProfile("pilot-hidden", campaign.manifest_digest, hidden_digest,
-        HiddenEvaluationPhaseProfile("correctness", correctness.profile_digest, recipes["correctness"]["workload_digest"], 60),
+        HiddenEvaluationPhaseProfile("correctness", correctness.profile_digest, correctness_workload, phase_seconds["correctness"]),
         HiddenEvaluationPhaseProfile("quality", quality.profile_digest, policy.quality_workload_digest, quality_series.reserved_seconds),
-        HiddenEvaluationPhaseProfile("performance", performance.profile_digest, recipes["performance-1"]["workload_digest"], performance_series.reserved_seconds))
+        HiddenEvaluationPhaseProfile("performance", performance.profile_digest, performance_workload, performance_series.reserved_seconds))
     hidden = CompositeHiddenServingEvaluator(root / "hidden.sqlite3", hidden_profile,
         {"correctness": correctness, "quality": quality, "performance": performance})
     lanes = {scope: EvaluationLaneProfile(scope,
         public.profile_digest if scope is EvaluationScope.VISIBLE else hidden.profile_digest,
         adapters["public"].backend_profile_digest if scope is EvaluationScope.VISIBLE else digest_value({key: value.backend_profile_digest for key, value in adapters.items() if key != "public"}),
-        digest_value({"synthetic_workload": scope.value}), f"pilot-{scope.value}",
-        digest_value({"synthetic_schedule": scope.value}), f"pilot-evidence-{scope.value}") for scope in EvaluationScope}
-    profile = RegisteredEvaluationProfile("no-spend-pilot", campaign.manifest_digest, digest_value({"no_spend": True}), lanes[EvaluationScope.VISIBLE], lanes[EvaluationScope.HIDDEN])
+        public_profile.performance_profile_digest if scope is EvaluationScope.VISIBLE else hidden_digest, f"pilot-{scope.value}",
+        digest_value({"pilot_schedule": scope.value, "authority": authority_digest}), f"pilot-evidence-{scope.value}") for scope in EvaluationScope}
+    profile = RegisteredEvaluationProfile(f"{execution_mode}-pilot", campaign.manifest_digest, authority_digest, lanes[EvaluationScope.VISIBLE], lanes[EvaluationScope.HIDDEN])
     evaluator = SplitScopeServingEvaluator(root / "split.sqlite3", profile, public, hidden)
-    document = {"execution_mode": "no_spend", "synthetic_recipes": recipes,
+    document = {"execution_mode": execution_mode, **details,
         "quality_policy": policy, "hidden_profile": hidden_profile, "evaluation_profile": profile,
         "adapter_profiles": {key: value.backend_profile_digest for key, value in adapters.items()}}
     retain_document(root / "profiles.json", document)

@@ -61,6 +61,8 @@ class _SyntheticCandidateHarness(FakeHarnessRuntime):
 def run_solo_pilot(config_path: Path, state_root: Path, run_id: str) -> dict:
     repository = Path(__file__).resolve().parents[2]
     config = parse_json(config_path.read_text())
+    if isinstance(config, dict) and config.get("execution_mode") == "live":
+        raise ValueError("live pilot execution is disabled pending deployment and budget approval; use --check")
     expected = {"schema_version", "execution_mode", "runtime", "campaign", "gateway_profile",
         "runtime_profile", "sandbox_profile", "synthetic_candidate", "synthetic_candidate_public_ppm",
         "synthetic_model_limit_usd_nanos", "task_seed"}

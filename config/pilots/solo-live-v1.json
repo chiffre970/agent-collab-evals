@@ -1,0 +1,22 @@
+{
+  "schema_version": "solo-live-configuration/v1",
+  "execution_mode": "live",
+  "execution_authorized": false,
+  "campaign": "campaigns/model_serving_v0/campaign.toml",
+  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-development-v0.json",
+  "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+  "sandbox_profile": "config/sandbox_profiles/darwin-loopback-network-v0.json",
+  "public_compute_profile": "config/compute/modal-vllm-development.json",
+  "hidden_manifest": "tmp/evaluator-private/model-serving-hidden-study-v1/manifest.json",
+  "hidden_manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8",
+  "modal_cli": ".venv/bin/modal",
+  "phase_seconds": {
+    "public": 1800,
+    "correctness": 600,
+    "quality": 600,
+    "performance": 1800
+  },
+  "model_limit_usd_nanos": null,
+  "modal_limit_usd_nanos": null,
+  "task_seed": 1729
+}
