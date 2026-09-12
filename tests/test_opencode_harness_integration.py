@@ -445,6 +445,11 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                     _no_compute(root, "opencode-integration"),
                     _delivery(root),
                 )
+                with patch.object(event_sink, "append", side_effect=OSError("resume audit unavailable")):
+                    with self.assertRaisesRegex(OSError, "resume audit unavailable"):
+                        second_controller.resume(store.load("opencode-integration"))
+                self.assertEqual(second_runtime._organisations, {})
+                self.assertEqual(second_runtime._session_to_organisation, {})
                 resumed = second_controller.resume(store.load("opencode-integration"))
                 second_controller.deliver(
                     resumed,
@@ -470,14 +475,14 @@ class OpenCodeHarnessIntegrationTests(unittest.TestCase):
                 self.assertTrue(
                     session_snapshot["surface"]["config_digest"].startswith("sha256:")
                 )
-                self.assertEqual(tokens.issued, ["test-token-1", "test-token-2"])
+                self.assertEqual(tokens.issued, ["test-token-1", "test-token-2", "test-token-3"])
                 self.assertEqual(
                     [token_id for token_id, _ in tokens.activated],
-                    ["test-token-1", "test-token-2"],
+                    ["test-token-1", "test-token-2", "test-token-3"],
                 )
                 self.assertEqual(
                     [token_id for token_id, _ in tokens.revoked],
-                    ["test-token-1", "test-token-2"],
+                    ["test-token-1", "test-token-2", "test-token-3"],
                 )
         finally:
             gateway.shutdown()

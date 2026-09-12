@@ -104,43 +104,42 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, required=True)
     parser.add_argument("--broker-socket", required=True)
     parser.add_argument("--model-endpoint", required=True)
-    parser.add_argument("--peer-broker-socket")
-    parser.add_argument("--peer-endpoint")
+    for label in ("peer", "candidate", "native"):
+        parser.add_argument(f"--{label}-broker-socket")
+        parser.add_argument(f"--{label}-endpoint")
     if "--" not in argv:
         parser.error("command must follow --")
     separator = argv.index("--")
     arguments = parser.parse_args(argv[:separator])
     if arguments.timeout_seconds < 1:
         parser.error("--timeout-seconds must be positive")
-    if (arguments.peer_broker_socket is None) != (
-        arguments.peer_endpoint is None
-    ):
-        parser.error(
-            "--peer-broker-socket and --peer-endpoint must be configured together"
-        )
+    for label in ("peer", "candidate", "native"):
+        if (getattr(arguments, f"{label}_broker_socket") is None) != (getattr(arguments, f"{label}_endpoint") is None):
+            parser.error(f"--{label}-broker-socket and --{label}-endpoint must be configured together")
     arguments.command = argv[separator + 1 :]
     if not arguments.command or any(not value for value in arguments.command):
         parser.error("command must be nonempty")
     return arguments
 
 
-def main(argv: list[str] | None = None) -> int:
-    arguments = _arguments(list(argv if argv is not None else sys.argv[1:]))
+def _relay_specs(arguments: argparse.Namespace) -> list[tuple[str, str, int, Path]]:
+    """Validate every named relay before opening listeners or starting work."""
     host, port = _endpoint(arguments.model_endpoint)
     broker = _broker_socket(arguments.broker_socket)
     relay_specs = [("model", host, port, broker)]
-    if arguments.peer_endpoint is not None:
-        peer_host, peer_port = _endpoint(arguments.peer_endpoint, "/v1/call")
-        if (peer_host, peer_port) == (host, port):
-            raise ValueError("model and peer relays must use different loopback ports")
-        relay_specs.append(
-            (
-                "peer",
-                peer_host,
-                peer_port,
-                _broker_socket(arguments.peer_broker_socket),
-            )
-        )
+    for label in ("peer", "candidate", "native"):
+        endpoint = getattr(arguments, f"{label}_endpoint")
+        if endpoint is not None:
+            relay_host, relay_port = _endpoint(endpoint, "/v1/call")
+            relay_specs.append((label, relay_host, relay_port, _broker_socket(getattr(arguments, f"{label}_broker_socket"))))
+    if len({(host, port) for _, host, port, _ in relay_specs}) != len(relay_specs):
+        raise ValueError("relays must use different loopback ports")
+    return relay_specs
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = _arguments(list(argv if argv is not None else sys.argv[1:]))
+    relay_specs = _relay_specs(arguments)
     relays: list[tuple[_RelayServer, threading.Thread]] = []
     try:
         for label, relay_host, relay_port, relay_socket in relay_specs:

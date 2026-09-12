@@ -147,6 +147,19 @@ class CandidateReceipt:
 
 
 @dataclass(frozen=True, slots=True)
+class VisibleEvaluationInput:
+    """Host-only inputs reconstructed from an admitted candidate."""
+
+    receipt: CandidateReceipt
+    candidate: bytes
+    reservation: EvaluationReservation
+
+    @property
+    def evaluation_key(self) -> str:
+        return f"visible:{self.receipt.value}"
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateRecord:
     receipt: CandidateReceipt
     idempotency_key: str
@@ -211,6 +224,19 @@ class SelectionResult:
     result: EvaluationResult
     used_default: bool
     selection_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class HiddenEvaluationInput:
+    """Host-only selected artifact and reserved held-out allowance."""
+
+    selection: SelectionResult
+    candidate: bytes
+    reservation: EvaluationReservation
+
+    @property
+    def evaluation_key(self) -> str:
+        return f"hidden:{self.selection.receipt.value}"
 
 
 @dataclass(frozen=True, slots=True)

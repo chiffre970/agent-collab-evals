@@ -320,8 +320,17 @@ interface HarnessRuntime:
   events(org) -> async EventStream
   snapshot(org) -> HarnessSnapshot
   resume(snapshot) -> HarnessOrganisation
+  rollback_resume(org) -> None
   stop(org, reason: StopReason) -> HarnessSnapshot
 ```
+
+The controller validates durable delivery state before restoring runtime
+resources. If admission fails after `resume` returns, `rollback_resume` releases
+the provisional process groups, capabilities, and local identity mappings
+without deleting durable sessions or creating a successful close receipt.
+Successful rollback permits retry on the same runtime instance. Cleanup failure
+is surfaced together with the original error; OpenCode retains a stopped handle
+so cleanup can be retried before another restore is admitted.
 
 The development candidate service exposes only `submit`, `evaluate`, and
 `result`, with identity derived from its active session transport. Candidate
@@ -333,11 +342,104 @@ restored session. The no-spend restart rehearsal reconstructs storage,
 submission, evaluator, and compute services from their durable stores before
 reading the original result. Registered recovery and containment remain open.
 
+`create_solo_candidate_services` wires these services from an explicit evaluator,
+previously obtained reference receipt, compute plan, and submission policy.
+It resolves reference evidence but does not initiate reference compute or issue
+spend authorization. External execution authority and close-time compute
+reconciliation remain responsibilities of the caller. The solo pilot brief
+inlines only declared public inputs and checks their campaign digests; it does
+not stage the repository or evaluator-private material into agent workspaces.
+
+The solo factory defaults to host-controlled evaluation. `candidate_evaluate`
+still verifies ownership but does not dispatch compute; durable admission is the
+work list. The tool-profile digest distinguishes this mode from inline synthetic
+evaluation. The host-only `prepare_visible_evaluations()` method reconstructs
+candidate bytes and reservation bindings from the registry and trusted storage.
+`ModalServingDevelopmentEvaluator.prepare_visible_request()` derives the exact
+request without execution. Neither method issues spend authorization.
+
+For the one-candidate pilot, `SoloEvaluationHandoff` collects outside HTTP/MCP,
+keeps nonterminal work pending, and closes submissions only after evaluation
+completes. Closure verifies evaluator receipts and compute bindings before the
+host releases public feedback. Its stable follow-up job goes through the
+controller outbox. The host must pause agent delivery during this phase and
+install exact authorized compute routes first. Hidden evaluation, execution
+reconciliation, and campaign closure remain separate; this helper is not a
+concurrent scheduler or a complete live-pilot composition root.
+
+The host can call `prepare_hidden_evaluation(selection_receipt, reserved_seconds)`
+to resolve the authoritative selection and reserve its hidden allowance before
+freezing exact compute requests. This operation does not dispatch or grant spend
+authority. `resolve_hidden(selection_receipt)` requires stored, completed,
+selection-bound evidence and never initiates an evaluator job.
+
+`CompositeHiddenServingEvaluator.prepare_hidden_requests()` expands that input
+into exact correctness, paired quality, and performance requests. Each child
+evaluator reuses its execution request and reservation builders, including the
+frozen quality role order and reference candidate. Preparation calls no compute
+backend and grants no spend authority. The host maps the returned evaluator
+profile digests to its pinned adapters before registering and authorizing routes.
+
+`SoloEvaluationClosure` is the solo pilot's compute-reconciliation gate for
+`CampaignController`; the controller's model-budget gate remains mandatory.
+The gate checks the selected hidden receipt, completed reservations, fixed
+allowances, and independently resolved executions from supplied frozen manifests.
+Their measured public and hidden usage must agree with the compute broker, and
+the separately bounded public reference must also reconcile. A valid but
+ineligible score does not invalidate infrastructure closure. Missing evaluation,
+unresolved execution evidence, or invalid model accounting does.
+
+This development gate requires a complete frozen source inventory from the
+composition root, including reference and all hidden phase backends. It cannot
+discover omitted databases, authorize paid execution, or qualify containment.
+The no-spend integration uses the retained route inventory below; the live
+entrypoint must supply its pinned adapter configuration and complete inventory.
+
+`SqliteComputeRouteInventory` retains each exact request's adapter and frozen
+manifest before dispatch. Factories are trusted host configuration, not executable
+values loaded from the inventory. Registration creates no spend authorization.
+The host separately issues request-bound authority; the configured transport
+must consume it through `SqliteComputeSpendAuthorizationService` before dispatch.
+Sealing prevents new routes and returns a digest that the final run audit must
+retain independently. Resume can verify that digest through `expected_seal_digest`.
+An unsealed inventory cannot supply the final closure source list.
+
+`SoloPilotRunner` separates preparation from collection. It stages public work
+from durable admission and hidden work from authoritative selection, then checks
+request authorization before entering the evaluator. This avoids marking a
+candidate failed merely because operator approval is still pending. Its compute
+gate constructs `SoloEvaluationClosure` from the sealed inventory; the campaign
+controller still owns model-budget reconciliation and runtime shutdown. The
+operator entrypoint, pinned factory/planner configuration, and deployment
+approval checks are not supplied by this component.
+
+The operator-facing `solo-pilot` command now assembles these components with
+retained configuration and a no-spend stack. It uses each hidden evaluator's
+request planner, not separately reconstructed reservation formulas. The command
+pins resolved profiles and synthetic recipes in local evidence, records the
+inventory seal outside the routing database, and retains the selected artifact
+and final results only as synthetic evidence. Live mode is rejected before run
+creation. Connecting production provider/Modal factories and approved deployment
+and budget configuration remains separate from this verified no-spend mode.
+
+Command-level recovery is explicit abort: stop the runtime, close gateways,
+retain failure stage and partial ledgers, and require a new run ID. It neither
+overwrites an existing run nor claims automatic whole-process recovery.
+
 `SessionToolGateway` supports either loopback HTTP or a separate Unix listener
 for each capability, never both. Each Unix listener accepts only its assigned
 capability identity. Revocation expires the session binding and removes the
 listener. This is transport support for candidate and native-admission services,
-not qualification of the still-pending OCI relays or matched peer-arm wiring.
+not qualification of OCI containment or matched peer-arm wiring.
+
+`SandboxLaunchContext` carries optional endpoint/socket pairs for peer,
+candidate, and native-admission services. The schema v2 OCI profile fixes the
+model, peer, candidate, and native loopback ports to 4317–4320, respectively.
+When enabled, each capability requires its socket and exact profile endpoint;
+the command builder mounts its socket directory read-only. The launcher
+validates all named relays before starting the bridge. This transport change
+does not enable candidate tools in additional experimental conditions or
+authorize the implementation-candidate profile.
 
 `StorageBackend.put` accepts an optional actor-scoped `idempotency_key`. The
 adapter commits the key-to-artifact mapping with the admitted artifact record.

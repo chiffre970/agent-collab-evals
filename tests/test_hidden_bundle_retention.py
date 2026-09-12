@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import tempfile
+import os
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_collab_evals.hidden_bundle_retention import (
     HiddenBundleRetentionError,
@@ -37,6 +42,35 @@ class _MemoryObjectStore:
 
 
 class HiddenBundleRetentionTests(unittest.TestCase):
+    def test_concurrent_receipt_publication_preserves_one_winner(self) -> None:
+        first = HiddenBundleRetentionService(self.profile, self.store).retain(self.bundle)
+        second = replace(first, volume_name="other-volume")
+        for identical in (False, True):
+            with self.subTest(identical=identical):
+                destination = self.root / f"concurrent-{identical}.json"
+                receipts = (first, first if identical else second)
+                barrier = threading.Barrier(2)
+                link = os.link
+
+                def synchronized_link(source, target):
+                    barrier.wait(timeout=5)
+                    return link(source, target)
+
+                def publish(receipt):
+                    try:
+                        write_retention_receipt_once(destination, receipt)
+                        return receipt
+                    except HiddenBundleRetentionError:
+                        return None
+
+                with patch("agent_collab_evals.hidden_bundle_retention.os.link", side_effect=synchronized_link):
+                    with ThreadPoolExecutor(max_workers=2) as pool:
+                        results = list(pool.map(publish, receipts))
+                winners = [result for result in results if result is not None]
+                self.assertEqual(len(winners), 2 if identical else 1)
+                self.assertEqual(HiddenBundleRetentionReceipt.load(destination), winners[0])
+                self.assertEqual(list(self.root.glob(".hidden-retention-*.tmp")), [])
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

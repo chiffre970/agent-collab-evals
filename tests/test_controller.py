@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_collab_evals.adapters.fake_harness import FakeHarnessRuntime
 from agent_collab_evals.adapters.local_events import LocalEventSink
@@ -37,6 +38,59 @@ def _outbox(root: Path) -> SqliteDeliveryOutbox:
 
 
 class CampaignControllerTests(unittest.TestCase):
+    def test_resume_checks_outbox_before_allocating_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = LocalEventSink(root / "events")
+            outbox = _outbox(root)
+            original = CampaignController(FakeHarnessRuntime(), events, delivery_outbox=outbox)
+            handle = original.start(self._spec("resume-outbox", CoordinationCondition.SOLO))
+            snapshot = original.snapshot(handle)
+            runtime = FakeHarnessRuntime()
+            controller = CampaignController(runtime, events, delivery_outbox=outbox)
+            with (
+                patch.object(outbox, "completed_job_ids", side_effect=OSError("outbox unavailable")),
+                patch.object(runtime, "resume", wraps=runtime.resume) as resume,
+                self.assertRaisesRegex(OSError, "outbox unavailable"),
+            ):
+                controller.resume(snapshot)
+            resume.assert_not_called()
+            self.assertEqual(controller.resume(snapshot).sessions, handle.sessions)
+
+    def test_resume_event_failure_rolls_back_and_allows_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = LocalEventSink(root / "events")
+            outbox = _outbox(root)
+            original = CampaignController(FakeHarnessRuntime(), events, delivery_outbox=outbox)
+            handle = original.start(self._spec("resume-event", CoordinationCondition.SOLO))
+            snapshot = original.snapshot(handle)
+            runtime = FakeHarnessRuntime()
+            controller = CampaignController(runtime, events, delivery_outbox=outbox)
+            with patch.object(events, "append", side_effect=OSError("audit unavailable")):
+                with self.assertRaisesRegex(OSError, "audit unavailable"):
+                    controller.resume(snapshot)
+            self.assertEqual(runtime._organisations, {})
+            self.assertEqual(runtime._session_to_org, {})
+            self.assertEqual(controller.resume(snapshot).sessions, handle.sessions)
+
+    def test_resume_preserves_primary_and_cleanup_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = LocalEventSink(root / "events")
+            outbox = _outbox(root)
+            original = CampaignController(FakeHarnessRuntime(), events, delivery_outbox=outbox)
+            snapshot = original.snapshot(original.start(self._spec("resume-errors", CoordinationCondition.SOLO)))
+            runtime = FakeHarnessRuntime()
+            controller = CampaignController(runtime, events, delivery_outbox=outbox)
+            with (
+                patch.object(events, "append", side_effect=OSError("audit unavailable")),
+                patch.object(runtime, "rollback_resume", side_effect=RuntimeError("cleanup unavailable")),
+                self.assertRaises(ExceptionGroup) as caught,
+            ):
+                controller.resume(snapshot)
+            self.assertEqual([str(error) for error in caught.exception.exceptions], ["audit unavailable", "cleanup unavailable"])
+
     def test_startup_failure_stops_partially_created_organisation(self) -> None:
         class FailSecondActor(FakeHarnessRuntime):
             stopped = False

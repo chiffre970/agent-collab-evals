@@ -66,6 +66,11 @@ class DarwinSandboxExec:
     ) -> SandboxedProcess:
         if not command:
             raise ValueError("sandbox command must be nonempty")
+        if any(path is not None for path in (
+            context.broker_socket, context.peer_broker_socket,
+            context.candidate_broker_socket, context.native_broker_socket,
+        )):
+            raise ValueError("Darwin development sandbox does not install Unix relays")
         self.validate_model_endpoint(context.model_endpoint)
         if platform.system() != "Darwin":
             raise RuntimeError("darwin-sandbox-exec is unavailable on this platform")

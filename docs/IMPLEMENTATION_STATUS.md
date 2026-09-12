@@ -1,7 +1,10 @@
 # Implementation status
 
-The current code is a scenario-shaped calibration slice. It establishes the
-smallest useful seams before adding the runtime and collaboration machinery.
+The current code is a modular development implementation with synthetic
+runtime/collaboration rehearsals and individually checked live evaluators.
+The integrated live optimization pilot remains incomplete. Follow the
+[current exploratory priority](#current-priority-exploratory-evidence) when
+choosing work; later sections retain the implementation history.
 
 ## Implemented
 
@@ -538,7 +541,57 @@ The following remain gates, not implied capabilities:
    campaign dispatcher. Multiple concurrent controller processes would require
    a separately designed cross-process claim or lease protocol.
 
-## Next implementation gate
+## Current priority: exploratory evidence
+
+Updated September 11, 2026. This sequencing update supersedes earlier "next"
+recommendations in the historical progress entries below; it does not relax
+safety controls or registered-study requirements.
+
+1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
+   connects real OpenCode, candidate tools, public feedback, selection, all
+   held-out evaluator phases, durable routing/authorization, and closure in one
+   invocation. It retains configuration, the selected artifact, scores, costs,
+   failures, and inventory seal. Model responses and compute evidence are
+   synthetic; this is not a live optimization result. Next, review and commit
+   the accumulated work and wire the existing live provider/Modal factories into
+   this same entrypoint with explicit deployment and spending configuration.
+   Live mode remains disabled pending those checks and approval. Do not create
+   another standalone rehearsal or orchestration layer in place of that work.
+2. **Then: one bounded exploratory run, after approval.** Confirm the dollar
+   envelope, deployment boundary, evaluator policy, and stop conditions before
+   paid execution. Include startup, evaluation, retries, and cleanup in the
+   envelope. Retain quality/correctness, performance against the reference,
+   API/GPU costs, elapsed time, failures, and limitations. A synthetic candidate
+   or replayed model response does not meet this milestone.
+3. **Then: a small matched peer comparison, after separate approval.** Add the
+   same candidate/evaluation tools to both peer arms, verify isolation and
+   fixed per-actor allocations, and compare peer-isolated with peer-collab on
+   matched material and budgets. Keep the model/provider fixed. The solo run
+   tests feasibility; it does not establish a collaboration effect.
+4. **Later: registered four-condition execution.** Qualify the remaining native
+   and deployment controls and freeze all registration authorities before
+   confirmatory execution. Exploratory findings stay separate and cannot be
+   promoted retrospectively into confirmatory evidence.
+
+Accept immediate infrastructure work only when it unblocks a named pilot
+milestone or closes a concrete safety, spending, isolation, or evaluation gap
+for that milestone. Preserve existing protections. Defer generalization,
+production hardening, and registration-only refinements that do not block the
+pilot. An explicit abort can replace automatic recovery for exploratory runs.
+
+Status: the integrated live solo pilot is not yet complete. This planning change
+does not authorize paid execution, change execution-disabled profiles, or claim
+that the development sandbox provides full containment. Update this section
+after each milestone; local working notes are kept in Git-ignored
+`.private/NOTES.md` and are not required to interpret the shared plan.
+
+Validation on September 11: all 314 tests passed with local OpenCode, gateway,
+peer-tool, and sandbox integrations enabled. JavaScript checks also passed.
+The hidden-evaluation integration now prepares all ten hidden requests through
+the real evaluator tree and verifies both candidate and reference winners.
+Provider and GPU output remain synthetic; no paid execution occurred.
+
+## Registered-study prerequisites and earlier progress
 
 The baseline executor, offline replay and calibration scoring profile are now
 complete and recorded in the
@@ -588,7 +641,7 @@ second rehearsal now passes all four conditions through the real runtime and
 control adapters with a deterministic in-process model, zero external model
 calls, zero compute, exercised treatment surfaces, and independently reconciled
 evidence. It remains unscoreable and uses the partial development sandbox. The
-next concrete gates are native admission qualification and an image-backed OCI startup
+registered-study gates include native admission qualification and an image-backed OCI startup
 and qualification run. The image command now forwards stdin, resolves the local
 OpenCode executable, and packages the peer sidecar with a container-local path.
 These changes are checked locally, but do not establish container conformance.
@@ -653,8 +706,8 @@ passed. No external model or GPU calls were made. OCI execution was not tested.
    `readiness` command reports these facts and the registered authority gaps;
    it does not interpret engine availability as conformance evidence. The image
    recipe includes the candidate sidecar and native hook. Their service gateway
-   supports per-capability Unix sockets, but OCI relays still need wiring before
-   qualification.
+   supports per-capability Unix sockets and OCI relay wiring. Linux composition
+   and containment conformance remain pending.
 3. **Solo candidate flow: no-spend end-to-end wiring implemented.** Real
    OpenCode submits a typed candidate through an MCP sidecar and session-bound
    service, requests public evaluation, and reads the result after a fixed
@@ -697,9 +750,9 @@ and the follow-up below form the next implementation checkpoint.
   per-capability Unix listeners with no host HTTP listener. Local integration
   tests exercise both services and candidate submission retries across normal
   capability rotation. Revocation removes the listener and session binding.
-- Pending: OCI relay wiring and Linux conformance. The harness rejects these
-  new Unix capability transports until relay integration is implemented. Neither
-  a pinned image nor a Linux container deployment is available on this host.
+- At this checkpoint, OCI relay wiring and Linux conformance were pending.
+  The later relay follow-up below implements wiring; image pinning and Linux
+  conformance remain open.
 - Pending: matched peer-arm candidate wiring, registered capability denial
   auditing, live agent-to-evaluator composition, and registered recovery.
   The restart test covers clean checkpoints, not an entire deployment crash;
@@ -716,3 +769,267 @@ two candidate-runtime rehearsals, and two Unix capability tests. JavaScript
 syntax, CLI help, readiness inventory, and whitespace checks passed. All model
 responses and evaluator outcomes were synthetic; these tests incurred no
 external model or GPU spend.
+
+### Review fixes: process cleanup, resume rollback, and receipt publication
+
+- Bridge cleanup checks its dedicated process group independently of the
+  leader's exit status. It sends TERM, escalates to KILL when necessary, and
+  verifies that no non-zombie group members remain before reporting success.
+  Verified cleanup is idempotent. This does not replace registered containment
+  for processes that detach into another session or process group.
+- Campaign resume checks the durable outbox before acquiring runtime resources.
+  Later failures call `HarnessRuntime.rollback_resume`, which releases
+  provisional transports and mappings without deleting durable session data.
+  Successful cleanup allows retry on the same runtime instance; failed cleanup
+  remains explicit and blocks another restore until cleanup succeeds.
+- Local retention receipts use atomic hard-link publication without replacement.
+  Concurrent identical writes remain idempotent; conflicting writes preserve
+  one winner and reject the other. Temporary files are cleaned up in either case.
+- The macOS sandbox conformance fixture now creates separate temporary workspace,
+  runtime-state, and assets directories. Its network assertions execute again.
+
+Validation: 296 default tests ran (278 passed, 18 skipped), with resource
+warnings treated as errors. Six distinct enabled local integration tests passed:
+one exited-leader cleanup test, four OpenCode recovery/peer tests, and the
+macOS sandbox test. The real OpenCode restart test additionally passed after
+adding an audit-failure rollback and retry. No external model or GPU calls
+were made. Registered execution remains disabled.
+
+### OCI capability-relay wiring
+
+1. Completed: the harness supplies candidate and native-admission endpoint/socket
+   pairs through `SandboxLaunchContext`. The OCI builder requires the exact
+   profile endpoints and dedicated sockets, mounts enabled socket directories
+   read-only, and passes named relay arguments to the session launcher.
+2. Completed: the schema v2 implementation profile pins candidate/native ports
+   4319/4320, adds their conformance requirements, and updates the launcher
+   source digest. It remains execution-disabled with no pinned runtime image.
+3. Completed: local launcher tests forward candidate submission, evaluation,
+   result retrieval, and native admission to the durable services. Existing
+   model/peer relay and candidate-runtime recovery integrations also pass.
+   The model relay is idle in the new capability test and tested separately.
+   Host-only launcher retries use fresh ports because they share a network
+   namespace; production OCI ports remain fixed by the profile.
+4. Pending: full Linux OCI composition and containment conformance, including
+   daemon-side container cleanup. Command construction and local forwarding
+   do not qualify a container image or isolation boundary. No container engine
+   is installed on this macOS host. Darwin rejects Unix transports explicitly.
+
+At this checkpoint, the proposed next steps were matched peer-arm candidate
+tools and durable capability-denial auditing. The exploratory-priority section
+above now sets the execution order. Candidate tools remain development-solo
+only; relay support does not expand their authorized experimental conditions.
+The readiness report now distinguishes implemented relay wiring from pending
+OCI composition conformance and matched peer-arm wiring.
+
+Validation: 301 default tests ran (282 passed, 19 skipped), with resource
+warnings treated as errors. Seven enabled local integration tests passed:
+three capability transport tests, model and peer relay tests, and two candidate
+runtime rehearsals. JavaScript syntax, readiness, and whitespace checks passed.
+No external model, GPU, or container runs were made. These changes and the
+preceding review fixes remain uncommitted; scored experiments remain disabled.
+
+### Solo pilot: public inputs and evaluator composition
+
+- Completed: the solo brief embeds only the six declared public inputs instead
+  of unresolved repository-relative filenames. It verifies their loaded
+  campaign digests and identifies the currently implemented declarative vLLM
+  surface and submit/evaluate/result workflow. It includes no hidden workloads.
+- Completed: `create_solo_candidate_services` accepts the evaluator, an existing
+  reference receipt, compute plan, and submission policy. Initialization
+  resolves the reference receipt but does not dispatch a reference evaluation
+  or grant external spend authority. The synthetic rehearsal uses this same
+  wiring while retaining its fake-only close gate.
+- Verified without spend: candidate admission, public evaluation, result
+  release, neutral selection, and accounting compose through
+  `ModalServingDevelopmentEvaluator` and `SqliteComputeBackend`. The provider
+  transport and scores are synthetic. The test explicitly freezes exact
+  reference and candidate requests; its routing fixture is not a production
+  authorization service. A public-only evaluator rejects hidden evaluation.
+- Remaining live blockers: reference and candidate requests need separate,
+  exact, bounded compute authority after admission; long GPU evaluation must
+  not block beyond the MCP/HTTP timeout; held-out correctness, quality, and
+  performance need connection to the selected artifact and campaign close.
+  Deployment protections and the complete spending envelope still require
+  confirmation before paid execution.
+
+Next bounded action: implement a staged, host-controlled evaluation handoff
+from the admitted candidate to the existing compute path, with no-spend tests.
+This permits a human-observed one-candidate pilot without first building a
+general dynamic scheduler. Return public feedback in a later controller job;
+keep held-out evaluation separate. Do not treat the current synthetic candidate
+flow as an agent-generated optimization result.
+
+Validation: 303 default tests ran (284 passed, 19 skipped). Both enabled local
+OpenCode candidate rehearsals passed, including confirmation that the model
+receives the reference JSON contents and the restart path still works. No
+external model or GPU calls were made. This increment remains uncommitted.
+
+### Solo pilot: host-controlled public evaluation
+
+Completed September 10, 2026:
+
+- Candidate services default to host evaluation. In that mode, `candidate_evaluate`
+  checks ownership and returns pending or released status without invoking compute.
+  Submission already durably reserves the candidate's allocation, so no second
+  queue is needed. The execution mode contributes to the candidate-tool profile
+  digest. Existing inline synthetic fixtures remain explicit opt-ins.
+- The submission registry reconstructs host-only candidate bytes, receipt, and
+  reservation from durable admission and trusted storage. The public Modal
+  adapter exposes a non-executing exact-request preparation method. Preparing
+  inputs grants no spend authority.
+- `SoloEvaluationHandoff` runs outside the agent HTTP/MCP call. It requires one
+  actor-zero candidate, collects through the existing evaluator, verifies terminal
+  receipts and accounting through submission closure, then releases public feedback.
+  The returned job has a stable digest and is delivered through the controller's
+  existing outbox. Nonterminal or failed evaluation cannot release feedback.
+- The real OpenCode synthetic rehearsal now uses this path, including restart
+  before evaluation. A separate integration reopens the real SQLite execution
+  backend, evaluator, and candidate services after interrupted collection. It
+  restores the exact frozen request and completes without another dispatch.
+
+Validation: 307 default tests ran (288 passed, 19 skipped). Both enabled local
+OpenCode candidate integrations also passed. Provider output and GPU evidence
+remain synthetic; no external model or GPU calls were made.
+
+Scope: a single host controller pauses agent delivery during evaluation. This
+is not a concurrent worker scheduler, a multi-candidate optimization loop, or a
+registered-study authorization service. Tests explicitly install reference and
+candidate request routes; production routing, spend authorization, and close-time
+execution reconciliation are still caller responsibilities. No live pilot is
+claimed. Changes remain uncommitted.
+
+Next bounded action: connect the authoritative selected artifact to the existing
+held-out correctness, quality, and performance path and reconcile closure, first
+with no-spend evidence. Retain explicit reference/candidate request authorities;
+do not introduce unbounded dynamic authorization. Deployment and the complete
+spending envelope still require approval before live execution.
+
+### Solo pilot: held-out selection and closure
+
+Completed September 10, 2026:
+
+- `prepare_hidden_evaluation()` recomputes the persisted selection, retrieves
+  its admitted artifact through trusted storage, and reserves the fixed hidden
+  allowance without dispatching compute. It works when the reference wins too.
+  The caller can freeze exact phase requests before authorizing their execution.
+- `resolve_hidden()` requires a completed, selection-bound evaluation receipt
+  and complete compute reservation. It resolves the evaluator-owned evidence
+  without invoking evaluation. Repeated hidden evaluation uses this same check.
+- `SoloEvaluationClosure` composes with `CampaignController` as its compute gate.
+  It verifies selected hidden evidence, terminal reservations, fixed actor/hidden
+  limits, and every supplied frozen compute source. It rejects duplicate,
+  missing, failed, or over-limit execution receipts and checks measured execution
+  seconds against public/hidden accounting. It also requires the separately
+  bounded public reference execution. The controller independently reconciles
+  model receipts and spend before accepting closure.
+- The expanded real-adapter integration connects candidate admission, public
+  feedback, neutral selection, hidden correctness, six paired quality executions,
+  three hidden performance executions, and campaign closure. Each successful
+  case resolves 12 executions: two public and ten hidden. Hidden usage is 125
+  simulated seconds; public candidate usage is seven seconds and the separate
+  reference uses seven seconds. These are test values, not provider billing.
+- Both candidate and reference winners complete all phases. Tests reject hidden
+  evaluation failure, an unsettled model charge, unavailable compute evidence,
+  omitted sources, and duplicate sources. Wrapper and submission reconstruction
+  preserve receipt resolution without another dispatch. A measured ineligible
+  result remains an outcome, not an infrastructure failure.
+
+Validation: 311 default tests ran (292 passed, 19 skipped). Both separately
+enabled local OpenCode candidate/restart integrations also passed. The new integrated
+tests use real public/hidden evaluator adapters, retained evidence formats,
+SQLite execution/model ledgers, and the campaign controller. Provider responses,
+transport output, and model usage are synthetic; the harness in this composition
+is fake. This does not claim one combined real OpenCode/live Modal run, improved
+model performance, or registered-study readiness. No external spend occurred.
+
+The close gate verifies its supplied frozen source inventory; it cannot discover
+unlisted databases or replace deployment containment. A pilot composition root
+must retain the complete inventory, reconstruct routes after restart, and bind
+the existing durable spend authorization before paid execution. That runner is
+the next bounded implementation task, starting with a no-spend mode. Deployment
+protections and the total pilot budget remain approval gates. Changes are
+uncommitted; the unrelated progress-assessment draft was not edited.
+
+### Solo pilot: retained routing and staged runner
+
+Completed September 10, 2026:
+
+- `SqliteComputeRouteInventory` records exact requests and their frozen manifests
+  before dispatch. Trusted adapter factories reconstruct the SQLite backends and
+  per-route spend-authorization services. The inventory checks configured profiles,
+  rejects unregistered requests, and seals its complete source list for closure.
+  Its seal digest can be pinned by the caller and checked on reconstruction.
+- Registration never grants spend permission. Each request needs an explicit
+  approval reference through the existing durable authorization service. The
+  configured transport must consume that authority before its side effect.
+  Tests use synthetic transports that exercise this real single-use service.
+- `SoloPilotRunner` stages public and hidden requests, refuses collection until
+  they have authority, returns public feedback, and serves as the controller's
+  compute close gate. It reuses durable admission, selection, evaluator receipts,
+  and the sealed inventory. It adds no worker scheduler or autonomous approval.
+- The full held-out integration now uses this runner and retained routing instead
+  of its previous in-memory route map. Both winner cases and failure cases still
+  pass. New tests reconstruct routes, collect an existing dispatch without
+  dispatching again, and verify that a sealed inventory cannot admit new requests.
+
+Validation: 314 default tests ran (295 passed, 19 skipped). All execution output
+and model receipts in this composition remain synthetic. There were no external
+model or GPU calls. This turn did not rerun the opt-in OpenCode integrations;
+their most recent successful run is recorded in the preceding milestone.
+
+Remaining boundary: this is a staged runner component, not yet an operator-facing
+live-pilot command. The complete adapter/planner configuration still comes from
+the integration fixture. Production factories must pin profiles and consume
+durable authority, the final audit must retain the inventory seal externally,
+and the entrypoint must reconstruct those inputs on resume. An approval-reference
+string is evidence of a host decision, not proof that deployment or a dollar
+envelope was approved. Do not enable live execution on that basis alone.
+
+Next: add that explicit entrypoint and retained run configuration, exercise it
+without spend, then review and commit before requesting the bounded live pilot.
+The research design is unchanged. Changes remain uncommitted.
+
+### Solo pilot: operator command
+
+Completed September 11, 2026:
+
+- Added `solo-pilot --config ... --run-id ...`, with a committed no-spend config.
+  The default invokes real OpenCode; a fake-runtime config supports ordinary
+  command tests. Neither path imports test fixtures or contacts a paid provider.
+- The command materializes the public brief, delivers the candidate job, stages
+  exact authorized public compute, delivers feedback, selects the candidate or
+  reference, executes the held-out evaluator phases, and closes through both
+  budget and compute reconciliation. Hidden request planning comes from the
+  evaluators, not duplicated reservation logic.
+- `build_no_spend_stack` wires the real public, split-scope, correctness,
+  paired-quality, performance-series, and composite evaluators to a local
+  synthetic transport. Its recipe/profile digests distinguish this evidence
+  from actual Modal measurements. There are two public executions and ten
+  hidden executions; synthetic usage is seven seconds each, not provider billing.
+- The command retains resolved configuration, profiles, source digest, Git
+  revision/dirty status, candidate inputs, selected artifact, results, raw model
+  requests, ledgers, inventory seal, runtime snapshot, and a digest-addressed
+  final audit. The hidden-result file explicitly identifies no-spend mode.
+- Failed jobs and hidden transport errors stop the runtime, close gateways, and
+  retain an aborted audit with failure stage and available partial accounting.
+  Existing run directories cannot be overwritten. Command-level automatic
+  resume is intentionally deferred; an abort is the exploratory recovery policy.
+- Live mode is rejected before run creation. No command flag can authorize it.
+  The command does not read `.env`; its simulated model budget is not spend.
+
+Validation: 320 default tests ran (300 passed, 20 skipped). The separately enabled
+real OpenCode command integration passed. A direct operator invocation also
+completed successfully and retained an audit at
+`tmp/solo-pilots/solo-no-spend-20260911-operator-v1/audit.json`, digest
+`sha256:f9f870d5013c0663d6403be52864475a982fbad3513c5f0d212d700fa8d6720e`.
+It recorded five synthetic model calls, 12 synthetic compute executions, valid
+budget reconciliation, and zero actual spend. This evidence is local and ignored
+by Git. The command ran against an uncommitted worktree, recorded in its config.
+
+Remaining boundary: no live provider/Modal factory selection is exposed by this
+entrypoint yet. Those factories, a complete approved budget, and adequate
+deployment protections must be wired and checked before enabling paid execution.
+The no-spend command proves integration, not GPU behavior, model optimization,
+peer collaboration, or registered-study readiness. The next work is that live
+configuration and bounded run—not another generic infrastructure layer.

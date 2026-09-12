@@ -16,7 +16,8 @@ class ReadinessTests(unittest.TestCase):
         self.assertFalse(report["engine_daemon_checked"])
         self.assertIn("container_engine_not_installed", report["deployment_gaps"])
         self.assertIn("registered_budget_plan", report["registration_gaps"])
-        self.assertIn("candidate_oci_relay_and_matched_peer_wiring", report["runtime_qualification_gaps"])
+        self.assertIn("candidate_native_oci_composition_conformance", report["runtime_qualification_gaps"])
+        self.assertIn("matched_peer_candidate_wiring", report["runtime_qualification_gaps"])
         self.assertIn("registered_candidate_recovery_qualification", report["runtime_qualification_gaps"])
 
 

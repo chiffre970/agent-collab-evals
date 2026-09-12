@@ -1,5 +1,5 @@
 {
-  "schema_version": "oci-process-sandbox-profile/v1",
+  "schema_version": "oci-process-sandbox-profile/v2",
   "profile_id": "oci-opencode-v0-candidate",
   "status": "implementation_candidate",
   "execution_authorized": false,
@@ -11,14 +11,18 @@
     "bridge_executable": "/opt/agent-collab/runtime/opencode_bridge.mjs",
     "bridge_digest": "sha256:c5b18723d488a3bc9b83249f8f0028018910bc22b779fcbea797a769a012d5b9",
     "launcher_executable": "/opt/agent-collab/bin/session-launcher",
-    "launcher_digest": "sha256:4cc18db8387c3fbb5de0fb32e4e7d6889c47d984f734002aba7e72e6c433c393"
+    "launcher_digest": "sha256:5a58d2b7848cc084e83bd4e2676037ac927d822e614a1c0660dd2232c23a5124"
   },
   "network": {
     "mode": "none",
     "model_broker_transport": "dedicated_session_unix_socket",
     "peer_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "candidate_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "native_broker_transport": "dedicated_session_unix_socket_when_enabled",
     "container_model_endpoint": "http://127.0.0.1:4317/v1",
     "container_peer_endpoint": "http://127.0.0.1:4318/v1/call",
+    "container_candidate_endpoint": "http://127.0.0.1:4319/v1/call",
+    "container_native_endpoint": "http://127.0.0.1:4320/v1/call",
     "provider_egress": "denied"
   },
   "filesystem": {
@@ -58,6 +62,8 @@
   "required_conformance": [
     "gateway_only_network",
     "peer_gateway_only_network",
+    "candidate_gateway_only_network",
+    "native_gateway_only_network",
     "unrelated_loopback_denied",
     "provider_egress_denied",
     "evaluator_private_files_denied",

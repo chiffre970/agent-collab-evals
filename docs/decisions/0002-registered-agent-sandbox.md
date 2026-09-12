@@ -21,7 +21,8 @@ runtime for registered agent containment. Each top-level actor receives one
 container with:
 
 - no network namespace connectivity;
-- dedicated, session-owned Unix sockets for the model and peer-tool brokers;
+- dedicated, session-owned Unix sockets for the model broker and enabled peer,
+  candidate, and native-admission services;
 - small in-container loopback relays for OpenCode's HTTP clients;
 - a read-only root and read-only runtime assets;
 - separate writable mounts for only that actor's workspace and runtime state;
@@ -99,7 +100,7 @@ The candidate must not authorize execution until all of these gates pass:
 6. Bind the implementation profile, image, launcher, engine, evidence, and
    adapter build digests into the registered study composition.
 
-The live probes must prove access to only the model and peer-tool gateways,
+The live probes must prove access to only the model and enabled capability gateways,
 unrelated-loopback denial, provider-egress denial, evaluator-private-file
 denial, ambient-credential absence, filesystem write restrictions, and
 effective resource limits.
@@ -113,6 +114,14 @@ peer-tool loopback endpoints and relays bytes to those sockets. Direct and
 relayed requests preserve the same budget, receipt, collaboration, visibility,
 and identity authorities. OCI image pinning and full container conformance
 remain open.
+
+The schema v2 candidate profile also pins optional candidate and native-admission
+relays on ports 4319 and 4320. The harness carries their server-derived socket
+paths into the sandbox context; the OCI builder supplies read-only socket
+mounts and named launcher arguments. Local forwarding tests use the real
+launcher and durable services with synthetic evaluation. They do not run a
+container or qualify image contents, network isolation, or daemon-side
+container cleanup. These remain requirements of Linux conformance.
 
 ## Consequences
 

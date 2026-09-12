@@ -22,6 +22,10 @@ class SandboxLaunchContext:
     broker_socket: Path | None = None
     peer_endpoint: str | None = None
     peer_broker_socket: Path | None = None
+    candidate_endpoint: str | None = None
+    candidate_broker_socket: Path | None = None
+    native_endpoint: str | None = None
+    native_broker_socket: Path | None = None
 
     def __post_init__(self) -> None:
         paths = (
@@ -35,13 +39,14 @@ class SandboxLaunchContext:
             raise ValueError("sandbox launch paths must be existing directories")
         if not self.model_endpoint:
             raise ValueError("sandbox model endpoint is required")
-        if self.peer_broker_socket is not None and self.peer_endpoint is None:
-            raise ValueError(
-                "sandbox peer broker socket requires its endpoint"
-            )
+        for label in ("peer", "candidate", "native"):
+            if getattr(self, f"{label}_broker_socket") is not None and getattr(self, f"{label}_endpoint") is None:
+                raise ValueError(f"sandbox {label} broker socket requires its endpoint")
         for label, socket_path in (
             ("model", self.broker_socket),
             ("peer", self.peer_broker_socket),
+            ("candidate", self.candidate_broker_socket),
+            ("native", self.native_broker_socket),
         ):
             if socket_path is None:
                 continue
@@ -61,7 +66,7 @@ class SandboxLaunchContext:
         for left, right in combinations(roots, 2):
             if left == right or left in right.parents or right in left.parents:
                 raise ValueError("sandbox workspace, state, and assets must be disjoint")
-        for socket_path in (self.broker_socket, self.peer_broker_socket):
+        for socket_path in (self.broker_socket, self.peer_broker_socket, self.candidate_broker_socket, self.native_broker_socket):
             if socket_path is None:
                 continue
             parent = socket_path.parent.resolve()

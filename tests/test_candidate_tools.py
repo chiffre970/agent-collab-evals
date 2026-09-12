@@ -59,6 +59,7 @@ class CandidateRehearsalIntegrationTests(unittest.TestCase):
             )
             self.assertFalse(audit["scoreable"])
             self.assertFalse(audit["live_evaluation_authorized"])
+            self.assertEqual(audit["public_evaluation_execution"], "host_after_agent_delivery")
             self.assertEqual(audit["external_model_calls"], 0)
             self.assertEqual(audit["external_compute_executions"], 0)
             self.assertEqual(audit["tools_called"], ["candidate_submit", "candidate_evaluate", "candidate_result"])
@@ -87,11 +88,22 @@ class CandidateRehearsalIntegrationTests(unittest.TestCase):
             audit = run_candidate_rehearsal(CAMPAIGN, Path(directory), "solo-candidate-test")
             self.assertFalse(audit["scoreable"])
             self.assertFalse(audit["used_default"])
+            self.assertEqual(audit["public_evaluation_execution"], "host_after_agent_delivery")
             self.assertEqual(audit["external_model_calls"], 0)
             self.assertEqual(audit["external_compute_executions"], 0)
             self.assertEqual(audit["tools_called"], ["candidate_submit", "candidate_evaluate", "candidate_result"])
             self.assertTrue(audit["budget_reconciliation"]["valid"])
             snapshot_path = Path(directory) / "solo-candidate-test/runtime-snapshot.json"
+            requests = json.loads((snapshot_path.parent / "model-requests.json").read_bytes())
+            first = json.loads(requests[0])
+            user = next(message for message in first["messages"] if message["role"] == "user")
+            content = user["content"]
+            if isinstance(content, list):
+                content = "".join(part.get("text", "") for part in content)
+            job = json.loads(content)
+            reference = json.loads(job["public_materials"]["reference_candidate"])
+            self.assertEqual(reference["model"]["id"], "Qwen/Qwen3-4B")
+            self.assertIn("candidate_submit", job["mission"])
             snapshot = json.loads(snapshot_path.read_bytes())
             messages = json.loads(snapshot["payload"]["sessions"][0]["checkpoint"]["reconciliation"]["sessions"][0]["messages_json"])
             results = [

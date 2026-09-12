@@ -5,6 +5,7 @@ import io
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 
 LAUNCHER_PATH = (
@@ -17,6 +18,26 @@ SPEC.loader.exec_module(session_launcher)
 
 
 class SessionLauncherTests(unittest.TestCase):
+    def test_named_capability_relays_are_validated_together(self) -> None:
+        argv = ["--timeout-seconds", "10", "--broker-socket", "/tmp/model.sock", "--model-endpoint", "http://127.0.0.1:4317/v1"]
+        for label, port in (("peer", 4318), ("candidate", 4319), ("native", 4320)):
+            argv.extend([f"--{label}-broker-socket", f"/tmp/{label}.sock", f"--{label}-endpoint", f"http://127.0.0.1:{port}/v1/call"])
+        arguments = session_launcher._arguments(argv + ["--", "/usr/bin/true"])
+        with patch.object(session_launcher, "_broker_socket", side_effect=Path):
+            specs = session_launcher._relay_specs(arguments)
+            self.assertEqual([spec[0] for spec in specs], ["model", "peer", "candidate", "native"])
+            self.assertEqual([spec[2] for spec in specs], [4317, 4318, 4319, 4320])
+            arguments.native_endpoint = arguments.candidate_endpoint
+            with self.assertRaisesRegex(ValueError, "different loopback ports"):
+                session_launcher._relay_specs(arguments)
+
+    def test_candidate_and_native_relay_options_require_both_fields(self) -> None:
+        base = ["--timeout-seconds", "10", "--broker-socket", "/tmp/model.sock", "--model-endpoint", "http://127.0.0.1:4317/v1"]
+        for label in ("candidate", "native"):
+            with self.subTest(label=label), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    session_launcher._arguments(base + [f"--{label}-endpoint", "http://127.0.0.1:4319/v1/call", "--", "/usr/bin/true"])
+
     def test_accepts_only_fixed_loopback_model_endpoint(self) -> None:
         self.assertEqual(
             session_launcher._endpoint("http://127.0.0.1:4317/v1"),

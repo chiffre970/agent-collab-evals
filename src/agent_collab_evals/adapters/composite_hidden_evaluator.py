@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Mapping
 
 from ..canonical import canonical_json_bytes, digest_bytes, digest_value
+from ..compute_backend import ComputeExecutionRequest
 from ..evaluation import (
     EvaluationReceipt,
     EvaluationReservation,
     EvaluationResult,
     EvaluationScope,
 )
-from ..ports import CandidateEvaluator
+from ..ports import CandidateEvaluator, HiddenComputePlanner
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -224,6 +225,26 @@ class CompositeHiddenServingEvaluator:
             phase_receipts
         )
         return receipt
+
+    def prepare_hidden_requests(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> tuple[ComputeExecutionRequest, ...]:
+        """Prepare all phase requests without dispatch, collection, or approval."""
+        self._validate_request(reservation, evaluation_key)
+        requests = []
+        for phase in self._profile.phases:
+            evaluator = self._evaluators[phase.name]
+            if not isinstance(evaluator, HiddenComputePlanner):
+                raise TypeError(f"{phase.name} evaluator does not support compute preparation")
+            requests.extend(evaluator.prepare_hidden_requests(
+                candidate,
+                self._phase_reservation(reservation, phase),
+                f"{evaluation_key}:{phase.name}",
+            ))
+        return tuple(requests)
 
     def resolve(
         self,

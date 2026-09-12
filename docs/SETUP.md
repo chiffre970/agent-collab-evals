@@ -153,10 +153,54 @@ capability rotation, and delivery replay without duplicate evaluation. The
 synthetic model gateway remains running; this is a clean checkpoint recovery
 test, not a whole-deployment crash qualification.
 
+### Integrated solo pilot command
+
+On the configured macOS development host, run the entire solo path with:
+
+```bash
+.venv/bin/python -W error::ResourceWarning -m agent_collab_evals solo-pilot \
+  --config config/pilots/solo-no-spend-v1.json \
+  --run-id solo-pilot-001
+```
+
+The command uses pinned OpenCode and the session/model gateways. Model responses
+are deterministic, the candidate is predefined, and the compute transport writes
+synthetic evidence locally. It never reads `.env`, contacts a model provider, or
+launches Modal work. The public and hidden evaluator adapters, three paired
+quality repetitions, three performance repetitions, admission, selection,
+authorization service, and closure gates are the real components. Synthetic
+outputs are not a test of model quality or an optimization finding, and they do
+not replace live Modal transport conformance.
+
+The configuration stores experimental/runtime choices outside `.env`. Each run
+retains its resolved configuration and profile digests, source-build digest,
+dirty-worktree status, candidate inputs, selected artifact, evaluation results,
+model requests, compute/model ledgers, inventory seal, and final audit beneath
+`tmp/solo-pilots/<run-id>/`. The command prints the audit path and digest. Actual
+spend is zero; simulated compute seconds and model accounting are labeled separately.
+
+Use a new run ID each time. Existing run directories are never overwritten.
+Automatic command-level resume is intentionally absent for this exploratory
+path: an error or interrupt stops the runtime, closes gateways, and retains an
+aborted audit and available partial accounting. Inspect the failure before
+starting another run. The lower-level recovery tests remain separate.
+
+`execution_mode` must be `no_spend`; changing it to `live` fails before creating
+a run. There is no spend-enabling flag. Live provider/Modal factories and their
+approved deployment/spending configuration still need to be connected to this
+entrypoint. Do not treat an authorization reference or a simulated score as
+permission to start a live experiment.
+
+For command tests without OpenCode or loopback services, copy the config to a
+local file and set `runtime` to `fake`. The normal config uses `opencode`.
+
 The shared candidate/native-admission gateway also supports per-capability
-Unix sockets with host HTTP disabled. Local socket tests cover both services.
-OCI relay wiring, matched peer-arm candidate tools, and registered denial
-auditing remain pending; this transport support does not authorize OCI runs.
+Unix sockets with host HTTP disabled. Local tests cover direct requests and
+forwarding through the session launcher. The OCI command builder mounts the
+enabled capability socket directories read-only and supplies their named relays.
+This is not a container conformance result: Linux deployment, image pinning,
+matched peer-arm candidate tools, and registered denial auditing remain pending.
+The Darwin adapter rejects Unix transports because it does not install relays.
 
 Inspect prerequisites without executing any workload:
 

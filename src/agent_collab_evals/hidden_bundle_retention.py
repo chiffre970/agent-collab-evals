@@ -332,12 +332,18 @@ def write_retention_receipt_once(
             target.write(content)
             target.flush()
             os.fsync(target.fileno())
-        os.replace(temporary, destination)
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            if destination.read_bytes() != content:
+                raise HiddenBundleRetentionError(
+                    "retention receipt already exists with different bytes"
+                )
+        temporary.unlink()
         directory = os.open(destination.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
-    except BaseException:
+    finally:
         temporary.unlink(missing_ok=True)
-        raise

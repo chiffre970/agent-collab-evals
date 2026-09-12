@@ -36,6 +36,8 @@ class OciSandboxProfile:
     launcher_digest: str
     container_model_endpoint: str
     container_peer_endpoint: str
+    container_candidate_endpoint: str
+    container_native_endpoint: str
     uid: int
     gid: int
     cpu_limit: str
@@ -73,7 +75,7 @@ class OciSandboxProfile:
             },
             "OCI sandbox profile",
         )
-        if value["schema_version"] != "oci-process-sandbox-profile/v1":
+        if value["schema_version"] != "oci-process-sandbox-profile/v2":
             raise ValueError("unsupported OCI sandbox profile schema")
         profile_id = _string(value["profile_id"], "OCI sandbox profile ID")
         if not _SAFE_ID.fullmatch(profile_id):
@@ -108,8 +110,12 @@ class OciSandboxProfile:
                 "mode",
                 "model_broker_transport",
                 "peer_broker_transport",
+                "candidate_broker_transport",
+                "native_broker_transport",
                 "container_model_endpoint",
                 "container_peer_endpoint",
+                "container_candidate_endpoint",
+                "container_native_endpoint",
                 "provider_egress",
             },
             "OCI network",
@@ -118,8 +124,12 @@ class OciSandboxProfile:
             "mode": "none",
             "model_broker_transport": "dedicated_session_unix_socket",
             "peer_broker_transport": "dedicated_session_unix_socket_when_enabled",
+            "candidate_broker_transport": "dedicated_session_unix_socket_when_enabled",
+            "native_broker_transport": "dedicated_session_unix_socket_when_enabled",
             "container_model_endpoint": "http://127.0.0.1:4317/v1",
             "container_peer_endpoint": "http://127.0.0.1:4318/v1/call",
+            "container_candidate_endpoint": "http://127.0.0.1:4319/v1/call",
+            "container_native_endpoint": "http://127.0.0.1:4320/v1/call",
             "provider_egress": "denied",
         }:
             raise ValueError("OCI network policy differs")
@@ -191,6 +201,8 @@ class OciSandboxProfile:
         if conformance != (
             "gateway_only_network",
             "peer_gateway_only_network",
+            "candidate_gateway_only_network",
+            "native_gateway_only_network",
             "unrelated_loopback_denied",
             "provider_egress_denied",
             "evaluator_private_files_denied",
@@ -269,6 +281,8 @@ class OciSandboxProfile:
             launcher_digest=launcher_digest,
             container_model_endpoint=str(network["container_model_endpoint"]),
             container_peer_endpoint=str(network["container_peer_endpoint"]),
+            container_candidate_endpoint=str(network["container_candidate_endpoint"]),
+            container_native_endpoint=str(network["container_native_endpoint"]),
             uid=int(process["uid"]),
             gid=int(process["gid"]),
             cpu_limit=_string(process["cpu_limit"], "OCI CPU limit"),
@@ -332,22 +346,22 @@ class OciSandboxExec:
         socket_path = context.broker_socket
         if socket_path is None:
             raise ValueError("OCI sandbox requires a dedicated broker socket")
-        if context.peer_endpoint is not None and (
-            context.peer_endpoint != self._profile.container_peer_endpoint
-        ):
-            raise PermissionError("OCI sandbox requires its registered peer relay")
-        if (
-            context.peer_endpoint is not None
-            and context.peer_broker_socket is None
-        ):
-            raise ValueError("OCI peer tool requires a dedicated broker socket")
+        capability_sockets: dict[str, Path] = {}
+        for label in ("peer", "candidate", "native"):
+            endpoint = getattr(context, f"{label}_endpoint")
+            broker = getattr(context, f"{label}_broker_socket")
+            if endpoint is not None:
+                if endpoint != getattr(self._profile, f"container_{label}_endpoint"):
+                    raise PermissionError(f"OCI sandbox requires its registered {label} relay")
+                if broker is None:
+                    raise ValueError(f"OCI {label} tool requires a dedicated broker socket")
+                capability_sockets[label] = broker
         mounted_paths = [
             context.workspace_root,
             context.runtime_state_root,
             socket_path.parent,
         ]
-        if context.peer_broker_socket is not None:
-            mounted_paths.append(context.peer_broker_socket.parent)
+        mounted_paths.extend(path.parent for path in capability_sockets.values())
         if any("," in str(path) or "\n" in str(path) for path in mounted_paths):
             raise ValueError("OCI sandbox mount path contains an unsupported character")
         expected_bridge = (context.runtime_assets_root / _BRIDGE_RELATIVE).resolve()
@@ -388,16 +402,11 @@ class OciSandboxExec:
             "--mount",
             _mount(socket_path.parent, read_only=True),
         ]
-        if (
-            context.peer_broker_socket is not None
-            and context.peer_broker_socket.parent != socket_path.parent
-        ):
-            args.extend(
-                (
-                    "--mount",
-                    _mount(context.peer_broker_socket.parent, read_only=True),
-                )
-            )
+        mounted_brokers = {socket_path.parent.resolve()}
+        for path in capability_sockets.values():
+            if path.parent.resolve() not in mounted_brokers:
+                args.extend(("--mount", _mount(path.parent, read_only=True)))
+                mounted_brokers.add(path.parent.resolve())
         args.extend(
             [
                 "--tmpfs",
@@ -421,15 +430,11 @@ class OciSandboxExec:
             "--model-endpoint",
             self._profile.container_model_endpoint,
         ]
-        if context.peer_broker_socket is not None:
-            launcher.extend(
-                (
-                    "--peer-broker-socket",
-                    str(context.peer_broker_socket),
-                    "--peer-endpoint",
-                    self._profile.container_peer_endpoint,
-                )
-            )
+        for label, path in capability_sockets.items():
+            launcher.extend((
+                f"--{label}-broker-socket", str(path), f"--{label}-endpoint",
+                getattr(self._profile, f"container_{label}_endpoint"),
+            ))
         launcher.extend(
             (
                 "--",

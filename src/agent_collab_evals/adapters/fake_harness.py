@@ -171,6 +171,11 @@ class FakeHarnessRuntime:
         self._organisations[handle.value] = restored
         return handle
 
+    def rollback_resume(self, organisation: HarnessOrganisation) -> None:
+        state = self._organisations.pop(organisation.value)
+        for session_id in state.sessions:
+            self._session_to_org.pop(session_id, None)
+
     def stop(
         self, organisation: HarnessOrganisation, reason: str
     ) -> HarnessSnapshot:

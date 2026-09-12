@@ -121,6 +121,18 @@ class ComputeQualityRepetitionBackend:
     def profile_digest(self) -> str:
         return self._profile.digest
 
+    def prepare_request(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        execution_key: str,
+        *,
+        role: str,
+        repetition: int,
+    ) -> ComputeExecutionRequest:
+        """Build the exact role request without dispatching or collecting it."""
+        return self._request(candidate, reservation, execution_key, role, repetition)
+
     def evaluate(
         self,
         candidate: bytes,

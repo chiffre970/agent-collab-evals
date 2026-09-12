@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Mapping
 
 from ..canonical import canonical_json_bytes, digest_bytes, digest_value, parse_json
+from ..compute_backend import ComputeExecutionRequest
 from ..evaluation import (
     EvaluationReceipt,
     EvaluationReservation,
     EvaluationResult,
     EvaluationScope,
 )
-from ..ports import CandidateEvaluator
+from ..ports import CandidateEvaluator, HiddenComputePlanner
 from ..campaigns.serving_scoring import (
     RepetitionScore,
     ScoringProfile,
@@ -203,6 +204,26 @@ class PerformanceSeriesEvaluator:
                 connection.commit()
         self._used_authorities[receipt.value] = self._used_seconds(receipts)
         return receipt
+
+    def prepare_hidden_requests(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> tuple[ComputeExecutionRequest, ...]:
+        """Prepare the same independent repetitions that hidden evaluation runs."""
+        self._validate_request(reservation, evaluation_key)
+        requests = []
+        for repetition in range(1, self._profile.repetitions + 1):
+            evaluator = self._evaluators[repetition]
+            if not isinstance(evaluator, HiddenComputePlanner):
+                raise TypeError("performance evaluator does not support compute preparation")
+            requests.extend(evaluator.prepare_hidden_requests(
+                candidate,
+                self._repetition_reservation(reservation, repetition),
+                f"{evaluation_key}:repetition:{repetition}:performance",
+            ))
+        return tuple(requests)
 
     def resolve(
         self,

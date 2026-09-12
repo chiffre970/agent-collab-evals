@@ -50,6 +50,18 @@ This repository is the minimum system needed to test the collaboration thesis. I
 
 ## Executable slice
 
+Run the integrated solo pilot without paid model or GPU calls:
+
+```bash
+.venv/bin/python -m agent_collab_evals solo-pilot --run-id solo-pilot-001
+```
+
+This uses real OpenCode with synthetic model responses and compute evidence.
+It completes public evaluation, selection, held-out evaluator phases, and
+reconciliation, then saves an audit under `tmp/solo-pilots/solo-pilot-001/`.
+Scores are simulated, not optimization results. Live mode is disabled. Use a
+new run ID for each invocation; see [pilot setup](docs/SETUP.md#integrated-solo-pilot-command).
+
 The repository now contains the first scenario-shaped vertical slice:
 
 - a dependency-free domain core with narrow harness, event and snapshot ports;

@@ -36,7 +36,8 @@ def readiness_report(repository: Path, composition_path: Path) -> dict[str, obje
         "registration_gaps": list(candidate.unresolved_gates),
         "runtime_qualification_gaps": [
             "native_admission_interception_and_containment_qualification",
-            "candidate_oci_relay_and_matched_peer_wiring",
+            "candidate_native_oci_composition_conformance",
+            "matched_peer_candidate_wiring",
             "registered_candidate_recovery_qualification",
             "live_agent_to_evaluator_composition",
             "registered_capability_denial_audit",

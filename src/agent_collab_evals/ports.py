@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, runtime_checkable
 
 from .artifacts import (
     ArtifactReadAuthorization,
@@ -52,6 +52,7 @@ from .compute_backend import (
 from .evaluation import (
     CandidateReceipt,
     ComputeSnapshot,
+    HiddenEvaluationInput,
     EvaluationReceipt,
     EvaluationReservation,
     EvaluationResult,
@@ -60,6 +61,7 @@ from .evaluation import (
     SelectionResult,
     SubmissionPolicy,
     SubmissionSet,
+    VisibleEvaluationInput,
 )
 from .collaboration import (
     CollaborationEntry,
@@ -94,6 +96,10 @@ class HarnessRuntime(Protocol):
     def snapshot(self, organisation: HarnessOrganisation) -> HarnessSnapshot: ...
 
     def resume(self, snapshot: HarnessSnapshot) -> HarnessOrganisation: ...
+
+    def rollback_resume(self, organisation: HarnessOrganisation) -> None:
+        """Release an unaccepted restore without deleting durable session state."""
+        ...
 
     def stop(
         self, organisation: HarnessOrganisation, reason: str
@@ -445,6 +451,18 @@ class ComputeReconciliationGate(Protocol):
     ) -> tuple[ComputeExecutionReceipt, ...]: ...
 
 
+@runtime_checkable
+class HiddenComputePlanner(Protocol):
+    """Optional evaluator capability for staging exact requests without execution."""
+
+    def prepare_hidden_requests(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> tuple[ComputeExecutionRequest, ...]: ...
+
+
 class CandidateEvaluator(Protocol):
     @property
     def profile_digest(self) -> str: ...
@@ -475,6 +493,16 @@ class CandidateEvaluator(Protocol):
 
 
 class SubmissionRegistry(Protocol):
+    def prepare_hidden_evaluation(
+        self, selection_receipt: SelectionReceipt, *, reserved_seconds: int,
+    ) -> HiddenEvaluationInput: ...
+
+    def resolve_hidden(self, selection_receipt: SelectionReceipt) -> EvaluationResult: ...
+
+    def prepare_visible_evaluations(
+        self, campaign_run_id: str, job_id: str,
+    ) -> tuple[VisibleEvaluationInput, ...]: ...
+
     def initialize(
         self,
         campaign_run_id: str,

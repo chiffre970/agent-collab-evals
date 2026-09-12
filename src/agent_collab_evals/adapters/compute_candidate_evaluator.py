@@ -201,6 +201,15 @@ class ComputeCandidateEvaluator:
                 connection.commit()
         return receipt
 
+    def prepare_hidden_requests(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> tuple[ComputeExecutionRequest, ...]:
+        """Build the same request as execution, without accessing the backend."""
+        return (self._request(candidate, reservation, evaluation_key),)
+
     def resolve(
         self,
         receipt: EvaluationReceipt,

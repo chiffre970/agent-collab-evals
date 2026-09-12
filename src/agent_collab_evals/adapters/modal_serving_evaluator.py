@@ -74,6 +74,13 @@ class ModalServingDevelopmentEvaluator:
             candidate, reservation, evaluation_key, EvaluationScope.VISIBLE
         )
 
+    def prepare_visible_request(
+        self, candidate: bytes, reservation: EvaluationReservation | None,
+        evaluation_key: str,
+    ) -> ComputeExecutionRequest:
+        """Derive an exact request for host-side freezing; do not dispatch it."""
+        return self._request(candidate, reservation, evaluation_key, EvaluationScope.VISIBLE)
+
     def hidden_evaluate(
         self,
         candidate: bytes,

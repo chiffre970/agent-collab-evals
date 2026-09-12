@@ -196,27 +196,36 @@ class CampaignController:
             workspace_root=Path(snapshot.workspace_root),
             model_endpoint=snapshot.model_endpoint,
         )
-        organisation = self._harness.resume(snapshot.harness)
-        if organisation != snapshot.organisation:
-            raise RuntimeError("harness resumed a different organisation")
         completed_job_ids = self._require_delivery_outbox().completed_job_ids(
             snapshot.campaign_run_id
         )
         if not set(snapshot.delivered_job_ids).issubset(completed_job_ids):
             raise RuntimeError("campaign snapshot delivery state differs from outbox")
-        handle = CampaignHandle(
-            spec=spec,
-            organisation=organisation,
-            actors=snapshot.actors,
-            sessions=snapshot.sessions,
-            delivered_job_ids=list(completed_job_ids),
-        )
-        self._events.append(
-            spec.campaign_run_id,
-            "campaign.resumed",
-            {"delivered_job_count": len(handle.delivered_job_ids)},
-        )
-        return handle
+        organisation = self._harness.resume(snapshot.harness)
+        try:
+            if organisation != snapshot.organisation:
+                raise RuntimeError("harness resumed a different organisation")
+            handle = CampaignHandle(
+                spec=spec,
+                organisation=organisation,
+                actors=snapshot.actors,
+                sessions=snapshot.sessions,
+                delivered_job_ids=list(completed_job_ids),
+            )
+            self._events.append(
+                spec.campaign_run_id,
+                "campaign.resumed",
+                {"delivered_job_count": len(handle.delivered_job_ids)},
+            )
+            return handle
+        except BaseException as error:
+            try:
+                self._harness.rollback_resume(organisation)
+            except BaseException as cleanup_error:
+                raise BaseExceptionGroup(
+                    "Campaign resume and cleanup failed", [error, cleanup_error]
+                ) from None
+            raise
 
     def close(self, handle: CampaignHandle, reason: str) -> CampaignResult:
         self._require_active(handle)

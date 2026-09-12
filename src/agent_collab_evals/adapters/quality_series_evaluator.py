@@ -8,10 +8,11 @@ import threading
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import Mapping, Protocol, runtime_checkable
 
 from ..artifacts import ArtifactRef
 from ..canonical import canonical_json_bytes, digest_bytes, digest_value
+from ..compute_backend import ComputeExecutionRequest
 from ..campaigns.serving_quality import QualityPolicy, evaluate_quality_series
 from ..evaluation import (
     EvaluationReceipt,
@@ -32,6 +33,21 @@ class QualityRepetitionReceipt:
     def __post_init__(self) -> None:
         if not re.fullmatch(r"qualityreceipt-[0-9a-f]{32}", self.value):
             raise ValueError("quality repetition receipt is invalid")
+
+
+@runtime_checkable
+class QualityComputePlanner(Protocol):
+    """Optional preparation capability of a compute-backed quality adapter."""
+
+    def prepare_request(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        execution_key: str,
+        *,
+        role: str,
+        repetition: int,
+    ) -> ComputeExecutionRequest: ...
 
 
 class QualityRepetitionBackend(Protocol):
@@ -280,6 +296,28 @@ class PairedQualitySeriesEvaluator:
                 connection.commit()
         self._used_authorities[receipt.value] = self._used_seconds(receipts)
         return receipt
+
+    def prepare_hidden_requests(
+        self,
+        candidate: bytes,
+        reservation: EvaluationReservation,
+        evaluation_key: str,
+    ) -> tuple[ComputeExecutionRequest, ...]:
+        """Prepare both roles in the frozen repetition order without execution."""
+        self._validate_request(reservation, evaluation_key)
+        if not isinstance(self._backend, QualityComputePlanner):
+            raise TypeError("quality backend does not support compute preparation")
+        return tuple(
+            self._backend.prepare_request(
+                self._candidate_for_role(candidate, role),
+                self._run_reservation(reservation, role, repetition),
+                f"{evaluation_key}:quality:{repetition}:{role}",
+                role=role,
+                repetition=repetition,
+            )
+            for repetition, order in enumerate(self._profile.role_order_by_repetition, start=1)
+            for role in order
+        )
 
     def resolve(
         self,

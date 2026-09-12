@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,30 @@ PROFILE_PATH = (
 
 
 class OciSandboxTests(unittest.TestCase):
+    def test_enabled_capabilities_require_sockets_and_pinned_endpoints(self) -> None:
+        profile = self._registered_profile()
+        sandbox = OciSandboxExec(profile, Path("/usr/bin/true"), digest_value({"engine": "test"}))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            workspace, state, broker = (root / name for name in ("workspace", "state", "broker"))
+            for path in (workspace, state, broker):
+                path.mkdir()
+            model_socket = broker / "model.sock"
+            model_socket.touch()
+            with patch("agent_collab_evals.sandbox.stat.S_ISSOCK", return_value=True):
+                context = SandboxLaunchContext(
+                    workspace, state, REPOSITORY_ROOT / "scripts/runtime",
+                    profile.container_model_endpoint, broker_socket=model_socket,
+                )
+                for label in ("candidate", "native"):
+                    endpoint_field, socket_field = f"{label}_endpoint", f"{label}_broker_socket"
+                    enabled = replace(context, **{endpoint_field: getattr(profile, f"container_{label}_endpoint")})
+                    with self.subTest(label=label), self.assertRaisesRegex(ValueError, "dedicated broker socket"):
+                        sandbox.prepare(("node", str(REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs")), enabled, {})
+                    other_route = replace(enabled, **{socket_field: model_socket, endpoint_field: "http://127.0.0.1:4999/v1/call"})
+                    with self.subTest(label=label), self.assertRaisesRegex(PermissionError, "registered .* relay"):
+                        sandbox.prepare(("node", str(REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs")), other_route, {})
+
     def test_committed_candidate_is_semantic_and_fails_closed(self) -> None:
         profile = OciSandboxProfile.load(PROFILE_PATH)
 
@@ -47,12 +72,18 @@ class OciSandboxTests(unittest.TestCase):
             state = root / "state"
             broker = root / "broker"
             peer_broker = root / "peer-broker"
-            for path in (workspace, state, broker, peer_broker):
+            candidate_broker = root / "candidate-broker"
+            native_broker = root / "native-broker"
+            for path in (workspace, state, broker, peer_broker, candidate_broker, native_broker):
                 path.mkdir()
             socket_path = broker / "model.sock"
             peer_socket_path = peer_broker / "peer.sock"
             socket_path.touch()
             peer_socket_path.touch()
+            candidate_socket_path = candidate_broker / "candidate.sock"
+            native_socket_path = native_broker / "native.sock"
+            candidate_socket_path.touch()
+            native_socket_path.touch()
             with patch("agent_collab_evals.sandbox.stat.S_ISSOCK", return_value=True):
                 context = SandboxLaunchContext(
                     workspace_root=workspace,
@@ -62,6 +93,10 @@ class OciSandboxTests(unittest.TestCase):
                     broker_socket=socket_path,
                     peer_endpoint=profile.container_peer_endpoint,
                     peer_broker_socket=peer_socket_path,
+                    candidate_endpoint=profile.container_candidate_endpoint,
+                    candidate_broker_socket=candidate_socket_path,
+                    native_endpoint=profile.container_native_endpoint,
+                    native_broker_socket=native_socket_path,
                 )
                 environment = {
                     "PATH": "/host/path",
@@ -110,6 +145,14 @@ class OciSandboxTests(unittest.TestCase):
         self.assertIn(str(peer_socket_path), command)
         self.assertIn("--peer-endpoint", command)
         self.assertIn(profile.container_peer_endpoint, command)
+        for label, path, endpoint in (
+            ("candidate", candidate_socket_path, profile.container_candidate_endpoint),
+            ("native", native_socket_path, profile.container_native_endpoint),
+        ):
+            self.assertIn(f"--{label}-broker-socket", command)
+            self.assertIn(str(path), command)
+            self.assertIn(endpoint, command)
+            self.assertIn(f"type=bind,src={path.parent},dst={path.parent},readonly", command)
         self.assertIn(
             "agent-collab/opencode-runtime@" + "sha256:" + "1" * 64,
             command,

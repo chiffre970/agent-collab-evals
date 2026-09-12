@@ -30,6 +30,7 @@ class CandidateTools:
         job_id: str,
         candidate_policy_digest: str,
         max_candidate_bytes: int = 32768,
+        host_evaluation: bool = False,
     ) -> None:
         if not campaign_run_id or not job_id or max_candidate_bytes < 1:
             raise ValueError("candidate tool scope and bound are required")
@@ -40,11 +41,15 @@ class CandidateTools:
         self._campaign_run_id = campaign_run_id
         self._job_id = job_id
         self._max_bytes = max_candidate_bytes
+        if type(host_evaluation) is not bool:
+            raise ValueError("host evaluation mode must be boolean")
+        self._host_evaluation = host_evaluation
         self.profile_digest = digest_value({
             "service": "candidate-tools/v1", "candidate_policy": candidate_policy_digest,
             "max_candidate_bytes": max_candidate_bytes,
             "operations": ["submit", "evaluate", "result"],
             "identity": "server_bound", "result_release": "controller_owned",
+            "evaluation_execution": "host" if host_evaluation else "inline",
         })
 
     def call(self, session: SessionTransport, operation: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
@@ -74,7 +79,7 @@ class CandidateTools:
             receipt = CandidateReceipt(arguments["receipt"])
             # Ownership is checked before the controller-only execution method.
             result = self._submissions.visible_result(session, receipt)
-            if operation == "evaluate":
+            if operation == "evaluate" and not self._host_evaluation:
                 self._submissions.evaluate_visible(receipt)
                 result = self._submissions.visible_result(session, receipt)
             return {

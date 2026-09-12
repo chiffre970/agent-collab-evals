@@ -299,6 +299,23 @@ Pooled or transferable peer budgets, submissions and compute scheduling are the 
 
 ## Build order
 
+### Current execution priority
+
+As of September 9, 2026, prioritize completing step 5 with one approved, bounded
+exploratory solo optimization run, then a small matched peer comparison. The
+existing synthetic rehearsals and individual evaluator checks do not yet prove
+the integrated live agent-to-evaluator path. Reuse those components and add only
+the controls needed to run safely and interpret the results.
+
+Before either paid pilot, confirm its spending envelope, pinned inputs,
+evaluation rules, deployment protections, and stopping conditions. Keep quality
+checks, hidden-workload separation, cost accounting, and peer isolation intact.
+Registration-only work can follow exploratory evidence; all registered-study
+gates still apply before confirmatory execution. The four-condition research
+design and separate Flash/Pro studies are unchanged.
+
+### Overall sequence
+
 1. Run the two-day stock-OpenCode proof from ADR 0001: out-of-process observational events where possible, a separately pinned non-mutating instrumentation plugin only where necessary, and a distinct peer-tool integration path. Stop for an explicit runtime decision if it fails.
 2. Define the minimal manifests and domain ports, then make fake adapters pass a durable two-job lifecycle.
 3. Implement the minimal collaboration contract, local storage, durable publication registry and opaque server-authorized artifact publication. If the five-day fake-campaign exit check fails, stop and run the ADR's bounded substrate assessment; adopt or fork HF Agent Collabs only through an explicit recorded decision after it passes the treatment contract.

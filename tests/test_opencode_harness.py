@@ -4,6 +4,9 @@ import io
 import json
 import os
 import queue
+import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -60,17 +63,32 @@ class _TokenIssuer:
 
 
 class OpenCodeRuntimeProfileTests(unittest.TestCase):
-    def test_runtime_rejects_unwired_capability_relays_before_launch(self):
-        with self.assertRaisesRegex(RuntimeError, "Unix relays are not wired"):
-            _Bridge(
-                state_root=Path("/unused/state"), directory=Path("/unused/workspace"),
-                profile=Mock(), endpoint="http://127.0.0.1:4317/v1", gateway_token="opaque",
-                broker_socket=None, process_sandbox=Mock(), native_handoffs=False,
-                peer_access=None, timeout_seconds=1,
-                candidate_access=CandidateToolAccess(
-                    "capability", "http://127.0.0.1:4319/v1/call", "opaque", Path("/unused/socket"),
-                ),
-            )
+    def test_runtime_passes_capability_relays_to_sandbox_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            broker = root / "capability"
+            broker.mkdir()
+            socket_path = broker / "candidate.sock"
+            socket_path.touch()
+            sandbox = Mock()
+            sandbox.prepare.side_effect = RuntimeError("stop before process launch")
+            with (
+                patch("agent_collab_evals.sandbox.stat.S_ISSOCK", return_value=True),
+                self.assertRaisesRegex(RuntimeError, "stop before process launch"),
+            ):
+                _Bridge(
+                    state_root=root / "state", directory=root / "workspace",
+                    profile=OpenCodeRuntimeProfile.load(PROFILE_PATH),
+                    endpoint="http://127.0.0.1:4317/v1", gateway_token="opaque",
+                    broker_socket=None, process_sandbox=sandbox, native_handoffs=False,
+                    peer_access=None, timeout_seconds=1,
+                    candidate_access=CandidateToolAccess(
+                        "capability", "http://127.0.0.1:4319/v1/call", "opaque", socket_path,
+                    ),
+                )
+            context = sandbox.prepare.call_args.args[1]
+            self.assertEqual(context.candidate_broker_socket, socket_path)
+            self.assertEqual(context.candidate_endpoint, "http://127.0.0.1:4319/v1/call")
 
     def test_candidate_resume_rolls_back_after_receipt_load_and_cleanup_failure(self):
         profile = OpenCodeRuntimeProfile.load(PROFILE_PATH)
@@ -288,11 +306,14 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         bridge._responses = queue.Queue()
         bridge._stderr = []
         bridge._lock = threading.Lock()
+        bridge._termination_lock = threading.Lock()
+        bridge._terminated = False
         bridge._stdout_thread = Thread()
         bridge._stderr_thread = Thread()
 
         with (
             patch("os.killpg", side_effect=lambda *_: bridge._process.terminate()),
+            patch.object(bridge, "_group_alive", side_effect=[True, False, False, False]),
             self.assertRaisesRegex(TimeoutError, "bridge terminated"),
         ):
             bridge.request("never_returns")
@@ -300,6 +321,53 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         self.assertEqual(bridge._process.return_code, -15)
         with self.assertRaisesRegex(RuntimeError, "not running"):
             bridge.request("next")
+
+    def test_group_cleanup_failure_is_not_reported_as_success(self) -> None:
+        bridge = object.__new__(_Bridge)
+        bridge._process = Mock(pid=12345)
+        bridge._termination_lock = threading.Lock()
+        bridge._terminated = False
+        with (
+            patch.object(bridge, "_group_alive", return_value=True),
+            patch.object(bridge, "_close_streams") as close,
+            patch("os.killpg") as kill,
+            patch("agent_collab_evals.adapters.opencode_harness.time.monotonic", side_effect=[0, 6, 0, 6]),
+            self.assertRaisesRegex(RuntimeError, "running descendants"),
+        ):
+            bridge._terminate()
+        self.assertEqual([call.args[1] for call in kill.call_args_list], [signal.SIGTERM, signal.SIGKILL])
+        close.assert_not_called()
+        self.assertFalse(bridge._terminated)
+
+    @unittest.skipUnless(os.environ.get("RUN_OPENCODE_INTEGRATION") == "1", "enable local process cleanup integration")
+    def test_cleanup_reaps_group_after_bridge_leader_exits(self) -> None:
+        # A normal short-lived launcher leaves a sleeping worker in its group.
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import subprocess, sys; child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); print(child.pid, flush=True)"],
+            start_new_session=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+        )
+        bridge = object.__new__(_Bridge)
+        bridge._process = process
+        bridge._termination_lock = threading.Lock()
+        bridge._terminated = False
+        bridge._stdout_thread = Mock()
+        bridge._stderr_thread = Mock()
+        try:
+            child_pid = int(process.stdout.readline())
+            process.wait(timeout=5)
+            self.assertNotEqual(child_pid, process.pid)
+            self.assertTrue(bridge._group_alive())
+            bridge.close()
+            self.assertFalse(bridge._group_alive())
+            self.assertTrue(bridge._terminated)
+            bridge.close()  # Verified cleanup is idempotent.
+        finally:
+            if bridge._group_alive():
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
 
     def test_delivery_returns_stable_runtime_acknowledgement_receipt(self) -> None:
         class Bridge:

@@ -20,10 +20,12 @@ from ..evaluation import (
     EvaluationReservationStatus,
     EvaluationResult,
     EvaluationScope,
+    HiddenEvaluationInput,
     SelectionReceipt,
     SelectionResult,
     SubmissionPolicy,
     SubmissionSet,
+    VisibleEvaluationInput,
 )
 from ..ports import CandidateEvaluator, ComputeBroker, StorageBackend
 from ..session_identity import SessionIdentityRegistry
@@ -236,6 +238,35 @@ class SqliteSubmissionRegistry:
             )
         return receipt
 
+    def prepare_visible_evaluations(
+        self, campaign_run_id: str, job_id: str,
+    ) -> tuple[VisibleEvaluationInput, ...]:
+        """Resolve host-only dispatch inputs without executing or authorizing spend."""
+        with closing(self._connect()) as connection:
+            self._job_row(connection, campaign_run_id, job_id)
+            rows = connection.execute(
+                "SELECT * FROM candidates WHERE campaign_run_id = ? AND job_id = ? "
+                "ORDER BY receipt_id", (campaign_run_id, job_id),
+            ).fetchall()
+        prepared = []
+        for row in rows:
+            if str(row["admission_status"]) != "admitted":
+                raise RuntimeError("candidate admission is incomplete")
+            artifact, content = self._read_candidate(row, "candidate_lifecycle")
+            reservation = self._reservation(row, EvaluationScope.VISIBLE)
+            if (
+                artifact.owner_actor_id != str(row["owner_actor_id"])
+                or artifact.digest != str(row["artifact_digest"])
+                or reservation.artifact_ref != artifact.ref
+                or reservation.actor_id != artifact.owner_actor_id
+                or reservation.campaign_run_id != campaign_run_id
+            ):
+                raise RuntimeError("candidate dispatch binding differs")
+            prepared.append(VisibleEvaluationInput(
+                CandidateReceipt(str(row["receipt_id"])), content, reservation,
+            ))
+        return tuple(prepared)
+
     def evaluate_visible(self, receipt: CandidateReceipt) -> None:
         with closing(self._connect()) as connection:
             row = self._candidate_row(connection, receipt)
@@ -424,9 +455,10 @@ class SqliteSubmissionRegistry:
                 raise RuntimeError("persisted selection differs from recomputation")
         return selection
 
-    def evaluate_hidden(
+    def prepare_hidden_evaluation(
         self, selection_receipt: SelectionReceipt, *, reserved_seconds: int
-    ) -> EvaluationResult:
+    ) -> HiddenEvaluationInput:
+        """Reserve the authoritative selection without dispatching hidden compute."""
         selection = self._authoritative_selection(selection_receipt)
         if selection.selected_artifact_ref is None:
             raise RuntimeError("authoritative selection has no artifact")
@@ -442,7 +474,6 @@ class SqliteSubmissionRegistry:
             )
             if artifact.digest != str(job["default_artifact_digest"]):
                 raise RuntimeError("reference artifact binding differs")
-            candidate_receipt = None
         else:
             assert selection.selected_receipt is not None
             with closing(self._connect()) as connection:
@@ -454,7 +485,6 @@ class SqliteSubmissionRegistry:
             )
             if artifact.digest != str(candidate["artifact_digest"]):
                 raise RuntimeError("hidden evaluation artifact binding differs")
-            candidate_receipt = selection.selected_receipt.value
         if artifact.ref != selection.selected_artifact_ref:
             raise RuntimeError("hidden evaluation artifact differs from selection")
 
@@ -465,6 +495,57 @@ class SqliteSubmissionRegistry:
             selection.selected_artifact_ref,
             reserved_seconds,
         )
+        return HiddenEvaluationInput(selection, content, reservation)
+
+    def resolve_hidden(self, selection_receipt: SelectionReceipt) -> EvaluationResult:
+        """Verify a completed hidden receipt; never start an evaluation."""
+        selection = self._authoritative_selection(selection_receipt)
+        with closing(self._connect()) as connection:
+            stored = connection.execute(
+                "SELECT * FROM hidden_evaluations WHERE selection_receipt = ?",
+                (selection_receipt.value,),
+            ).fetchone()
+        if stored is None:
+            raise RuntimeError("selected artifact has no completed hidden evaluation")
+        candidate_receipt = (
+            selection.selected_receipt.value if selection.selected_receipt else None
+        )
+        if (
+            str(stored["campaign_run_id"]) != selection.campaign_run_id
+            or str(stored["job_id"]) != selection.job_id
+            or stored["receipt_id"] != candidate_receipt
+        ):
+            raise RuntimeError("hidden receipt selection binding differs")
+        snapshot = self._compute.snapshot(selection.campaign_run_id)
+        reservation = next(
+            (item for item in snapshot.reservations
+             if item.reservation_id == str(stored["reservation_id"])), None,
+        )
+        if (
+            reservation is None
+            or reservation.status is not EvaluationReservationStatus.COMPLETE
+        ):
+            raise RuntimeError("hidden evaluation compute is not complete")
+        prepared = self.prepare_hidden_evaluation(
+            selection_receipt, reserved_seconds=reservation.reserved_seconds,
+        )
+        if prepared.reservation != reservation:
+            raise RuntimeError("hidden receipt reservation binding differs")
+        return self._evaluator.resolve(
+            EvaluationReceipt(str(stored["evaluation_receipt"])), prepared.candidate,
+            reservation, EvaluationScope.HIDDEN,
+        )
+
+    def evaluate_hidden(
+        self, selection_receipt: SelectionReceipt, *, reserved_seconds: int
+    ) -> EvaluationResult:
+        prepared = self.prepare_hidden_evaluation(
+            selection_receipt, reserved_seconds=reserved_seconds,
+        )
+        selection = prepared.selection
+        content = prepared.candidate
+        reservation = prepared.reservation
+        candidate_receipt = selection.selected_receipt.value if selection.selected_receipt else None
         with closing(self._connect()) as connection:
             stored = connection.execute(
                 "SELECT * FROM hidden_evaluations WHERE selection_receipt = ?",
@@ -473,12 +554,7 @@ class SqliteSubmissionRegistry:
         if stored is not None:
             if str(stored["reservation_id"]) != reservation.reservation_id:
                 raise RuntimeError("hidden evaluation reservation changed")
-            return self._evaluator.resolve(
-                EvaluationReceipt(str(stored["evaluation_receipt"])),
-                content,
-                reservation,
-                EvaluationScope.HIDDEN,
-            )
+            return self.resolve_hidden(selection_receipt)
         try:
             evaluation_receipt = self._evaluator.hidden_evaluate(
                 content,

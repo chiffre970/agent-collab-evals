@@ -6,6 +6,9 @@
 .modal/
 .secrets/
 
+# Local planning notes (not a credential store)
+/.private/
+
 # Python environments and caches
 .venv/
 venv/

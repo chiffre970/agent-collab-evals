@@ -2,7 +2,29 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
+
+from agent_collab_evals.adapters.sqlite_compute_routes import ComputeRouteAdapter, SqliteComputeRouteInventory
+from agent_collab_evals.solo_pilot_runner import PilotComputeRoute, SoloPilotRunner
+
+from agent_collab_evals.adapters.fake_harness import FakeHarnessRuntime
+from agent_collab_evals.adapters.local_events import LocalEventSink
+from agent_collab_evals.adapters.modal_serving_evaluator import ModalServingDevelopmentEvaluator
+from agent_collab_evals.adapters.modal_vllm_compute import ModalVllmComputeProfile
+from agent_collab_evals.adapters.split_scope_evaluator import EvaluationLaneProfile, RegisteredEvaluationProfile, SplitScopeServingEvaluator
+from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
+from agent_collab_evals.adapters.sqlite_delivery import SqliteDeliveryOutbox
+from agent_collab_evals.budget import ActorBudgetAllocation
+from agent_collab_evals.candidate_services import create_solo_candidate_services
+from agent_collab_evals.controller import CampaignCloseRejected, CampaignController
+from agent_collab_evals.domain import AgentIdentity, CampaignStatus, CoordinationCondition, OrganisationSpec, SessionHandle
+from agent_collab_evals.evaluation import ActorComputeAllocation, ComputePlan, SubmissionPolicy
+from agent_collab_evals.solo_evaluation_closure import SoloEvaluationClosure
+from tests.test_compute_backend import _EvidenceStore
+from tests.test_solo_candidate_services import _PublicTransport
+from tests.test_sqlite_budget import _JsonReceiptVerifier, _context, _plan, _rate_card, _usage
 
 from agent_collab_evals.adapters.composite_hidden_evaluator import (
     CompositeHiddenEvaluationProfile,
@@ -39,19 +61,10 @@ from agent_collab_evals.adapters.quality_series_evaluator import (
     quality_policy_authority_digest,
 )
 from agent_collab_evals.adapters.sqlite_execution_backend import SqliteComputeBackend
-from agent_collab_evals.artifacts import ArtifactRef
 from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes, digest_value, parse_json
 from agent_collab_evals.campaigns.serving_scoring import ScoringProfile
-from agent_collab_evals.compute_backend import (
-    ComputeExecutionRequest,
-    ComputeExecutionStatus,
-    FrozenComputeRunManifest,
-)
-from agent_collab_evals.evaluation import (
-    EvaluationReservation,
-    EvaluationReservationStatus,
-    EvaluationScope,
-)
+from agent_collab_evals.compute_backend import ComputeExecutionStatus
+from agent_collab_evals.evaluation import EvaluationScope
 from tests.quality_fixture import REPOSITORY_ROOT, real_hidden_quality_bundle
 from tests.test_modal_hidden_correctness_compute import (
     _RetainedCorrectnessTransport,
@@ -64,8 +77,38 @@ from tests.test_modal_quality_compute_adapter import (
 )
 
 
+class _ApprovedSyntheticTransport:
+    """Require real durable authorization before the simulated side effect."""
+
+    def __init__(self, transport, spend):
+        self.transport, self.spend = transport, spend
+        self.profile_digest = transport.profile_digest
+
+    def dispatch(self, request, candidate):
+        self.spend.consume(request, self.profile_digest)
+        return self.transport.dispatch(request, candidate)
+
+    def poll(self, request, external_call_id, timeout_seconds):
+        return self.transport.poll(request, external_call_id, timeout_seconds)
+
+
 class CompositeHiddenRealAdapterTests(unittest.TestCase):
     def test_all_three_real_phase_adapters_execute_and_reconcile(self) -> None:
+        self._run_solo_path()
+
+    def test_reference_winner_runs_all_hidden_phases_before_closure(self) -> None:
+        self._run_solo_path(default_wins=True)
+
+    def test_failed_hidden_evaluation_rejects_campaign_closure(self) -> None:
+        self._run_solo_path(fail_hidden=True)
+
+    def test_unsettled_model_call_rejects_otherwise_complete_evaluation(self) -> None:
+        self._run_solo_path(unsettled_model=True)
+
+    def test_unresolved_compute_evidence_rejects_campaign_closure(self) -> None:
+        self._run_solo_path(fail_reconcile=True)
+
+    def _run_solo_path(self, *, default_wins=False, fail_hidden=False, unsettled_model=False, fail_reconcile=False) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             campaign, bundle, policy = real_hidden_quality_bundle(root / "bundle")
@@ -74,9 +117,6 @@ class CompositeHiddenRealAdapterTests(unittest.TestCase):
             candidate_document["candidate_id"] = "composite-candidate"
             candidate_document["server"]["engine_args"]["stream_interval"] = 2
             candidate = canonical_json_bytes(candidate_document)
-            candidate_descriptor = campaign.validate_candidate_document(
-                candidate_document
-            )
             campaign_manifest = (
                 REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
             )
@@ -271,193 +311,229 @@ class CompositeHiddenRealAdapterTests(unittest.TestCase):
                     performance_series_profile.reserved_seconds,
                 ),
             )
-            outer = EvaluationReservation(
-                reservation_id="evaluation-" + "a" * 32,
-                reservation_key="hidden:composite",
-                campaign_run_id="composite-real-run",
-                actor_id=None,
-                artifact_ref=ArtifactRef("artifact-" + "8" * 32),
-                scope=EvaluationScope.HIDDEN,
-                reserved_seconds=composite_profile.reserved_seconds,
-                status=EvaluationReservationStatus.RESERVED,
-            )
-            phase_reservations = {
-                phase.name: _phase_reservation(composite_profile, outer, phase)
-                for phase in composite_profile.phases
-            }
-            correctness_request = _request(
-                "hidden:composite:correctness",
-                phase_reservations["correctness"],
-                candidate,
-                candidate_descriptor.manifest_digest,
-                correctness_profile.digest,
-            )
-            performance_requests = {}
-            for repetition in range(1, 4):
-                run_reservation = _performance_run_reservation(
-                    performance_series_profile,
-                    phase_reservations["performance"],
-                    repetition,
-                )
-                performance_requests[repetition] = _request(
-                    "hidden:composite:performance:repetition:"
-                    f"{repetition}:performance",
-                    run_reservation,
-                    candidate,
-                    candidate_descriptor.manifest_digest,
-                    performance_profiles[repetition].digest,
-                )
-            quality_requests = []
-            quality_reservation = phase_reservations["quality"]
-            reference_descriptor = campaign.validate_reference_candidate()
-            for repetition in range(1, 4):
-                for role, run_candidate, descriptor in (
-                    ("reference", reference, reference_descriptor),
-                    ("candidate", candidate, candidate_descriptor),
-                ):
-                    run_reservation = _quality_run_reservation(
-                        quality_series_profile,
-                        quality_reservation,
-                        role,
-                        repetition,
-                    )
-                    quality_requests.append(
-                        _request(
-                            "hidden:composite:quality:quality:"
-                            f"{repetition}:{role}",
-                            run_reservation,
-                            run_candidate,
-                            descriptor.manifest_digest,
-                            quality_repetition_profile.digest,
-                        )
-                    )
-
-            correctness_authority = FrozenComputeRunManifest.load_or_create(
-                root / "correctness-manifest.json",
-                campaign_run_id=outer.campaign_run_id,
-                compute_enabled=True,
-                transport_profile_digest=correctness_transport_digest,
-                backend_profile_digest=correctness_backend_digest,
-                requests=(correctness_request,),
-            )
-            quality_authority = FrozenComputeRunManifest.load_or_create(
-                root / "quality-manifest.json",
-                campaign_run_id=outer.campaign_run_id,
-                compute_enabled=True,
-                transport_profile_digest=quality_transport_digest,
-                backend_profile_digest=quality_backend_digest,
-                requests=tuple(quality_requests),
-            )
-            performance_authorities = {
-                repetition: FrozenComputeRunManifest.load_or_create(
-                    root / f"performance-manifest-{repetition}.json",
-                    campaign_run_id=outer.campaign_run_id,
-                    compute_enabled=True,
-                    transport_profile_digest=(
-                        performance_transport_digests[repetition]
-                    ),
-                    backend_profile_digest=performance_backend_digests[repetition],
-                    requests=(performance_requests[repetition],),
-                )
-                for repetition in range(1, 4)
-            }
+            # Compose real public evaluation and durable admission before hidden
+            # request preparation. Only external transport responses are simulated.
             correctness_transport = _RetainedCorrectnessTransport(
-                correctness_state,
-                correctness_modal,
-                correctness_resolver,
+                correctness_state, correctness_modal, correctness_resolver,
                 correctness_transport_digest,
             )
             quality_transport = _RetainedModalQualityTransport(
-                quality_state,
-                quality_modal,
-                quality_resolver,
-                quality_transport_digest,
-                policy,
+                quality_state, quality_modal, quality_resolver,
+                quality_transport_digest, policy,
             )
             performance_transports = {
                 repetition: _RetainedPerformanceTransport(
-                    performance_states[repetition],
-                    performance_modals[repetition],
-                    performance_resolvers[repetition],
-                    performance_transport_digests[repetition],
+                    performance_states[repetition], performance_modals[repetition],
+                    performance_resolvers[repetition], performance_transport_digests[repetition],
                 )
                 for repetition in range(1, 4)
             }
-            correctness_backend = SqliteComputeBackend(
-                root / "correctness-compute.sqlite3",
-                correctness_transport,
-                correctness_resolver,
-                correctness_authority,
-            )
-            quality_backend = SqliteComputeBackend(
-                root / "quality-compute.sqlite3",
-                quality_transport,
-                quality_resolver,
-                quality_authority,
-            )
-            performance_backends = {
-                repetition: SqliteComputeBackend(
-                    root / f"performance-compute-{repetition}.sqlite3",
-                    performance_transports[repetition],
-                    performance_resolvers[repetition],
-                    performance_authorities[repetition],
-                )
-                for repetition in range(1, 4)
+            public_evidence = _EvidenceStore()
+            public_transport = _PublicTransport(public_evidence)
+            public_digest = SqliteComputeBackend.profile_digest_for(public_transport.profile_digest, public_evidence.profile_digest)
+            adapters = {
+                "public": ComputeRouteAdapter(public_transport.profile_digest, public_evidence.profile_digest,
+                    lambda route_root, spend: _ApprovedSyntheticTransport(public_transport, spend), lambda route_root: public_evidence),
+                "correctness": ComputeRouteAdapter(correctness_transport_digest, correctness_resolver.profile_digest,
+                    lambda route_root, spend: _ApprovedSyntheticTransport(correctness_transport, spend), lambda route_root: correctness_resolver),
+                "quality": ComputeRouteAdapter(quality_transport_digest, quality_resolver.profile_digest,
+                    lambda route_root, spend: _ApprovedSyntheticTransport(quality_transport, spend), lambda route_root: quality_resolver),
+                **{f"performance-{r}": ComputeRouteAdapter(performance_transport_digests[r], performance_resolvers[r].profile_digest,
+                    lambda route_root, spend, r=r: _ApprovedSyntheticTransport(performance_transports[r], spend),
+                    lambda route_root, r=r: performance_resolvers[r]) for r in range(1, 4)},
             }
+            inventory = SqliteComputeRouteInventory(root / "routes", "composite-real-run", adapters)
+            routing = inventory.backend("public")
+            correctness_backend = inventory.backend("correctness")
+            quality_backend = inventory.backend("quality")
+            performance_backends = {r: inventory.backend(f"performance-{r}") for r in range(1, 4)}
             correctness = ComputeCandidateEvaluator(
-                root / "correctness.sqlite3",
-                campaign,
-                correctness_profile,
-                correctness_backend,
+                root / "correctness.sqlite3", campaign, correctness_profile, correctness_backend,
             )
             quality_repetitions = ComputeQualityRepetitionBackend(
-                root / "quality-repetitions.sqlite3",
-                campaign,
-                quality_repetition_profile,
-                quality_backend,
+                root / "quality-repetitions.sqlite3", campaign,
+                quality_repetition_profile, quality_backend,
             )
             quality = PairedQualitySeriesEvaluator(
-                root / "quality-series.sqlite3",
-                quality_series_profile,
-                policy,
-                reference,
-                quality_repetitions,
+                root / "quality-series.sqlite3", quality_series_profile,
+                policy, reference, quality_repetitions,
             )
             performance_repetitions = {
                 repetition: ComputeCandidateEvaluator(
-                    root / f"performance-{repetition}.sqlite3",
-                    campaign,
-                    performance_profiles[repetition],
-                    performance_backends[repetition],
+                    root / f"performance-{repetition}.sqlite3", campaign,
+                    performance_profiles[repetition], performance_backends[repetition],
                 )
                 for repetition in range(1, 4)
             }
             performance = PerformanceSeriesEvaluator(
-                root / "performance-series.sqlite3",
-                performance_series_profile,
-                scoring,
-                performance_repetitions,
+                root / "performance-series.sqlite3", performance_series_profile,
+                scoring, performance_repetitions,
             )
             composite = CompositeHiddenServingEvaluator(
-                root / "composite.sqlite3",
-                composite_profile,
-                {
-                    "correctness": correctness,
-                    "quality": quality,
-                    "performance": performance,
-                },
+                root / "composite.sqlite3", composite_profile,
+                {"correctness": correctness, "quality": quality, "performance": performance},
             )
 
-            receipt = composite.hidden_evaluate(
-                candidate, outer, "hidden:composite"
+            def freeze_public(request):
+                inventory.register("public", (request,))
+                inventory.authorize(request, approval_reference="synthetic-no-spend-test")
+
+            public_profile = ModalVllmComputeProfile.load(REPOSITORY_ROOT / "config/compute/modal-vllm-development.json", repository_root=REPOSITORY_ROOT)
+            public = ModalServingDevelopmentEvaluator(root / "public.sqlite3", campaign, public_profile, routing)
+            lanes = {
+                scope: EvaluationLaneProfile(
+                    scope, public.profile_digest if scope is EvaluationScope.VISIBLE else composite_profile.digest,
+                    public_digest if scope is EvaluationScope.VISIBLE else digest_value({"hidden_backends": [correctness_backend_digest, quality_backend_digest, *performance_backend_digests.values()]}),
+                    digest_value({"workload": scope.value}), f"compute-{scope.value}",
+                    digest_value({"schedule": scope.value}), f"evidence-{scope.value}",
+                ) for scope in EvaluationScope
+            }
+            split = SplitScopeServingEvaluator(
+                root / "split.sqlite3", RegisteredEvaluationProfile(
+                    "solo-composition", campaign.manifest_digest, digest_value({"synthetic_registration": True}),
+                    lanes[EvaluationScope.VISIBLE], lanes[EvaluationScope.HIDDEN],
+                ), public, composite,
             )
-            result = composite.resolve(
-                receipt, candidate, outer, EvaluationScope.HIDDEN
+            reference_key = "visible:reference"
+            freeze_public(public.prepare_visible_request(reference, None, reference_key))
+            reference_receipt = split.visible_evaluate(reference, None, reference_key)
+            actor = AgentIdentity("composite-real-run", 0)
+            compute_plan = ComputePlan("solo-composition", actor.campaign_run_id, 60,
+                (ActorComputeAllocation(actor.campaign_run_id, actor.actor_id, 60),),
+                composite_profile.reserved_seconds, digest_value({"test_compute": True}))
+            services = create_solo_candidate_services(root / "services", campaign, evaluator=split,
+                reference_receipt=reference_receipt, plan=compute_plan, policy=SubmissionPolicy(1, 60))
+            session = services.sessions.bind(actor, SessionHandle("solo-primary"))
+            services.tools.call(session, "submit", {"candidate": candidate_document, "idempotency_key": "first"})
+            hidden_adapters = {
+                correctness_profile.digest: "correctness",
+                quality_repetition_profile.digest: "quality",
+                **{profile.digest: f"performance-{r}" for r, profile in performance_profiles.items()},
+            }
+
+            def plan_hidden(item):
+                requests = composite.prepare_hidden_requests(
+                    item.candidate, item.reservation, item.evaluation_key,
+                )
+                return tuple(
+                    PilotComputeRoute(adapter, tuple(
+                        request for request in requests if request.evaluator_profile_digest == digest
+                    ))
+                    for digest, adapter in hidden_adapters.items()
+                )
+
+            runner = SoloPilotRunner(services, inventory,
+                lambda item: (PilotComputeRoute("public", (public.prepare_visible_request(item.candidate, item.reservation, item.evaluation_key),)),),
+                plan_hidden, hidden_seconds=composite_profile.reserved_seconds)
+            public_requests = runner.prepare_public()
+            with self.assertRaisesRegex(RuntimeError, "explicit authorization"):
+                runner.collect_public()
+            for request in public_requests:
+                inventory.authorize(request, approval_reference="synthetic-no-spend-test")
+            original_poll = public_transport.poll
+
+            def candidate_poll(request, external_call_id, timeout_seconds):
+                result = original_poll(request, external_call_id, timeout_seconds)
+                if default_wins:
+                    document = parse_json(public_evidence.resolve(result.evidence).decode())
+                    document["result"]["performance_score"]["scalar_ppm"] = 900000
+                    result = replace(result, evidence=public_evidence.put(result.evidence.locator, document))
+                return result
+
+            with patch.object(public_transport, "poll", side_effect=candidate_poll):
+                feedback = runner.collect_public()
+            selection = services.submissions.select(services.submissions.close(actor.campaign_run_id, "optimize-serving"))
+            self.assertEqual(selection.used_default, default_wins)
+            prepared = services.submissions.prepare_hidden_evaluation(selection.receipt, reserved_seconds=composite_profile.reserved_seconds)
+            candidate, outer = prepared.candidate, prepared.reservation
+            self.assertEqual(candidate, reference if default_wins else canonical_json_bytes(candidate_document))
+            with self.assertRaisesRegex(RuntimeError, "no completed hidden"):
+                services.submissions.resolve_hidden(selection.receipt)
+            # Preparation reserves and seals, but never issues permission to spend.
+            hidden_requests = runner.prepare_hidden()
+            self.assertEqual(len(hidden_requests), 10)
+            self.assertEqual(sum(request.maximum_seconds for request in hidden_requests), composite_profile.reserved_seconds)
+            self.assertEqual(runner.prepare_hidden(), hidden_requests)
+            quality_requests = tuple(request for request in hidden_requests
+                                     if request.evaluator_profile_digest == quality_repetition_profile.digest)
+            self.assertEqual(
+                [request.execution_key.rsplit(":", 2)[-2:] for request in quality_requests],
+                [["1", "reference"], ["1", "candidate"], ["2", "candidate"],
+                 ["2", "reference"], ["3", "reference"], ["3", "candidate"]],
             )
+            self.assertEqual([request.candidate_digest for request in quality_requests],
+                             [digest_bytes(reference), digest_bytes(candidate), digest_bytes(candidate),
+                              digest_bytes(reference), digest_bytes(reference), digest_bytes(candidate)])
+            self.assertEqual(quality_transport.dispatch_count, 0)
+            with self.assertRaisesRegex(RuntimeError, "explicit authorization"):
+                runner.collect_hidden()
+            for request in hidden_requests:
+                inventory.authorize(request, approval_reference="synthetic-no-spend-test")
+            sources = inventory.sources()
+            closure = SoloEvaluationClosure(services.submissions, services.compute, compute_plan, sources)
+            allocations = (ActorBudgetAllocation(actor.campaign_run_id, actor.actor_id, 1000000),)
+            budget = SqliteBudgetAccount(root / "model-budget.sqlite3", _rate_card(),
+                require_metadata_receipts=False, budget_plan=_plan(actor.campaign_run_id, allocations),
+                receipt_verifier=_JsonReceiptVerifier())
+            budget.open_campaign(actor.campaign_run_id, 1000000, allocations)
+            charge = budget.reserve(actor.campaign_run_id, actor.actor_id, _context("solo-call"))
+            if not unsettled_model:
+                budget.settle(charge.reservation_id, _usage())
+            events = LocalEventSink(root / "events")
+            controller = CampaignController(FakeHarnessRuntime(), events, budget, runner, SqliteDeliveryOutbox(root / "delivery.sqlite3"))
+            handle = controller.start(OrganisationSpec(actor.campaign_run_id, CoordinationCondition.SOLO, 1, root / "workspace", "http://synthetic.invalid"))
+            controller.deliver(handle, feedback)
+            if fail_hidden:
+                with patch.object(correctness, "hidden_evaluate", side_effect=RuntimeError("evaluation failed")):
+                    with self.assertRaisesRegex(RuntimeError, "evaluation failed"):
+                        runner.collect_hidden()
+                with self.assertRaises(CampaignCloseRejected):
+                    controller.close(handle, "failed evaluation")
+                self.assertIs(handle.status, CampaignStatus.INVALID)
+                return
+            result = runner.collect_hidden()
+            self.assertEqual(services.submissions.resolve_hidden(selection.receipt), result)
+            self.assertEqual(len(closure.reconcile(actor.campaign_run_id)), 12)
+            # Reconstruct persisted selection and wrapper receipts without
+            # evaluating again. Closure must not depend on the original objects.
+            restarted_split = SplitScopeServingEvaluator(root / "split.sqlite3", split._profile, public, composite)
+            restarted_services = create_solo_candidate_services(root / "services", campaign, evaluator=restarted_split,
+                reference_receipt=reference_receipt, plan=compute_plan, policy=SubmissionPolicy(1, 60))
+            sealed_digest = inventory.seal()
+            restored_inventory = SqliteComputeRouteInventory(root / "routes", actor.campaign_run_id, adapters, expected_seal_digest=sealed_digest)
+            restarted_closure = SoloEvaluationClosure(restarted_services.submissions, restarted_services.compute, compute_plan, restored_inventory.sources())
+            self.assertEqual(restarted_services.submissions.resolve_hidden(selection.receipt), result)
+            self.assertEqual(restarted_closure.reconcile(actor.campaign_run_id), closure.reconcile(actor.campaign_run_id))
+            self.assertEqual(public_transport.dispatch_count, 2)
+            self.assertEqual(quality_transport.dispatch_count, 6)
+            # Source omissions and duplicates must not produce a valid close.
+            without_performance = tuple(source for source in sources if source.backend.profile_digest != performance_backends[3].profile_digest)
+            with self.assertRaisesRegex(RuntimeError, "usage differs"):
+                SoloEvaluationClosure(services.submissions, services.compute, compute_plan, without_performance).reconcile(actor.campaign_run_id)
+            with self.assertRaisesRegex(RuntimeError, "duplicate compute"):
+                SoloEvaluationClosure(services.submissions, services.compute, compute_plan, (*sources, sources[0])).reconcile(actor.campaign_run_id)
+            # A measured ineligible outcome is not an infrastructure failure.
+            with patch.object(services.submissions, "resolve_hidden", return_value=replace(result, eligible=False, criterion_units=0, failures=("quality_failed",))):
+                self.assertEqual(len(closure.reconcile(actor.campaign_run_id)), 12)
+            if fail_reconcile:
+                quality_source = next(source for source in sources if source.backend.profile_digest == quality_backend.profile_digest)
+                with patch.object(quality_source.backend, "reconcile", side_effect=RuntimeError("compute evidence unavailable")):
+                    with self.assertRaises(CampaignCloseRejected):
+                        controller.close(handle, "missing compute evidence")
+                self.assertIs(handle.status, CampaignStatus.INVALID)
+                return
+            if unsettled_model:
+                with self.assertRaises(CampaignCloseRejected):
+                    controller.close(handle, "missing model receipt")
+                self.assertIs(handle.status, CampaignStatus.INVALID)
+                return
+            controller.close(handle, "solo synthetic evaluation complete")
+            self.assertIs(handle.status, CampaignStatus.CLOSED)
+            self.assertTrue(budget.reconcile(actor.campaign_run_id).valid)
 
             self.assertTrue(result.eligible)
             self.assertEqual(result.criterion_units, 1_001_000)
-            self.assertEqual(composite.used_seconds(receipt), 125)
+            self.assertEqual(services.compute.snapshot(actor.campaign_run_id).hidden_used_seconds, 125)
             self.assertEqual(len(correctness_backend.reconcile(outer.campaign_run_id)), 1)
             self.assertEqual(len(quality_backend.reconcile(outer.campaign_run_id)), 6)
             self.assertEqual(
@@ -478,96 +554,3 @@ class CompositeHiddenRealAdapterTests(unittest.TestCase):
                     for item in backend.reconcile(outer.campaign_run_id)
                 )
             )
-
-
-def _phase_reservation(
-    profile: CompositeHiddenEvaluationProfile,
-    outer: EvaluationReservation,
-    phase: HiddenEvaluationPhaseProfile,
-) -> EvaluationReservation:
-    return EvaluationReservation(
-        reservation_id="evaluation-"
-        + digest_value(
-            {
-                "profile_digest": profile.digest,
-                "outer_reservation_id": outer.reservation_id,
-                "phase_digest": phase.digest,
-            }
-        )[7:39],
-        reservation_key=f"{outer.reservation_key}:{phase.name}",
-        campaign_run_id=outer.campaign_run_id,
-        actor_id=None,
-        artifact_ref=outer.artifact_ref,
-        scope=EvaluationScope.HIDDEN,
-        reserved_seconds=phase.reserved_seconds,
-        status=outer.status,
-    )
-
-
-def _quality_run_reservation(
-    profile: QualitySeriesProfile,
-    outer: EvaluationReservation,
-    role: str,
-    repetition: int,
-) -> EvaluationReservation:
-    return EvaluationReservation(
-        reservation_id="evaluation-"
-        + digest_value(
-            {
-                "profile_digest": profile.digest,
-                "outer_reservation_id": outer.reservation_id,
-                "role": role,
-                "repetition": repetition,
-            }
-        )[7:39],
-        reservation_key=f"{outer.reservation_key}:{role}:{repetition}",
-        campaign_run_id=outer.campaign_run_id,
-        actor_id=None,
-        artifact_ref=outer.artifact_ref,
-        scope=EvaluationScope.HIDDEN,
-        reserved_seconds=profile.repetition_reserved_seconds,
-        status=outer.status,
-    )
-
-
-def _performance_run_reservation(
-    profile: PerformanceSeriesProfile,
-    outer: EvaluationReservation,
-    repetition: int,
-) -> EvaluationReservation:
-    return EvaluationReservation(
-        reservation_id="evaluation-"
-        + digest_value(
-            {
-                "profile_digest": profile.digest,
-                "outer_reservation_id": outer.reservation_id,
-                "repetition": repetition,
-            }
-        )[7:39],
-        reservation_key=f"{outer.reservation_key}:performance:{repetition}",
-        campaign_run_id=outer.campaign_run_id,
-        actor_id=None,
-        artifact_ref=outer.artifact_ref,
-        scope=EvaluationScope.HIDDEN,
-        reserved_seconds=profile.repetition_reserved_seconds,
-        status=outer.status,
-    )
-
-
-def _request(
-    execution_key: str,
-    reservation: EvaluationReservation,
-    candidate: bytes,
-    candidate_manifest_digest: str,
-    evaluator_profile_digest: str,
-) -> ComputeExecutionRequest:
-    return ComputeExecutionRequest(
-        execution_key=execution_key,
-        campaign_run_id=reservation.campaign_run_id,
-        reservation_id=reservation.reservation_id,
-        scope=EvaluationScope.HIDDEN,
-        candidate_digest=digest_bytes(candidate),
-        candidate_manifest_digest=candidate_manifest_digest,
-        evaluator_profile_digest=evaluator_profile_digest,
-        maximum_seconds=reservation.reserved_seconds,
-    )

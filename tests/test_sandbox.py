@@ -7,8 +7,11 @@ import platform
 import socket
 import subprocess
 import threading
+import tempfile
 import unittest
 from pathlib import Path
+from dataclasses import replace
+from unittest.mock import patch
 
 from agent_collab_evals.adapters.darwin_sandbox import DarwinSandboxExec
 from agent_collab_evals.sandbox import SandboxLaunchContext, SandboxProfile
@@ -32,15 +35,36 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 
 class SandboxProfileTests(unittest.TestCase):
-    @staticmethod
-    def _context() -> SandboxLaunchContext:
-        root = REPOSITORY_ROOT.resolve()
+    def _context(self) -> SandboxLaunchContext:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        for name in ("workspace", "state", "assets"):
+            (root / name).mkdir()
         return SandboxLaunchContext(
-            workspace_root=root / "campaigns",
-            runtime_state_root=root / "tests",
-            runtime_assets_root=root,
+            workspace_root=root / "workspace",
+            runtime_state_root=root / "state",
+            runtime_assets_root=root / "assets",
             model_endpoint="http://127.0.0.1:9000/v1",
         )
+
+    def test_conformance_fixture_uses_disjoint_directories(self) -> None:
+        context = self._context()
+        roots = (context.workspace_root, context.runtime_state_root, context.runtime_assets_root)
+        self.assertEqual(len(set(roots)), 3)
+        self.assertTrue(all(path.is_dir() for path in roots))
+
+    def test_darwin_does_not_silently_ignore_unix_capability_transport(self) -> None:
+        context = self._context()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        socket_path = Path(temporary.name).resolve() / "candidate.sock"
+        socket_path.touch()
+        with patch("agent_collab_evals.sandbox.stat.S_ISSOCK", return_value=True):
+            context = replace(context, candidate_endpoint="http://127.0.0.1:4319/v1/call", candidate_broker_socket=socket_path)
+        sandbox = DarwinSandboxExec(SandboxProfile.load(PROFILE_PATH))
+        with self.assertRaisesRegex(ValueError, "does not install Unix relays"):
+            sandbox.prepare(("/usr/bin/true",), context, {})
 
     def test_profile_is_pinned_and_direct_provider_endpoint_is_rejected(self) -> None:
         sandbox = DarwinSandboxExec(SandboxProfile.load(PROFILE_PATH))

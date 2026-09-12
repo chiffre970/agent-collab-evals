@@ -5,84 +5,50 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 
 from .adapters.darwin_sandbox import DarwinSandboxExec
 from .adapters.deterministic_model import DeterministicToolModelUpstream
 from .adapters.fake_serving_evaluator import FakeModelServingEvaluator
-from .adapters.local_artifact_storage import LocalArtifactStorage
 from .adapters.local_events import LocalEventSink
 from .adapters.local_snapshots import LocalCampaignSnapshotStore
 from .adapters.opencode_harness import OpenCodeHarnessRuntime, OpenCodeRuntimeProfile
 from .adapters.provider_receipts import OpenRouterReceiptVerifier
 from .adapters.sqlite_budget import SqliteBudgetAccount
-from .adapters.sqlite_compute import SqliteComputeBroker
 from .adapters.sqlite_delivery import SqliteDeliveryOutbox
-from .adapters.sqlite_submissions import SqliteSubmissionRegistry
-from .artifacts import ArtifactStoragePolicy
 from .budget import ActorBudgetAllocation, BudgetPlan
 from .candidate_gateway import CandidateToolGateway
-from .candidate_tools import CandidateTools
+from .candidate_services import CandidateServices, create_solo_candidate_services
 from .campaigns.model_serving import ModelServingCampaign
-from .canonical import canonical_json_bytes, digest_bytes, digest_value
+from .canonical import canonical_json_bytes, digest_value
 from .controller import CampaignController
-from .domain import AgentIdentity, CoordinationCondition, Job, OrganisationSpec, SessionHandle
+from .domain import AgentIdentity, CoordinationCondition, OrganisationSpec
 from .evaluation import ActorComputeAllocation, ComputePlan, SubmissionPolicy
 from .model_gateway import ModelBudgetGateway, ModelGatewayProfile
 from .sandbox import SandboxProfile
-from .service_identity import ServiceIdentityRegistry
-from .session_identity import SessionIdentityRegistry
+from .solo_pilot_materials import materialize_solo_pilot
+from .solo_evaluation_handoff import SoloEvaluationHandoff
 
 
-@dataclass
-class CandidateServices:
-    sessions: SessionIdentityRegistry
-    storage: LocalArtifactStorage
-    compute: SqliteComputeBroker
-    evaluator: FakeModelServingEvaluator
-    submissions: SqliteSubmissionRegistry
-    tools: CandidateTools
-    plan: ComputePlan
-
-
-def create_synthetic_candidate_services(root: Path, campaign: ModelServingCampaign, run_id: str) -> CandidateServices:
-    sessions = SessionIdentityRegistry()
-    services = ServiceIdentityRegistry()
-    service = services.bind("submission_registry")
+def create_synthetic_candidate_services(root: Path, campaign: ModelServingCampaign, run_id: str, *, host_evaluation: bool = False) -> CandidateServices:
     actor = AgentIdentity(run_id, 0)
-    storage = LocalArtifactStorage(
-        root / "artifacts", sessions, services,
-        ArtifactStoragePolicy(32768, 131072, 131072),
-        {"submission_registry": frozenset({"candidate_lifecycle", "hidden_evaluation"})},
-    )
-    storage.open_campaign(run_id, (actor.actor_id,))
     plan = ComputePlan(
         "synthetic-solo-candidate-v1", run_id, 60,
         (ActorComputeAllocation(run_id, actor.actor_id, 60),), 60,
         digest_value({"mode": "synthetic", "run_id": run_id, "actor_seconds": 60, "hidden_seconds": 60}),
     )
-    compute = SqliteComputeBroker(root / "compute.sqlite3", sessions, services, plan, hidden_evaluator_service="submission_registry")
     evaluator = FakeModelServingEvaluator(
         root / "evaluator.sqlite3", campaign,
         {"stock-vllm-0.21.0": 1000000, "vllm-0.21.0-stream-interval-10": 1100000},
         {"stock-vllm-0.21.0": 1000000, "vllm-0.21.0-stream-interval-10": 1050000},
     )
-    submissions = SqliteSubmissionRegistry(root / "submissions.sqlite3", sessions, storage, compute, evaluator, service)
-    bootstrap = sessions.bind(actor, SessionHandle(f"{run_id}-reference-bootstrap"))
-    try:
-        reference = (campaign.root / "reference/candidate.json").read_bytes()
-        artifact = storage.put(bootstrap, reference, "application/json", idempotency_key="reference:optimize-serving")
-        reference_receipt = evaluator.visible_evaluate(reference, None, f"reference:{run_id}")
-        submissions.initialize(run_id, "optimize-serving", (actor.actor_id,), SubmissionPolicy(1, 60), artifact.ref, reference_receipt)
-    finally:
-        sessions.revoke(bootstrap)
-    tools = CandidateTools(
-        sessions, storage, submissions, campaign.validate_candidate_document,
-        campaign_run_id=run_id, job_id="optimize-serving",
-        candidate_policy_digest=campaign.manifest_digest,
+    reference_receipt = evaluator.visible_evaluate(campaign.reference_candidate_path.read_bytes(), None, f"reference:{run_id}")
+    return create_solo_candidate_services(
+        root, campaign, evaluator=evaluator, reference_receipt=reference_receipt,
+        plan=plan, policy=SubmissionPolicy(1, 60),
+        host_evaluation=host_evaluation,
     )
-    return CandidateServices(sessions, storage, compute, evaluator, submissions, tools, plan)
 
 
 class _CandidateModel(DeterministicToolModelUpstream):
@@ -135,7 +101,7 @@ def run_candidate_rehearsal(
     root.mkdir(parents=True, exist_ok=False)
     repository = Path(__file__).resolve().parents[2]
     campaign = ModelServingCampaign.load(campaign_path.resolve())
-    services = create_synthetic_candidate_services(root, campaign, run_id)
+    services = create_synthetic_candidate_services(root, campaign, run_id, host_evaluation=True)
     gateway_profile = ModelGatewayProfile.load(
         repository / "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
         repository_root=repository,
@@ -177,7 +143,7 @@ def run_candidate_rehearsal(
         )
         controller = CampaignController(runtime, LocalEventSink(root / "events"), account, _SyntheticComputeGate(services), SqliteDeliveryOutbox(root / "delivery.sqlite3"))
         handle = controller.start(OrganisationSpec(run_id, CoordinationCondition.SOLO, 1, root / "workspace", gateway.endpoint))
-        material = campaign.materialize(1729)
+        material = materialize_solo_pilot(campaign, 1729)
         for job in material.jobs:
             controller.deliver(handle, job)
         if restart_runtime:
@@ -191,7 +157,7 @@ def run_candidate_rehearsal(
             handle = None
             candidate_gateway.close()
             # Reconstruct services from their durable stores, not the old objects.
-            services = create_synthetic_candidate_services(root, campaign, run_id)
+            services = create_synthetic_candidate_services(root, campaign, run_id, host_evaluation=True)
             candidate_gateway = CandidateToolGateway(services.tools, services.sessions)
             runtime = OpenCodeHarnessRuntime(
                 OpenCodeRuntimeProfile.load(repository / "config/runtime_profiles/opencode-deepseek-v4-flash-development.json"),
@@ -224,8 +190,9 @@ def run_candidate_rehearsal(
                 raise RuntimeError("candidate restart did not preserve the durable lifecycle")
         # Fixed solo release boundary: after the first mission finishes. Agent
         # calls cannot release results or choose this boundary.
-        services.compute.release_visible_results(run_id, actor.actor_id)
-        controller.deliver(handle, Job("read-candidate-result", "Read your released candidate result.", digest_value({"phase": "public-result-v1"}), {}))
+        handoff = SoloEvaluationHandoff(services.submissions, services.compute, run_id)
+        feedback = handoff.evaluate()  # Host call, outside the agent HTTP request.
+        controller.deliver(handle, feedback)
         submissions = services.submissions.close(run_id, "optimize-serving")
         selection = services.submissions.select(submissions)
         services.submissions.evaluate_hidden(selection.receipt, reserved_seconds=60)
@@ -240,6 +207,7 @@ def run_candidate_rehearsal(
             "schema_version": "solo-candidate-rehearsal/v2", "scoreable": False,
             "run_id": run_id, "external_model_calls": 0, "external_compute_executions": 0,
             "evaluation_mode": "synthetic", "synthetic_model_calls": len(upstream.requests),
+            "public_evaluation_execution": "host_after_agent_delivery",
             "tools_called": list(upstream.tool_calls), "used_default": selection.used_default,
             "selection_receipt": selection.receipt.value, "selection_digest": selection.selection_digest,
             "storage_seal_digest": seal.seal_digest,
@@ -248,6 +216,7 @@ def run_candidate_rehearsal(
             "runtime_snapshot_digest": digest_value(result.final_harness_snapshot),
             "candidate_tool_profile_digest": runtime.capabilities()["candidate_tool_profile_digest"],
             "live_evaluation_authorized": False,
+            "task_material_digest": material.material_digest,
             "restart_evidence": restart_evidence,
         }
         _retain(root / "audit.json", audit)

@@ -11,6 +11,7 @@ import signal
 import socket
 import subprocess
 import threading
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -237,11 +238,6 @@ class _Bridge:
         candidate_access: CandidateToolAccess | None = None,
         native_access: CandidateToolAccess | None = None,
     ) -> None:
-        if any(
-            access is not None and access.broker_socket is not None
-            for access in (candidate_access, native_access)
-        ):
-            raise RuntimeError("candidate and native Unix relays are not wired into the runtime yet")
         state_root.mkdir(parents=True, exist_ok=True)
         directory.mkdir(parents=True, exist_ok=True)
         if not gateway_token:
@@ -256,6 +252,8 @@ class _Bridge:
         self._responses: queue.Queue[object] = queue.Queue()
         self._stderr: list[str] = []
         self._lock = threading.Lock()
+        self._termination_lock = threading.Lock()
+        self._terminated = False
         process = process_sandbox.prepare(
             (node, str(_BRIDGE_PATH)),
             SandboxLaunchContext(
@@ -270,6 +268,10 @@ class _Bridge:
                 peer_broker_socket=(
                     peer_access.broker_socket if peer_access is not None else None
                 ),
+                candidate_endpoint=candidate_access.endpoint if candidate_access is not None else None,
+                candidate_broker_socket=candidate_access.broker_socket if candidate_access is not None else None,
+                native_endpoint=native_access.endpoint if native_access is not None else None,
+                native_broker_socket=native_access.broker_socket if native_access is not None else None,
             ),
             environment,
         )
@@ -367,21 +369,45 @@ class _Bridge:
             self._terminate()
 
     def _terminate(self) -> None:
-        # The bridge and its SDK server share a dedicated process group.
-        # Killing only the bridge can leave the server and its tools alive.
-        try:
-            if self._process.poll() is None:
+        # A dead group leader does not imply its server and tools have exited.
+        with self._termination_lock:
+            if self._terminated:
+                return
+            self._unusable = True
+            if self._process.pid <= 1 or self._process.pid == os.getpgrp():
+                raise RuntimeError("bridge does not own a dedicated process group")
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if not self._group_alive():
+                    break
                 try:
-                    os.killpg(self._process.pid, signal.SIGTERM)
+                    os.killpg(self._process.pid, sig)
                 except ProcessLookupError:
                     pass
-                try:
-                    self._process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(self._process.pid, signal.SIGKILL)
-                    self._process.wait(timeout=5)
-        finally:
+                except PermissionError:
+                    # Darwin can report EPERM for an already-empty process group.
+                    if self._group_alive():
+                        raise
+                deadline = time.monotonic() + 5
+                while self._group_alive() and time.monotonic() < deadline:
+                    self._process.poll()  # Reap the leader independently of its children.
+                    time.sleep(0.05)
+            if self._group_alive():
+                raise RuntimeError("bridge process group still has running descendants")
+            self._process.wait(timeout=5)
             self._close_streams()
+            self._terminated = True
+
+    def _group_alive(self) -> bool:
+        self._process.poll()
+        result = subprocess.run(
+            ("/bin/ps", "-axo", "pid=,pgid=,stat="),
+            capture_output=True, text=True, check=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            _, group, status = line.split()
+            if int(group) == self._process.pid and not status.startswith("Z"):
+                return True
+        return False
 
     def _close_streams(self) -> None:
         for stream in (
@@ -934,6 +960,30 @@ class OpenCodeHarnessRuntime:
             rollback.pop_all()
         self._organisations[handle.value] = restored
         return handle
+
+    def rollback_resume(self, organisation: HarnessOrganisation) -> None:
+        """Discard local restore state only after every transport is released."""
+        state = self._organisation(organisation)
+        errors: list[Exception] = []
+        for session in state.sessions.values():
+            for cleanup in (
+                session.bridge.close,
+                lambda session=session: self._gateway_tokens.revoke(session.gateway_token_id, "resume rolled back"),
+                lambda session=session: self._revoke_peer_access(session.peer_access),
+                lambda session=session: self._revoke_candidate_access(session.candidate_access),
+                lambda session=session: self._revoke_native_access(session.native_access),
+            ):
+                try:
+                    cleanup()
+                except Exception as error:
+                    errors.append(error)
+        if errors:
+            # Keep the handle so cleanup can be retried; do not admit new work.
+            state.stopped = True
+            raise ExceptionGroup("resume rollback cleanup failed", errors)
+        for session_id in state.sessions:
+            self._session_to_organisation.pop(session_id, None)
+        self._organisations.pop(organisation.value)
 
     def suspend(self, organisation: HarnessOrganisation) -> HarnessSnapshot:
         """Release local transports after a durable snapshot without closing work."""
