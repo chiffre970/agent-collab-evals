@@ -5,14 +5,19 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.openrouter import OpenRouterUpstream
+from agent_collab_evals.adapters.oci_sandbox import OciSandboxExec, OciSandboxProfile
+from agent_collab_evals.adapters.sqlite_budget import SqliteBudgetAccount
 from agent_collab_evals.adapters.sqlite_compute_spend import SqliteComputeSpendAuthorizationService
 from agent_collab_evals.adapters.sqlite_execution_backend import SqliteComputeBackend
 from agent_collab_evals.canonical import digest_value
+from agent_collab_evals.candidate_gateway import CandidateToolGateway
 from agent_collab_evals.compute_backend import ComputeExecutionStatus, FrozenComputeRunManifest
 from agent_collab_evals.pilot_evidence import retain_document
+from agent_collab_evals.model_gateway import ModelBudgetGateway
+from agent_collab_evals.session_identity import SessionIdentityRegistry
 from agent_collab_evals.solo_live_configuration import LivePilotConfiguration, build_live_stack, make_live_dependencies, prepare_offline_requests
 from agent_collab_evals.solo_pilot_command import run_solo_pilot
 from tests.quality_fixture import REPOSITORY_ROOT, real_hidden_quality_bundle
@@ -99,6 +104,62 @@ class SoloLiveConfigurationTests(unittest.TestCase):
         configuration = LivePilotConfiguration.load(self.config(), REPOSITORY_ROOT)
         with self.assertRaisesRegex(ValueError, "dollar limits"):
             make_live_dependencies(configuration, api_key="unused", process_sandbox=None, authorize=None)
+
+    def oci_configuration(self, **changes):
+        document = json.loads((REPOSITORY_ROOT / "config/pilots/solo-live-oci-v1.json").read_bytes())
+        document.update(hidden_manifest=str(self.bundle.manifest_path), hidden_manifest_digest=self.bundle.manifest_digest)
+        return LivePilotConfiguration.load(self.config(**{**document, **changes}), REPOSITORY_ROOT)
+
+    def test_oci_configuration_is_loadable_but_does_not_enable_execution(self):
+        configuration = self.oci_configuration()
+        self.assertIsInstance(configuration.sandbox, OciSandboxProfile)
+        self.assertFalse(configuration.sandbox.execution_authorized)
+        self.assertFalse(configuration.document["execution_authorized"])
+        with self.assertRaisesRegex(ValueError, "pinned engine identity"):
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=None, authorize=None)
+        with self.assertRaisesRegex(ValueError, "not execution-authorized"):
+            make_live_dependencies(self.oci_configuration(sandbox_engine_identity_digest=digest_value("engine")),
+                api_key="unused", process_sandbox=None, authorize=None)
+
+    def test_oci_binding_includes_engine_identity_and_uses_unix_gateways(self):
+        engine_digest = digest_value("test-only-engine")
+        configuration = self.oci_configuration(sandbox_engine_identity_digest=engine_digest)
+        # Construction fixture only: no container or paid transport is started.
+        profile = replace(configuration.sandbox, execution_authorized=True, status="registered",
+            unresolved_gates=(), image_reference="test/runtime", image_digest=digest_value("image"))
+        configuration = replace(configuration, sandbox=profile)
+        sandbox = OciSandboxExec(profile, Path("/usr/bin/true"), engine_digest)
+        different = OciSandboxExec(profile, Path("/usr/bin/true"), digest_value("different-engine"))
+        with self.assertRaisesRegex(ValueError, "sandbox differs"):
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=different, authorize=lambda *args: None)
+        with patch.object(LivePilotConfiguration, "hidden_bundle", return_value=self.bundle):
+            dependencies = make_live_dependencies(configuration, api_key="unused", process_sandbox=sandbox, authorize=lambda *args: None)
+        model, candidate = dependencies.gateway_options(self.root)
+        for options, label in ((model, "model"), (candidate, "candidate")):
+            self.assertIs(options["serve_http"], False)
+            self.assertEqual(options["unix_socket_root"], self.root / "brokers" / label)
+            self.assertEqual(options["advertised_endpoint"], getattr(profile, f"container_{label}_endpoint"))
+        self.assertEqual(dependencies.sandbox_evidence["sandbox_profile_digest"], sandbox.profile_digest)
+        self.assertNotEqual(sandbox.profile_digest, profile.resolved_digest)
+        account = SqliteBudgetAccount(self.root / "budget.sqlite3", configuration.gateway.rate_card)
+        with (patch("agent_collab_evals.model_gateway.ThreadingHTTPServer", side_effect=AssertionError("no TCP listener")),
+              patch("agent_collab_evals.candidate_gateway.ThreadingHTTPServer", side_effect=AssertionError("no TCP listener"))):
+            model_gateway = ModelBudgetGateway(configuration.gateway, account, configuration.model_upstream("unused"), **model)
+            self.addCleanup(model_gateway.close)
+            candidate_gateway = CandidateToolGateway(Mock(), SessionIdentityRegistry(), **candidate)
+            self.addCleanup(candidate_gateway.close)
+        self.assertEqual(model_gateway.endpoint, profile.container_model_endpoint)
+        self.assertEqual(candidate_gateway.endpoint, profile.container_candidate_endpoint)
+
+    def test_oci_engine_binding_rejects_invalid_or_inapplicable_values(self):
+        for value in (True, "sha256:bad", 12):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "engine identity digest"):
+                self.oci_configuration(sandbox_engine_identity_digest=value)
+        with self.assertRaisesRegex(ValueError, "only valid for an OCI"):
+            self.oci_configuration(sandbox_profile=self.document["sandbox_profile"],
+                sandbox_engine_identity_digest=digest_value("engine"))
+        with self.assertRaisesRegex(ValueError, "configuration v2"):
+            LivePilotConfiguration.load(self.config(sandbox_profile="config/enforcement_profiles/oci-opencode-v0-candidate.json"), REPOSITORY_ROOT)
 
 
 if __name__ == "__main__":

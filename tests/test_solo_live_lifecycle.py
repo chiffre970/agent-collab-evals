@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -61,6 +62,21 @@ class SoloLiveLifecycleTests(unittest.TestCase):
         self.assertFalse(audit["scoreable"])
         self.assertTrue(audit["budget_reconciliation"]["valid"])
         self.cleanup.assert_not_called()
+
+    def test_live_lifecycle_forwards_broker_options_and_retains_sandbox_binding(self):
+        model_options = {"serve_http": False, "unix_socket_root": self.root / "model", "advertised_endpoint": "http://127.0.0.1:4317/v1"}
+        candidate_options = {"serve_http": False, "unix_socket_root": self.root / "candidate", "advertised_endpoint": "http://127.0.0.1:4319/v1/call"}
+        evidence = {"sandbox_profile_digest": digest_value("engine-bound-sandbox")}
+        self.dependencies = replace(self.dependencies,
+            gateway_options=lambda root: (model_options, candidate_options), sandbox_evidence=evidence)
+        with (patch("agent_collab_evals.solo_pilot_command.ModelBudgetGateway", return_value=Mock(endpoint="fake://model")) as model,
+              patch("agent_collab_evals.solo_pilot_command.CandidateToolGateway") as candidate):
+            _execute_solo_pilot(self.config, self.root, "broker-options", REPOSITORY, self.campaign,
+                self.gateway, self.runtime, self.sandbox, live=self.dependencies)
+        self.assertEqual(model.call_args.kwargs, model_options)
+        self.assertEqual(candidate.call_args.kwargs, candidate_options)
+        retained = json.loads((self.root / "broker-options/run-config.json").read_bytes())
+        self.assertEqual(retained["runtime_sandbox_evidence"], evidence)
 
     def test_actor_failure_runs_remote_cleanup_and_retains_unresolved_status(self):
         with patch.object(_SyntheticCandidateHarness, "deliver", side_effect=RuntimeError("test failure")):

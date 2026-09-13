@@ -46,12 +46,16 @@ class LivePilotDependencies:
     harness: Callable
     model_limit_usd_nanos: int
     public_seconds: int
+    gateway_options: Callable | None = None
+    sandbox_evidence: dict | None = None
 
     def __post_init__(self):
         if any(type(value) is not int or value < 1 for value in (self.model_limit_usd_nanos, self.public_seconds)):
             raise ValueError("live pilot model and compute limits must be positive integers")
         if any(not callable(value) for value in (self.build_stack, self.upstream, self.authorize, self.cleanup, self.harness)):
             raise ValueError("live pilot requires explicit host factories and authorization")
+        if self.gateway_options is not None and not callable(self.gateway_options):
+            raise ValueError("live gateway options require a host factory")
 
 
 class _SyntheticCandidateHarness(FakeHarnessRuntime):
@@ -142,6 +146,8 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             for item in sorted((repository / "src/agent_collab_evals").rglob("*.py"))}),
         "git_commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True).stdout.strip(),
         "git_dirty": bool(subprocess.run(["git", "status", "--porcelain"], cwd=repository, check=True, capture_output=True, text=True).stdout)}
+    if live is not None:
+        bindings["runtime_sandbox_evidence"] = live.sandbox_evidence
     config_digest = retain_document(root / "run-config.json", bindings)
     if candidate_bytes is not None:
         retain_bytes(root / "synthetic-input-candidate.json", candidate_bytes)
@@ -191,8 +197,9 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             model=gateway_profile.expected_returned_model, provider=gateway_profile.expected_provider, peer_actor_count=1))
         endpoint = "fake://no-spend"
         if live is not None:
-            gateway = ModelBudgetGateway(gateway_profile, budget, upstream)
-            candidate_gateway = CandidateToolGateway(services.tools, services.sessions)
+            model_options, candidate_options = live.gateway_options(root) if live.gateway_options else ({}, {})
+            gateway = ModelBudgetGateway(gateway_profile, budget, upstream, **model_options)
+            candidate_gateway = CandidateToolGateway(services.tools, services.sessions, **candidate_options)
             runtime = live.harness(root, services, gateway, candidate_gateway)
             endpoint = gateway.endpoint
         elif config["runtime"] == "opencode":

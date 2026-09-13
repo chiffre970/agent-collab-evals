@@ -547,6 +547,27 @@ Updated September 12, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
+Deployment/cost proposal: [first solo pilot](SOLO_PILOT_PROPOSAL.md). Lifecycle
+and cleanup are committed in `050b382`. The current recommendation is a local
+Linux VM with the existing rootless OCI adapter. The user approved setup and
+a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter); paid execution
+still requires verified deployment and enforceable controls.
+Public provider metadata has been checked; authenticated routing/latency and
+deployment conformance have not. Lima 2.2.0 is installed, and the pinned local
+VM is provisioned without host mounts or credential forwarding. Rootless Docker
+29.8.0 and systemd/cgroup v2 are verified; a base container reports the expected
+CPU, memory, swap, and process limits. Full OpenCode image conformance is still
+pending. The runtime image is built and pinned locally, and OpenCode 1.18.19
+passes a no-network version check. Rootless mapped workspace/socket permissions
+and three transitive dependency advisories must be addressed before the full
+session check. Bootstrap observations are retained in
+`evidence/deployment/local-oci-bootstrap-20260912.json`. OCI configuration
+loading, engine-bound sandbox identity, dedicated Unix gateways, and retained
+runtime sandbox evidence are now wired into the existing pilot. The candidate
+remains execution-disabled and has no qualified engine/image. Modal resource
+ceilings and run-bound dollar admission still need wiring. Validation: 343 tests
+ran, 323 passed, and 20 skipped; the OCI offline composition check also passed.
+
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
    held-out evaluator phases, durable routing/authorization, and closure in one
@@ -556,14 +577,15 @@ safety controls or registered-study requirements.
    commits this implementation and the preceding cleanup fixes. The same
    entrypoint now supports an offline live-config check with real OpenRouter
    and Modal factories. The shared lifecycle now has live dependency wiring
-   and retained abort cleanup, tested without paid calls. Next, qualify the
+   and retained abort cleanup, tested without paid calls. Next, resolve the
+   mapped UID permissions and dependency advisories, then qualify the
    isolated deployment, current provider/billing route, and remote cancellation;
-   confirm the complete dollar envelope and bind its enforcement to the operator
+   bind the approved total dollar envelope's enforcement to the operator
    gate. Live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place
    of that work.
-2. **Then: one bounded exploratory run, after approval.** Confirm the dollar
-   envelope, deployment boundary, evaluator policy, and stop conditions before
+2. **Then: one bounded exploratory run, within conditional approval.** Verify the
+   dollar enforcement, deployment boundary, evaluator policy, and stop conditions before
    paid execution. Include startup, evaluation, retries, and cleanup in the
    envelope. Retain quality/correctness, performance against the reference,
    API/GPU costs, elapsed time, failures, and limitations. A synthetic candidate

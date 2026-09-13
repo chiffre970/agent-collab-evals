@@ -1,0 +1,71 @@
+{
+  "schema_version": "local-oci-bootstrap-observation/v1",
+  "authority": "development_observation_only",
+  "date": "2026-09-12",
+  "execution_authorized": false,
+  "conformance_complete": false,
+  "lima_version": "2.2.0",
+  "vm_config": "config/deployment/solo-lima.yaml",
+  "vm_config_sha256": "3a079d8819b88e95fc3e3a45298a032929c02dc807515318c0b74adfb49eef05",
+  "vm_image_digest": "sha256:7df0201546f75b8bcc1044594c806c35749421ad3c9bc1be2a3ab806cfae39cc",
+  "kernel": "6.8.0-134-generic",
+  "architecture": "arm64",
+  "guest_uid": 1000,
+  "engine": {
+    "docker_version": "29.8.0",
+    "docker_commit": "3ce5872",
+    "containerd_version": "v2.3.5",
+    "runc_version": "1.5.1",
+    "rootlesskit_version": "3.1.0",
+    "security_options": ["name=seccomp,profile=builtin", "name=rootless", "name=cgroupns"],
+    "cgroup_driver": "systemd",
+    "cgroup_version": "2",
+    "delegated_controllers": ["cpuset", "cpu", "io", "memory", "pids"],
+    "minimal_environment_info_check": "passed",
+    "binary_sha256": {
+      "/usr/bin/docker": "b9c23604c8043def5d1235efaa36464a34e4e30fe84fd4dd4eb25bd6d1de9b45",
+      "/usr/bin/dockerd": "3a699717ec78f96bcb144853543db9465bffc347e5930fc20a95b9ec1b6b65a7",
+      "/usr/bin/rootlesskit": "44eba782f288aee568aa400137033b9884aed878f6b29e6e1a40830ec26d7fd4"
+    }
+  },
+  "resource_observation": {
+    "image": "node@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5",
+    "container_uid": 1000,
+    "network_mode": "none",
+    "cpu_max": "200000 100000",
+    "memory_max": "4294967296",
+    "memory_swap_max": "0",
+    "pids_max": "256"
+  },
+  "runtime_image": {
+    "reference": "agent-collab/opencode-runtime",
+    "digest": "sha256:9586106b78b99d8dbdf54b6933124bce8fb71f9196cc472a58443001cbc5c946",
+    "dockerfile_sha256": "b08e1ba0496176d3a54b306a043c850cfac3885bbbf6ebd794ea25a14ef84702",
+    "package_lock_sha256": "4b3f55bbf1299d8b1f73a06342188a4b664a5c27ea2640ce86df59187f152c20",
+    "configured_user": "1000:1000",
+    "opencode_version": "1.18.19",
+    "version_check_network": "none",
+    "version_check_home": "writable_tmpfs",
+    "published": false
+  },
+  "workspace_observation": {
+    "source": "new_empty_controller_owned_directory",
+    "container_owner_uid_gid": "0:0",
+    "container_mode": "775",
+    "container_user_uid_gid": "1000:1000",
+    "container_user_write_access": false,
+    "status": "mapped_ownership_or_acl_preparation_required"
+  },
+  "dependency_audit": {
+    "source": "npm audit --omit=dev --json",
+    "high": ["fast-uri@3.1.5"],
+    "moderate": ["hono@4.13.3", "qs@6.15.3"],
+    "status": "review_or_remediation_pending"
+  },
+  "limitations": [
+    "Operator-recorded bootstrap observations, not independently verified registration authority.",
+    "Cgroup values were read inside the base container; no stress or escape tests were performed.",
+    "The image builds and its version check passes, but session mounts, broker access, and cleanup still require conformance.",
+    "No model-provider or GPU calls were made."
+  ]
+}

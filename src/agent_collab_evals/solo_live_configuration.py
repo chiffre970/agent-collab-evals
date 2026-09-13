@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import tempfile
 
 from .adapters.compute_candidate_evaluator import ComputeCandidateEvaluationProfile
@@ -10,6 +11,7 @@ from .adapters.modal_vllm_correctness_compute import ModalVllmCorrectnessCliTran
 from .adapters.modal_vllm_performance_compute import ModalVllmHiddenPerformanceEvidenceResolver, ModalVllmHiddenPerformanceProfile
 from .adapters.modal_vllm_quality_compute import ModalVllmQualityCliTransport, ModalVllmQualityEvidenceResolver, ModalVllmQualityProfile
 from .adapters.opencode_harness import OpenCodeRuntimeProfile
+from .adapters.oci_sandbox import OciSandboxExec, OciSandboxProfile
 from .adapters.openrouter import OpenRouterUpstream
 from .adapters.sqlite_compute_routes import ComputeRouteAdapter
 from .adapters.sqlite_compute_spend import SqliteComputeSpendAuthorizationService
@@ -35,7 +37,7 @@ class LivePilotConfiguration:
     campaign: ModelServingCampaign
     gateway: ModelGatewayProfile
     runtime: OpenCodeRuntimeProfile
-    sandbox: SandboxProfile
+    sandbox: SandboxProfile | OciSandboxProfile
     public_compute: ModalVllmComputeProfile
     hidden_manifest: Path
     modal_cli: Path
@@ -47,9 +49,11 @@ class LivePilotConfiguration:
             "gateway_profile", "runtime_profile", "sandbox_profile", "public_compute_profile",
             "hidden_manifest", "hidden_manifest_digest", "modal_cli", "phase_seconds",
             "model_limit_usd_nanos", "modal_limit_usd_nanos", "task_seed", "runtime_timeout_seconds"}
+        if isinstance(document, dict) and document.get("schema_version") == "solo-live-configuration/v2":
+            expected.add("sandbox_engine_identity_digest")
         if not isinstance(document, dict) or set(document) != expected:
             raise ValueError("live pilot configuration fields differ")
-        if document["schema_version"] != "solo-live-configuration/v1" or document["execution_mode"] != "live":
+        if document["schema_version"] not in {"solo-live-configuration/v1", "solo-live-configuration/v2"} or document["execution_mode"] != "live":
             raise ValueError("unsupported live pilot configuration")
         if document["execution_authorized"] is not False:
             raise ValueError("live pilot execution is disabled pending approval and deployment")
@@ -78,7 +82,22 @@ class LivePilotConfiguration:
         campaign = ModelServingCampaign.load(repo_path("campaign"))
         gateway = ModelGatewayProfile.load(repo_path("gateway_profile"), repository_root=repository)
         runtime = OpenCodeRuntimeProfile.load(repo_path("runtime_profile"), repository_root=repository)
-        sandbox = SandboxProfile.load(repo_path("sandbox_profile"))
+        sandbox_path = repo_path("sandbox_profile")
+        sandbox_document = parse_json(sandbox_path.read_text())
+        if not isinstance(sandbox_document, dict):
+            raise ValueError("sandbox profile must be an object")
+        if sandbox_document.get("schema_version") == "oci-process-sandbox-profile/v2":
+            if document["schema_version"] != "solo-live-configuration/v2":
+                raise ValueError("OCI sandbox requires live configuration v2")
+            sandbox = OciSandboxProfile.load(sandbox_path, repository_root=repository)
+        else:
+            sandbox = SandboxProfile.load(sandbox_path)
+        engine_digest = document.get("sandbox_engine_identity_digest")
+        if engine_digest is not None:
+            if not isinstance(sandbox, OciSandboxProfile):
+                raise ValueError("engine identity is only valid for an OCI sandbox")
+            if not isinstance(engine_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", engine_digest):
+                raise ValueError("sandbox engine identity digest is invalid")
         public = ModalVllmComputeProfile.load(repo_path("public_compute_profile"), repository_root=repository)
         if gateway.status != "development" or runtime.status != "development":
             raise ValueError("live exploratory pilot requires development model profiles")
@@ -126,7 +145,16 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
 
     if any(configuration.document[field] is None for field in ("model_limit_usd_nanos", "modal_limit_usd_nanos")):
         raise ValueError("live execution requires explicit model and Modal dollar limits")
-    if process_sandbox.profile_digest != configuration.sandbox.resolved_digest:
+    sandbox = configuration.sandbox
+    expected_sandbox_digest = sandbox.resolved_digest
+    if isinstance(sandbox, OciSandboxProfile):
+        engine_digest = configuration.document.get("sandbox_engine_identity_digest")
+        if engine_digest is None:
+            raise ValueError("live OCI execution requires a pinned engine identity")
+        if not sandbox.execution_authorized:
+            raise ValueError("live OCI sandbox is not execution-authorized")
+        expected_sandbox_digest = OciSandboxExec.profile_digest_for(sandbox, engine_digest)
+    if process_sandbox.profile_digest != expected_sandbox_digest:
         raise ValueError("live runtime sandbox differs from configuration")
     hidden = configuration.hidden_bundle()
     policy = configuration.campaign.quality_policy()
@@ -140,9 +168,17 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
             process_sandbox=process_sandbox, candidate_gateway=candidate_gateway,
             timeout_seconds=configuration.document["runtime_timeout_seconds"])
 
+    def gateway_options(root):
+        if not isinstance(sandbox, OciSandboxProfile):
+            return {}, {}
+        return tuple({"serve_http": False, "unix_socket_root": root / "brokers" / label,
+                      "advertised_endpoint": getattr(sandbox, f"container_{label}_endpoint")}
+                     for label in ("model", "candidate"))
+
     return LivePilotDependencies(stack, lambda: configuration.model_upstream(api_key), authorize,
         lambda stack: stack.inventory.cleanup(canceller), harness,
-        configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"])
+        configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"],
+        gateway_options=gateway_options, sandbox_evidence=process_sandbox.evidence())
 
 
 def build_live_stack(root, configuration, run_id, hidden, policy):
@@ -244,9 +280,9 @@ def check_live_pilot(config_path: Path, repository: Path) -> dict:
         "planned_reserved_seconds": reserved_seconds, "hidden_reserved_seconds": stack.hidden_seconds,
         "actual_spend_usd_nanos": 0,
         "remaining_gates": ["live operator authority gate remains disabled; cancellation needs live qualification",
-            "explicit run-bound model and Modal dollar-budget approval",
+            "durable binding and enforcement of the approved model and Modal dollar envelope",
             "current provider route and billing qualification",
-            "isolated deployment: current Darwin sandbox does not restrict filesystem or local services"],
+            "isolated deployment: pinned OCI image/engine and live boundary conformance"],
         "billing_note": "Function allowances are not provider-billed time or a dollar spending cap."}
 
 

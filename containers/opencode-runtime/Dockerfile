@@ -8,7 +8,10 @@ RUN apt-get update \
 
 WORKDIR /opt/agent-collab/runtime
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev \
+# Bound both downloads and lifecycle scripts. OpenCode's installer can retry
+# platform binaries; an unavailable binary must fail the build, not hang it.
+RUN timeout --kill-after=10s 300s npm ci --omit=dev --ignore-scripts \
+    && timeout --kill-after=10s 120s npm rebuild --foreground-scripts \
     && npm cache clean --force
 
 COPY scripts/runtime/opencode_bridge.mjs ./opencode_bridge.mjs

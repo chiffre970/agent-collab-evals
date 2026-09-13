@@ -325,10 +325,16 @@ class OciSandboxExec:
 
     @property
     def profile_digest(self) -> str:
+        return self.profile_digest_for(self._profile, self._engine_identity_digest)
+
+    @staticmethod
+    def profile_digest_for(profile: OciSandboxProfile, engine_identity_digest: str) -> str:
+        if not _DIGEST.fullmatch(engine_identity_digest):
+            raise ValueError("OCI engine identity digest is invalid")
         return digest_value(
             {
-                "profile_digest": self._profile.resolved_digest,
-                "engine_identity_digest": self._engine_identity_digest,
+                "profile_digest": profile.resolved_digest,
+                "engine_identity_digest": engine_identity_digest,
             }
         )
 

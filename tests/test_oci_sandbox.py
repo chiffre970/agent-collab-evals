@@ -192,6 +192,8 @@ class OciSandboxTests(unittest.TestCase):
         )
         self.assertIn(profile.bridge_executable, dockerfile)
         self.assertIn(profile.launcher_executable, dockerfile)
+        self.assertIn("timeout --kill-after=10s 300s npm ci --omit=dev --ignore-scripts", dockerfile)
+        self.assertIn("timeout --kill-after=10s 120s npm rebuild --foreground-scripts", dockerfile)
         self.assertIn(
             "COPY scripts/runtime/peer_tool_server.mjs ./peer_tool_server.mjs",
             dockerfile,
