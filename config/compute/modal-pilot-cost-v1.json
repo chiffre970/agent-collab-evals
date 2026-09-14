@@ -1,0 +1,11 @@
+{
+  "schema_version": "modal-pilot-cost/v1",
+  "observed_on": "2026-09-14",
+  "source_urls": ["https://modal.com/pricing", "https://modal.com/docs/guide/resources", "https://modal.com/docs/guide/timeouts", "https://modal.com/docs/guide/preemption"],
+  "l4_usd_nanos_per_second": 222000,
+  "cpu_core_usd_nanos_per_second": 13100,
+  "memory_gib_usd_nanos_per_second": 2220,
+  "cleanup_margin_seconds": 60,
+  "shared_overhead_allowance_usd_nanos": 1000000000,
+  "provider_billing_cap_verified": false
+}

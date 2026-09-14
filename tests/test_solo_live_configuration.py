@@ -16,6 +16,8 @@ from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.candidate_gateway import CandidateToolGateway
 from agent_collab_evals.compute_backend import ComputeExecutionStatus, FrozenComputeRunManifest
 from agent_collab_evals.pilot_evidence import retain_document
+from agent_collab_evals.pilot_spend import PilotSpendEnvelope
+from agent_collab_evals.pilot_spend_guard import PilotSpendGuard
 from agent_collab_evals.model_gateway import ModelBudgetGateway
 from agent_collab_evals.session_identity import SessionIdentityRegistry
 from agent_collab_evals.solo_live_configuration import LivePilotConfiguration, build_live_stack, make_live_dependencies, prepare_offline_requests
@@ -47,8 +49,8 @@ class SoloLiveConfigurationTests(unittest.TestCase):
             groups = prepare_offline_requests(stack, configuration)
             self.assertEqual(len(adapters), 6)
             self.assertEqual(sum(len(group) for _, group in groups), 12)
-            self.assertEqual(stack.hidden_seconds, 9600)
-            self.assertEqual(sum(request.maximum_seconds for _, group in groups for request in group), 13200)
+            self.assertEqual(stack.hidden_seconds, 18000)
+            self.assertEqual(sum(request.maximum_seconds for _, group in groups for request in group), 21600)
             self.assertIsInstance(configuration.model_upstream("test-only-credential"), OpenRouterUpstream)
             for index, (key, requests) in enumerate(groups):
                 adapter = adapters[key]
@@ -103,7 +105,7 @@ class SoloLiveConfigurationTests(unittest.TestCase):
     def test_live_dependency_factory_requires_budgets_before_loading_private_inputs(self):
         configuration = LivePilotConfiguration.load(self.config(), REPOSITORY_ROOT)
         with self.assertRaisesRegex(ValueError, "dollar limits"):
-            make_live_dependencies(configuration, api_key="unused", process_sandbox=None, authorize=None)
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=None)
 
     def oci_configuration(self, **changes):
         document = json.loads((REPOSITORY_ROOT / "config/pilots/solo-live-oci-v1.json").read_bytes())
@@ -116,15 +118,15 @@ class SoloLiveConfigurationTests(unittest.TestCase):
         self.assertFalse(configuration.sandbox.execution_authorized)
         self.assertFalse(configuration.document["execution_authorized"])
         with self.assertRaisesRegex(ValueError, "pinned engine identity"):
-            make_live_dependencies(configuration, api_key="unused", process_sandbox=None, authorize=None)
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=None)
         with self.assertRaisesRegex(ValueError, "not execution-authorized"):
             make_live_dependencies(self.oci_configuration(sandbox_engine_identity_digest=digest_value("engine")),
-                api_key="unused", process_sandbox=None, authorize=None)
+                api_key="unused", process_sandbox=None)
         with self.assertRaisesRegex(ValueError, "not execution-authorized"):
             make_live_dependencies(self.oci_configuration(
                 sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v1.json",
                 sandbox_engine_identity_digest=digest_value("engine")),
-                api_key="unused", process_sandbox=None, authorize=None)
+                api_key="unused", process_sandbox=None)
 
     def test_oci_binding_includes_engine_identity_and_uses_unix_gateways(self):
         engine_digest = digest_value("test-only-engine")
@@ -136,9 +138,14 @@ class SoloLiveConfigurationTests(unittest.TestCase):
         sandbox = OciSandboxExec(profile, Path("/usr/bin/true"), engine_digest)
         different = OciSandboxExec(profile, Path("/usr/bin/true"), digest_value("different-engine"))
         with self.assertRaisesRegex(ValueError, "sandbox differs"):
-            make_live_dependencies(configuration, api_key="unused", process_sandbox=different, authorize=lambda *args: None)
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=different)
+        with self.assertRaisesRegex(ValueError, "shared pilot spend guard"):
+            make_live_dependencies(configuration, api_key="unused", process_sandbox=sandbox)
+        plan = json.loads((REPOSITORY_ROOT / "config/pilots/solo-spend-envelope-v1.json").read_bytes())
+        guard = PilotSpendGuard(configuration, PilotSpendEnvelope(self.root / "admission", plan), "pilot-test")
         with patch.object(LivePilotConfiguration, "hidden_bundle", return_value=self.bundle):
-            dependencies = make_live_dependencies(configuration, api_key="unused", process_sandbox=sandbox, authorize=lambda *args: None)
+            dependencies = make_live_dependencies(configuration, api_key="unused", process_sandbox=sandbox, spend_guard=guard)
+        self.assertIs(dependencies.spend_guard, guard)
         model, candidate = dependencies.gateway_options(self.root)
         for options, label in ((model, "model"), (candidate, "candidate")):
             self.assertIs(options["serve_http"], False)
@@ -165,6 +172,65 @@ class SoloLiveConfigurationTests(unittest.TestCase):
                 sandbox_engine_identity_digest=digest_value("engine"))
         with self.assertRaisesRegex(ValueError, "configuration v2"):
             LivePilotConfiguration.load(self.config(sandbox_profile="config/enforcement_profiles/oci-opencode-v0-candidate.json"), REPOSITORY_ROOT)
+
+    def test_shared_spend_guard_precedes_real_durable_compute_authority(self):
+        configuration = self.oci_configuration()
+        plan = json.loads((REPOSITORY_ROOT / "config/pilots/solo-spend-envelope-v1.json").read_bytes())
+        envelope = PilotSpendEnvelope(self.root / "admission", plan)
+        envelope.reserve(operation_key="route-check", provider="openrouter", purpose="qualification",
+            request_digest=digest_value("qualification"), maximum_usd_nanos=100_000_000)
+        guard = PilotSpendGuard(configuration, envelope, "offline-check")
+        binding = digest_value("retained-run-config")
+        with patch("subprocess.run", side_effect=AssertionError("no subprocess expected")):
+            stack, _ = build_live_stack(self.root / "stack", configuration, "offline-check", self.bundle, self.policy)
+            groups = prepare_offline_requests(stack, configuration)
+            key, requests = groups[0]
+            request = requests[0]
+            route = stack.inventory.register(key, requests)
+            with self.assertRaisesRegex(PermissionError, "no matching run"):
+                guard.authorize(stack, request, binding)
+            guard.begin("offline-check", binding)
+            with self.assertRaisesRegex(RuntimeError, "already admitted"):
+                PilotSpendGuard(configuration, envelope, "offline-check").begin("offline-check", binding)
+            grant = guard.authorize(stack, request, binding)
+            source, spend = stack.inventory._source(route)
+            self.assertEqual(spend.status(grant.authorization_id), "issued")
+            spend.consume(request, source.manifest.transport_profile_digest)
+            guard.authorize(stack, request, binding)  # No second debit or consumption.
+            self.assertEqual(spend.status(grant.authorization_id), "consumed")
+            self.assertEqual(len(envelope.snapshot()["receipts"]), 4)
+            self.assertEqual(envelope.snapshot()["remaining_usd_nanos"]["openrouter"], 0)
+            self.assertIsNone(envelope.snapshot()["actual_spend_usd_nanos"])
+            for key, requests in groups:
+                route = stack.inventory.register(key, requests)
+                source, spend = stack.inventory._source(route)
+                for request in requests:
+                    grant = guard.authorize(stack, request, binding)
+                    if spend.status(grant.authorization_id) == "issued":
+                        spend.consume(request, source.manifest.transport_profile_digest)
+            snapshot = envelope.snapshot()
+            self.assertEqual(len(snapshot["receipts"]), 15)
+            self.assertEqual(snapshot["reserved_usd_nanos"]["modal"], 10_192_960_000)
+            self.assertEqual(snapshot["remaining_usd_nanos"]["modal"], 1_757_040_000)
+            # Qualification + a full $3 model allowance must fail before authority.
+            full = replace(configuration, document={**configuration.document, "model_limit_usd_nanos": 3_000_000_000})
+            with self.assertRaisesRegex(PermissionError, "exhausted"):
+                PilotSpendGuard(full, envelope, "second-run").begin("second-run", digest_value("other"))
+
+    def test_failed_compute_issuance_does_not_refund_its_admission(self):
+        configuration = self.oci_configuration()
+        plan = json.loads((REPOSITORY_ROOT / "config/pilots/solo-spend-envelope-v1.json").read_bytes())
+        envelope = PilotSpendEnvelope(self.root / "admission", plan)
+        guard = PilotSpendGuard(configuration, envelope, "offline-check")
+        binding = digest_value("run-config")
+        guard.begin("offline-check", binding)
+        stack, _ = build_live_stack(self.root / "stack", configuration, "offline-check", self.bundle, self.policy)
+        request = prepare_offline_requests(stack, configuration)[0][1][0]
+        with patch.object(stack.inventory, "authorize", side_effect=RuntimeError("issuance interrupted")):
+            with self.assertRaisesRegex(RuntimeError, "issuance interrupted"):
+                guard.authorize(stack, request, binding)
+        restarted = PilotSpendEnvelope(self.root / "admission", plan)
+        self.assertEqual(restarted.snapshot()["reserved_usd_nanos"]["modal"], 1_766_080_000)
 
 
 if __name__ == "__main__":

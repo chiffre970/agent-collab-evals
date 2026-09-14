@@ -1,0 +1,10 @@
+{
+  "schema_version": "pilot-spend-envelope/v1",
+  "plan_id": "first-solo-qualification-and-pilot",
+  "total_limit_usd_nanos": 15000000000,
+  "provider_limits_usd_nanos": {
+    "modal": 11950000000,
+    "openrouter": 3000000000
+  },
+  "accounting": "irrevocable_admission_allowances_not_actual_billing"
+}

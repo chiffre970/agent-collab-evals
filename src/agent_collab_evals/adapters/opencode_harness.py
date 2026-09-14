@@ -275,18 +275,24 @@ class _Bridge:
             ),
             environment,
         )
-        self._process = subprocess.Popen(
-            process.command,
-            cwd=process.working_directory,
-            env=process.environment,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-            start_new_session=True,
-        )
+        self._sandbox_cleanup = process.cleanup
+        try:
+            self._process = subprocess.Popen(
+                process.command,
+                cwd=process.working_directory,
+                env=process.environment,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                bufsize=1,
+                start_new_session=True,
+            )
+        except Exception:
+            if self._sandbox_cleanup is not None:
+                self._sandbox_cleanup()
+            raise
         self._stdout_thread = threading.Thread(target=self._read_stdout, daemon=True)
         self._stderr_thread = threading.Thread(target=self._read_stderr, daemon=True)
         self._stdout_thread.start()
@@ -377,24 +383,30 @@ class _Bridge:
             self._unusable = True
             if self._process.pid <= 1 or self._process.pid == os.getpgrp():
                 raise RuntimeError("bridge does not own a dedicated process group")
-            for sig in (signal.SIGTERM, signal.SIGKILL):
-                if not self._group_alive():
-                    break
-                try:
-                    os.killpg(self._process.pid, sig)
-                except ProcessLookupError:
-                    pass
-                except PermissionError:
-                    # Darwin can report EPERM for an already-empty process group.
-                    if self._group_alive():
-                        raise
-                deadline = time.monotonic() + 5
-                while self._group_alive() and time.monotonic() < deadline:
-                    self._process.poll()  # Reap the leader independently of its children.
-                    time.sleep(0.05)
-            if self._group_alive():
-                raise RuntimeError("bridge process group still has running descendants")
-            self._process.wait(timeout=5)
+            try:
+                for sig in (signal.SIGTERM, signal.SIGKILL):
+                    if not self._group_alive():
+                        break
+                    try:
+                        os.killpg(self._process.pid, sig)
+                    except ProcessLookupError:
+                        pass
+                    except PermissionError:
+                        # Darwin can report EPERM for an already-empty process group.
+                        if self._group_alive():
+                            raise
+                    deadline = time.monotonic() + 5
+                    while self._group_alive() and time.monotonic() < deadline:
+                        self._process.poll()  # Reap the leader independently of its children.
+                        time.sleep(0.05)
+                if self._group_alive():
+                    raise RuntimeError("bridge process group still has running descendants")
+                self._process.wait(timeout=5)
+            finally:
+                # OCI monitors can live outside the client's process group.
+                # Run this before closing streams that their children may hold.
+                if self._sandbox_cleanup is not None:
+                    self._sandbox_cleanup()
             self._close_streams()
             self._terminated = True
 

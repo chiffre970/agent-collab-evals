@@ -6,7 +6,7 @@ import stat
 from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .canonical import digest_file, digest_value, load_json
 
@@ -83,6 +83,8 @@ class SandboxedProcess:
     working_directory: Path
     environment: Mapping[str, str]
     runtime_assets_root: Path | None = None
+    # Host-owned teardown for resources that can outlive the subprocess group.
+    cleanup: Callable[[], None] | None = None
 
     def __post_init__(self) -> None:
         if self.runtime_assets_root is not None and not self.runtime_assets_root.is_absolute():

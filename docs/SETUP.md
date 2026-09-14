@@ -202,11 +202,27 @@ spend authority. The run ID is unused in check mode. The private workload must
 already be available at the configured path; this command does not download it.
 
 The live config references the pinned model/provider, runtime, sandbox, public
-compute profile, and hidden manifest outside `.env`. Dollar budgets are `null`
-pending approval. Per-phase second allocations are proposals, not billing
-estimates, execution timeouts, or dollar caps. The current plan reserves 13,200
-seconds across public reference, public candidate, correctness, six quality
-executions, and three performance executions.
+compute profile, and hidden manifest outside `.env`. The historical Darwin
+config retains null dollar limits; the OCI candidate allocates $2.90 for the
+model within a shared $3 OpenRouter/$12 Modal envelope. All 12 phase allocations
+now match the pinned 1,800-second function timeout: 21,600 seconds across public
+reference, public candidate, correctness, six quality executions, and three
+performance executions. They are not billed seconds. The offline check reports
+a resource-derived admission estimate, including startup and overhead, and
+explicitly reports that the provider billing cap is unverified.
+
+`PilotSpendGuard` connects the live lifecycle to one host-private
+`PilotSpendEnvelope` journal. It reserves model capacity before reference compute
+and debits each compute allowance before issuing durable dispatch authority.
+Provider-route and model-gateway qualification commands require that same
+journal through `--spend-envelope`. Run qualification and the pilot on the same
+controller; do not initialize separate Mac and VM journals. The route command
+reserves $0.05 and the gateway canary reserves $0.01. These commands do not
+verify the outer provider cap; complete that operational check before execution.
+The Modal qualification path still needs its journal binding. Failure does not refund capacity;
+automatic restart of an admitted run is rejected. The operator CLI still cannot
+run live work. For the current limits and remaining billing checks, see the
+[solo pilot proposal](SOLO_PILOT_PROPOSAL.md).
 
 A passing check proves local composition, not provider availability, deployment
 containment, cancellation, or cost qualification. The current Darwin sandbox
@@ -289,7 +305,7 @@ Run one explicit live canary with a hard $0.01 gateway account and a 64-token
 output limit:
 
 ```bash
-npm run preflight:model-gateway
+npm run preflight:model-gateway -- --spend-envelope .private/solo-spend/first-solo
 ```
 
 The current canary normally costs much less than one cent. It records a key-free
@@ -342,13 +358,14 @@ npm run snapshot:provider-sources
 
 Review and update the policy's snapshot path before qualifying a route. The
 source command writes no credential and retains both compressed-file and raw
-response digests.
+response digests. It creates timestamped, write-once manifests and snapshots;
+it does not replace historical evidence or switch the active policy or gateway.
 
-To repeat the three-probe selected-route qualification under its hard `$0.05`
-gateway cap, run:
+After verifying the outer provider cap, run the three-probe route qualification
+with its `$0.05` gateway allowance and the shared pilot journal:
 
 ```bash
-npm run qualify:provider-route
+npm run qualify:provider-route -- --spend-envelope .private/solo-spend/first-solo
 ```
 
 The qualification sends two identical text probes and one forced tool-call
@@ -431,13 +448,23 @@ Verify Modal execution and authenticate to Hugging Face from a CPU container:
 .venv/bin/modal run -e dev scripts/preflight/modal_access.py
 ```
 
-After that succeeds, explicitly request a short, billable L4 allocation check:
+For the approved pilot, run the bounded GPU qualification only after verifying
+the workspace usage cap and controller deployment. Use the same journal for
+qualification and the pilot; do not initialize a separate journal on the Mac
+and VM. This is billable and admits two calls once:
 
 ```bash
-.venv/bin/modal run -e dev scripts/preflight/modal_access.py --gpu
+.venv/bin/modal run -e dev scripts/preflight/modal_access.py --gpu \
+  --spend-envelope .private/solo-spend/first-solo
 ```
 
-The GPU check only invokes `nvidia-smi`; it does not download a model.
+The first call checks the L4 with `nvidia-smi`. The second holds a running call
+briefly so the controller can request cancellation and observe quiescence.
+Neither downloads a model or receives secrets. The journal reserves $1.53216
+before dispatch and retains results and exact call IDs under `modal-access-v1`.
+Failures keep the allowance and stop the sequence. Observed quiescence is not
+proof of final billing or conformance of the full model-serving evaluator.
+This qualification has passed no-spend tests but has not run against Modal.
 
 Run the separate, billable stock-reference smoke check with:
 

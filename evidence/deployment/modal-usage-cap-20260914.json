@@ -1,0 +1,23 @@
+{
+  "schema_version": "modal-workspace-budget-observation/v1",
+  "verification_kind": "user_supplied_dashboard_screenshots",
+  "observed_on": "2026-09-14",
+  "workspace": "chiffre970",
+  "workspace_dedicated": true,
+  "plan": "Starter",
+  "billing_cycle_start": "2026-09-01",
+  "billing_cycle_end_exclusive": "2026-10-01",
+  "gross_usage_limit_usd_nanos": 12500000000,
+  "displayed_cycle_usage_usd_nanos": 540000000,
+  "conservative_remaining_allowance_usd_nanos": 11950000000,
+  "limit_label": "Usage limit — Set by you",
+  "limit_screenshot_sha256": "5c812244c9cf263614fcb0d40959d04d2c171a06180a241db23acaae0d3cf2d1",
+  "usage_screenshot_sha256": "dcefacaac7b22811029d7f23732e8b8759520fd6ffd8b54a6dcd48a7cbfe8bca",
+  "provider_cutoff_exercised": false,
+  "limitations": [
+    "Usage is displayed to cents; the local allowance leaves a rounding margin.",
+    "This records the saved setting, not real-time billing or a tested cutoff.",
+    "Reverify before crossing the billing-cycle boundary or changing the limit.",
+    "Original screenshots were supplied in the conversation; digests identify those attachments."
+  ]
+}

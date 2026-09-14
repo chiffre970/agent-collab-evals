@@ -8,11 +8,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from agent_collab_evals.adapters.oci_sandbox import OciSandboxExec, OciSandboxProfile
-from agent_collab_evals.adapters.opencode_harness import OpenCodeRuntimeProfile, _runtime_config
-from agent_collab_evals.canonical import digest_file, digest_value
-from agent_collab_evals.solo_pilot_command import make_opencode_runtime_dependencies, run_solo_pilot
+from agent_collab_evals.adapters.opencode_harness import OpenCodeRuntimeProfile, _Bridge, _runtime_config
+from agent_collab_evals.canonical import digest_bytes, digest_file, digest_value
+from agent_collab_evals.solo_pilot_command import PilotAborted, make_opencode_runtime_dependencies, run_solo_pilot
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -21,6 +22,28 @@ PROFILE = REPOSITORY / "config/enforcement_profiles/oci-opencode-podman-developm
 
 
 class OciPilotConfigurationTests(unittest.TestCase):
+    def test_retained_cleanup_observation_preserves_abort_and_normal_results(self):
+        record = json.loads((REPOSITORY / "evidence/deployment/oci-solo-cleanup-20260914.json").read_text())
+        self.assertFalse(record["registered_conformance_complete"])
+        self.assertEqual(len(record["runs"]), 2)
+        for run in record["runs"]:
+            for name in ("audit", "configuration"):
+                self.assertEqual(digest_value(run[name]), "sha256:" + run[name + "_raw_sha256"])
+            for name in ("container_observation", "engine_identity"):
+                self.assertEqual(digest_bytes((json.dumps(run[name], indent=2) + "\n").encode()),
+                    "sha256:" + run[name + "_raw_sha256"])
+            self.assertEqual(run["audit"]["run_config_digest"], digest_value(run["configuration"]))
+            self.assertFalse(run["configuration"]["git_dirty"])
+            self.assertEqual(run["audit"]["actual_spend_usd_nanos"], 0)
+            self.assertFalse(run["audit"]["scoreable"])
+            observation = run["container_observation"]
+            self.assertEqual(observation["new_containers_remaining"], [])
+            self.assertEqual(observation["cgroup_limits"], ["200000 100000", "4294967296", "0", "256"])
+            expected_status = "aborted" if observation["forced_bridge_stop"] else "complete"
+            self.assertEqual(run["audit"]["status"], expected_status)
+            if observation["forced_bridge_stop"]:
+                self.assertTrue(observation["container_after_client_exit"])
+
     def test_retained_observation_resolves_audit_and_runtime_bindings(self):
         record = json.loads((REPOSITORY / "evidence/deployment/oci-solo-conformance-20260913.json").read_text())
         for name in ("pilot_audit", "run_configuration"):
@@ -59,6 +82,12 @@ class OciPilotConfigurationTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("RUN_OCI_PILOT_INTEGRATION") == "1", "enable local Linux/Podman integration")
 class OciPilotIntegrationTests(unittest.TestCase):
     def test_complete_existing_pilot_without_model_or_gpu_spend(self):
+        self._run_pilot(force_stop=False)
+
+    def test_forced_bridge_stop_aborts_pilot_and_removes_its_container(self):
+        self._run_pilot(force_stop=True)
+
+    def _run_pilot(self, *, force_stop):
         engine = Path("/usr/bin/podman")
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"}
 
@@ -80,10 +109,48 @@ class OciPilotIntegrationTests(unittest.TestCase):
         sandbox = OciSandboxExec(profile, engine, digest_value(identity))
         runtime = OpenCodeRuntimeProfile.load(REPOSITORY / "config/runtime_profiles/opencode-deepseek-v4-flash-development.json")
         dependencies = make_opencode_runtime_dependencies(runtime, profile, sandbox, timeout_seconds=120)
+        observation = {"forced_bridge_stop": force_stop}
+        original_request = _Bridge.request
+
+        def observe_request(bridge, operation, **payload):
+            if operation == "find_prompt" and "container_name" not in observation:
+                cleanup = bridge._sandbox_cleanup
+                self.assertTrue(cleanup._exists())
+                details = json.loads(command("inspect", cleanup.name))[0]
+                self.assertTrue(details["State"]["Running"])
+                host = details["HostConfig"]
+                self.assertTrue(host["ReadonlyRootfs"])
+                self.assertEqual(host["NetworkMode"], "none")
+                self.assertIn("no-new-privileges", " ".join(host["SecurityOpt"]))
+                cgroups = command("exec", cleanup.name, "/bin/cat",
+                    "/sys/fs/cgroup/cpu.max", "/sys/fs/cgroup/memory.max",
+                    "/sys/fs/cgroup/memory.swap.max", "/sys/fs/cgroup/pids.max").splitlines()
+                self.assertEqual(cgroups, ["200000 100000", "4294967296", "0", "256"])
+                observation.update(container_name=cleanup.name, cgroup_limits=cgroups,
+                    read_only_root=host["ReadonlyRootfs"], network_mode=host["NetworkMode"],
+                    security_options=host["SecurityOpt"], mounts=details["Mounts"])
+                if force_stop:
+                    # Interrupt only this launch's attached engine client. The
+                    # production abort path must clean up its detached monitor.
+                    bridge._process.kill()
+                    bridge._process.wait(timeout=5)
+                    observation["container_after_client_exit"] = cleanup._exists()
+                    raise RuntimeError("injected bridge interruption before first prompt")
+            return original_request(bridge, operation, **payload)
+
         with tempfile.TemporaryDirectory(prefix="ace-", dir="/tmp") as directory:
             root = Path(directory)
             try:
-                result = run_solo_pilot(CONFIG, root, "pilot", runtime_dependencies=dependencies)
+                with patch.object(_Bridge, "request", observe_request):
+                    if force_stop:
+                        with self.assertRaises(PilotAborted):
+                            run_solo_pilot(CONFIG, root, "pilot", runtime_dependencies=dependencies)
+                        audit = json.loads((root / "pilot/audit.json").read_text())
+                        self.assertEqual(audit["status"], "aborted")
+                        self.assertFalse(audit["scoreable"])
+                        self.assertIn("container_after_client_exit", observation)
+                        return
+                    result = run_solo_pilot(CONFIG, root, "pilot", runtime_dependencies=dependencies)
                 audit = json.loads(Path(result["audit_path"]).read_text())
                 self.assertEqual(audit["status"], "complete")
                 self.assertEqual(audit["execution_mode"], "no_spend")
@@ -104,6 +171,8 @@ class OciPilotIntegrationTests(unittest.TestCase):
                 shutil.copytree(root, retained)
                 (retained / "engine-identity.json").write_text(json.dumps(identity, indent=2) + "\n")
                 after = set(command("ps", "--all", "--quiet", "--no-trunc").splitlines())
+                observation["new_containers_remaining"] = sorted(after - before)
+                (retained / "container-observation.json").write_text(json.dumps(observation, indent=2) + "\n")
                 print(json.dumps({"retained_evidence": str(retained), "new_containers_remaining": sorted(after - before)}))
                 self.assertEqual(after - before, set(), "pilot left a container behind")
 

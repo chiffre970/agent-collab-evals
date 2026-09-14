@@ -13,12 +13,12 @@
   "modal_cli": ".venv/bin/modal",
   "phase_seconds": {
     "public": 1800,
-    "correctness": 600,
-    "quality": 600,
+    "correctness": 1800,
+    "quality": 1800,
     "performance": 1800
   },
-  "model_limit_usd_nanos": 3000000000,
-  "modal_limit_usd_nanos": 12000000000,
+  "model_limit_usd_nanos": 2900000000,
+  "modal_limit_usd_nanos": 11950000000,
   "task_seed": 1729,
   "runtime_timeout_seconds": 900
 }

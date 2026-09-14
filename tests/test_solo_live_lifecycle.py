@@ -88,6 +88,24 @@ class SoloLiveLifecycleTests(unittest.TestCase):
         self.assertEqual(audit["remote_cleanup"][0]["status"], "cancellation_requested")
         self.assertFalse(audit["remote_cleanup"][0]["terminal_confirmed"])
 
+    def test_spend_admission_precedes_reference_and_failure_retains_audit(self):
+        guard = Mock()
+        guard.evidence.return_value = {"plan_digest": digest_value("test-plan")}
+        guard.begin.side_effect = PermissionError("envelope exhausted")
+        guard.snapshot.return_value = {"remaining_usd_nanos": {"modal": 0, "openrouter": 0}}
+        build = Mock(side_effect=AssertionError("reference must not start"))
+        upstream = Mock(side_effect=AssertionError("provider must not start"))
+        self.dependencies = replace(self.dependencies, spend_guard=guard, build_stack=build, upstream=upstream)
+        with self.assertRaises(PilotAborted):
+            self.run_pilot()
+        build.assert_not_called()
+        upstream.assert_not_called()
+        audit = json.loads((self.root / "live-branch-test/audit.json").read_bytes())
+        self.assertEqual(audit["failure"]["stage"], "spend_admission")
+        self.assertEqual(audit["spend_admission"], guard.snapshot.return_value)
+        binding = json.loads((self.root / "live-branch-test/run-config.json").read_bytes())
+        self.assertEqual(binding["spend_admission"], guard.evidence.return_value)
+
     def test_cleanup_error_does_not_suppress_aborted_audit(self):
         self.cleanup.side_effect = TimeoutError()
         with patch.object(_SyntheticCandidateHarness, "deliver", side_effect=RuntimeError("test failure")):

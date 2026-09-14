@@ -83,6 +83,7 @@ class LivePilotDependencies:
     public_seconds: int
     gateway_options: Callable | None = None
     sandbox_evidence: dict | None = None
+    spend_guard: object | None = None
 
     def __post_init__(self):
         if any(type(value) is not int or value < 1 for value in (self.model_limit_usd_nanos, self.public_seconds)):
@@ -201,6 +202,8 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
         "git_dirty": bool(subprocess.run(["git", "status", "--porcelain"], cwd=repository, check=True, capture_output=True, text=True).stdout)}
     if runtime_wiring is not None:
         bindings["runtime_sandbox_evidence"] = runtime_wiring.sandbox_evidence
+    if live is not None and live.spend_guard is not None:
+        bindings["spend_admission"] = live.spend_guard.evidence()
     config_digest = retain_document(root / "run-config.json", bindings)
     if candidate_bytes is not None:
         retain_bytes(root / "synthetic-input-candidate.json", candidate_bytes)
@@ -223,6 +226,10 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             stack.inventory.authorize(request, approval_reference=f"no-spend-command:{config_digest}")
 
     try:
+        if live is not None and live.spend_guard is not None:
+            stage = "spend_admission"
+            live.spend_guard.begin(run_id, config_digest)
+        stage = "reference"
         stack = (live.build_stack(root / "evaluation", run_id) if live is not None else
             build_no_spend_stack(root / "evaluation", campaign, run_id, repository,
                 candidate_public_ppm=config["synthetic_candidate_public_ppm"]))
@@ -333,6 +340,12 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
                     except BaseException as caught:
                         error = error or caught
                         audit["cleanup_failure"] = type(caught).__name__
+    if live is not None and live.spend_guard is not None:
+        try:
+            audit["spend_admission"] = live.spend_guard.snapshot()
+        except Exception as caught:
+            error = error or caught
+            audit["spend_admission_failure"] = type(caught).__name__
     if error is not None:
         audit["status"] = "aborted"
         if live is not None and stack is not None:

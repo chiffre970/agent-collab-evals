@@ -120,7 +120,7 @@ budget-bounded canary with:
 
 ```bash
 npm run check:model-gateway
-npm run preflight:model-gateway
+npm run preflight:model-gateway -- --spend-envelope .private/solo-spend/first-solo
 ```
 
 Run the loopback proxy and stock-OpenCode proof:

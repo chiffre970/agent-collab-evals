@@ -1,0 +1,23 @@
+{
+  "schema_version": "modal-billing-observation/v1",
+  "workspace": "chiffre970",
+  "billing_month": "2026-09",
+  "observed_on": "2026-09-14",
+  "command": "modal billing summary --for 2026-09 --json",
+  "response": {
+    "metered_cost": "0.83550918",
+    "billed_cost": "0E-8",
+    "adjustments": {
+      "plan_cost": "0E-8",
+      "free_storage": "-0.29550918",
+      "reservation_adjustment": "-0E-8",
+      "credits": "-0.54000000"
+    },
+    "metered_cost_breakdown": {
+      "ephemeral_apps": "0.53624190",
+      "llm_tokens": "0E-8",
+      "volumes": "0.29550918"
+    }
+  },
+  "limitations": "Read-only account summary, not per-run attribution or proof of cutoff enforcement. Workspace attribution uses the configured CLI account and the user's dashboard."
+}

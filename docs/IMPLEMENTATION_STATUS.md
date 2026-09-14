@@ -543,12 +543,13 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated September 13, 2026. This sequencing update supersedes earlier "next"
+Updated September 14, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
 Deployment/cost proposal: [first solo pilot](SOLO_PILOT_PROPOSAL.md). Lifecycle
 and cleanup are committed in `050b382`; initial OCI wiring/setup in `d13e96f`.
+The no-spend Podman pilot and dependency follow-up are committed in `fd0a7f8`.
 The current recommendation is a local
 Linux VM with the existing rootless OCI adapter. The user approved setup and
 a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter); paid execution
@@ -563,12 +564,45 @@ left after normal teardown. Both runtime modes use the same broker/sandbox
 wiring; image-relative paths now locate container tools and plugins correctly.
 Evidence: `evidence/deployment/oci-solo-conformance-20260913.json`.
 
+The next follow-up adds exact launch-owned container cleanup, independently of
+the bridge process group, with verified absence and retryable cleanup errors.
+Both real Linux/OCI tests passed: normal completion and an injected bridge-client
+exit before the first prompt. The container survived its client but was removed
+by the production abort path. The aborted run remains unscoreable; its final
+checkpoint was unavailable. Cgroup files confirmed 2 CPUs, 4 GiB, zero swap, and
+256 processes. Evidence: `evidence/deployment/oci-solo-cleanup-20260914.json`.
+This does not test controller/VM loss or interruption during container creation.
+
 This is no-spend development conformance, not registered qualification. The
-live factory rejects the development profile. Forced-stop cleanup, remaining
-deployment boundaries, current provider/billing qualification, Modal resource
-ceilings, and run-bound dollar admission still gate paid work. Validation:
-347 tests ran, 326 passed, and 21 skipped. The separately enabled Linux/OCI
-and Mac/OpenCode full-pilot tests both passed. No paid calls were made.
+live factory rejects the development profile. The next offline follow-up pins
+Modal GPU CPU/memory settings and startup timeout, caps evidence-helper resources,
+and aligns all 12 live phase allowances with the 1,800-second function timeout.
+The shared admission journal and concrete live spend guard debit model capacity
+before reference compute and compute allowances before durable authority. Failed
+issuance burns the allowance; automatic run restart cannot reset model capacity.
+The full 12-request composition passes without paid calls.
+
+The offline pilot plan reserves $10.19296 of the $11.95 local Modal allowance, including a $1
+overhead reserve. OpenRouter allocates $2.90 to the pilot and leaves $0.10 for
+qualification. These are admitted allowances, not verified billing caps: GPU
+preemption restarts, soft CPU throttling, and timeout overshoot require an outer
+provider gross-usage limit. Provider-route and model-gateway qualification now
+require the same journal and reserve $0.05/$0.01 before provider access, without
+automatic retry. The existing Modal access preflight now reserves $1.53216 for
+two bounded GPU calls in the same journal before dispatch. It retains exact call
+IDs and observes running-call cancellation and quiescence. Failure stops the
+sequence without refund. These observations do not prove final billing or the
+full scored evaluator boundary. The saved $12.50 workspace usage cap and $0.54
+baseline are retained in September 14 dashboard and read-only billing evidence.
+Current route/billing qualification, live Modal settings/cancellation, and
+remaining deployment checks still gate paid work. The September 14 source refresh
+retains new immutable endpoint/ZDR evidence without changing the selected route.
+DeepInfra remains the cheapest declared candidate, but its current input price
+differs from the active historical billing catalog; pin a current profile before
+paid qualification. Validation: 369 tests ran,
+347 passed, and 22 skipped. The Mac/OpenCode no-spend pilot also passed previously. The prior
+Linux/OCI tests passed separately; these
+new Modal settings have not been executed remotely. No paid calls were made.
 
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
@@ -580,10 +614,11 @@ and Mac/OpenCode full-pilot tests both passed. No paid calls were made.
    entrypoint now supports an offline live-config check with real OpenRouter
    and Modal factories. The shared lifecycle now has live dependency wiring
    and retained abort cleanup, tested without paid calls. The full OCI no-spend
-   session also passes. Next, finish the remaining deployment checks and qualify
-   the current provider/billing route and remote cancellation;
-   bind the approved total dollar envelope's enforcement to the operator
-   gate. Live mode remains disabled.
+   session and bridge-client interruption cleanup also pass. The resource and
+   admission follow-up is implemented offline. The saved workspace gross usage
+   cap is verified, and Modal qualification uses the shared journal. Next, finish remaining
+   deployment checks, and qualify the current provider/billing route and remote
+   cancellation. Live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place
    of that work.
 2. **Then: one bounded exploratory run, within conditional approval.** Verify the
@@ -1073,6 +1108,8 @@ follow-up is described next.
   planners. The live check plans public reference/candidate, hidden correctness,
   six paired quality executions, and three performance executions. Their
   proposed allowances total 13,200 seconds, including 9,600 hidden seconds.
+  The September 14 pilot update supersedes these proposed allocations with
+  21,600 total and 18,000 hidden seconds to match function timeouts.
   These are reservations, not measured use, execution timeouts, or dollar caps.
 - Model/provider/runtime, Modal deployment references, hidden manifest digest,
   phase allocations, and proposed dollar limits are outside `.env`. Both dollar

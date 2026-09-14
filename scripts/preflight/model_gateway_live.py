@@ -22,6 +22,7 @@ from agent_collab_evals.canonical import (
 )
 from agent_collab_evals.domain import SessionHandle
 from agent_collab_evals.model_gateway import ModelBudgetGateway, ModelGatewayProfile
+from agent_collab_evals.pilot_spend import admit_openrouter_qualification
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -35,12 +36,15 @@ CANARY_BUDGET_USD_NANOS = 10_000_000
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
+    parser.add_argument("--spend-envelope", type=Path, help="existing shared pilot admission directory; required for --execute")
     parser.add_argument(
         "--execute",
         action="store_true",
         help="send one live request; without this flag the command spends nothing",
     )
     args = parser.parse_args()
+    if args.execute and args.spend_envelope is None:
+        raise ValueError("--execute requires --spend-envelope shared with the solo pilot")
     profile_path = args.profile.resolve()
     profile_root = (REPOSITORY_ROOT / "config/gateway_profiles").resolve()
     if profile_path.parent != profile_root:
@@ -59,7 +63,7 @@ def main() -> int:
                     "profile_id": profile.profile_id,
                     "profile_digest": profile.resolved_digest,
                     "maximum_budget_usd_nanos": CANARY_BUDGET_USD_NANOS,
-                    "next": "rerun with --execute to send one live request",
+                    "next": "after verifying the outer usage cap, use --execute --spend-envelope <shared-pilot-directory>",
                 },
                 indent=2,
             )
@@ -69,6 +73,10 @@ def main() -> int:
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is missing")
+    admission = admit_openrouter_qualification(REPOSITORY_ROOT, args.spend_envelope,
+        operation_key="qualification:model-gateway-v1",
+        request_digest=digest_value({"gateway": profile.resolved_digest, "probe_count": 1}),
+        maximum_usd_nanos=CANARY_BUDGET_USD_NANOS)
 
     started = datetime.now(UTC)
     campaign_run_id = "model-gateway-live-canary"
@@ -174,6 +182,7 @@ def main() -> int:
             {
                 "ok": True,
                 "executed": True,
+                "spend_admission_digest": digest_value(admission),
                 "provider": usage.provider_name,
                 "returned_model": usage.returned_model,
                 "metadata_model": usage.metadata_model,

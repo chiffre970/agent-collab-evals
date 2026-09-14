@@ -308,6 +308,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         bridge._lock = threading.Lock()
         bridge._termination_lock = threading.Lock()
         bridge._terminated = False
+        bridge._sandbox_cleanup = Mock()
         bridge._stdout_thread = Thread()
         bridge._stderr_thread = Thread()
 
@@ -318,6 +319,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         ):
             bridge.request("never_returns")
         self.assertTrue(bridge._unusable)
+        bridge._sandbox_cleanup.assert_called_once_with()
         self.assertEqual(bridge._process.return_code, -15)
         with self.assertRaisesRegex(RuntimeError, "not running"):
             bridge.request("next")
@@ -327,6 +329,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         bridge._process = Mock(pid=12345)
         bridge._termination_lock = threading.Lock()
         bridge._terminated = False
+        bridge._sandbox_cleanup = Mock()
         with (
             patch.object(bridge, "_group_alive", return_value=True),
             patch.object(bridge, "_close_streams") as close,
@@ -338,6 +341,24 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in kill.call_args_list], [signal.SIGTERM, signal.SIGKILL])
         close.assert_not_called()
         self.assertFalse(bridge._terminated)
+        bridge._sandbox_cleanup.assert_called_once_with()
+
+    def test_container_cleanup_failure_is_retryable_and_not_success(self) -> None:
+        bridge = object.__new__(_Bridge)
+        bridge._process = Mock(pid=12345)
+        bridge._termination_lock = threading.Lock()
+        bridge._terminated = False
+        bridge._sandbox_cleanup = Mock(side_effect=[RuntimeError("container remains"), None])
+        with patch.object(bridge, "_group_alive", return_value=False), patch.object(bridge, "_close_streams") as close:
+            with self.assertRaisesRegex(RuntimeError, "container remains"):
+                bridge._terminate()
+            self.assertFalse(bridge._terminated)
+            close.assert_not_called()
+            bridge._terminate()
+            self.assertTrue(bridge._terminated)
+            close.assert_called_once_with()
+            bridge._terminate()
+            self.assertEqual(bridge._sandbox_cleanup.call_count, 2)
 
     @unittest.skipUnless(os.environ.get("RUN_OPENCODE_INTEGRATION") == "1", "enable local process cleanup integration")
     def test_cleanup_reaps_group_after_bridge_leader_exits(self) -> None:
@@ -351,6 +372,7 @@ class OpenCodeRuntimeProfileTests(unittest.TestCase):
         bridge._process = process
         bridge._termination_lock = threading.Lock()
         bridge._terminated = False
+        bridge._sandbox_cleanup = None
         bridge._stdout_thread = Mock()
         bridge._stderr_thread = Mock()
         try:

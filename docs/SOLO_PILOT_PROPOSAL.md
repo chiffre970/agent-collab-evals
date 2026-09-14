@@ -58,10 +58,29 @@ Deployment progress:
    or spend. No containers remained. The retained observation is
    `evidence/deployment/oci-solo-conformance-20260913.json`; the full generated
    evidence remains private under `tmp/oci-pilot-conformance/ace-z__8hnoz`.
-3. **Next: remaining execution gates.** Qualify forced-stop cleanup and the
-   remaining deployment boundaries; bind the approved dollar envelope, Modal
-   resource ceilings, and current provider/billing qualification before paid
-   execution. The live candidate remains disabled. The process-only
+3. **Complete: bridge-client interruption cleanup.** Each launch receives a
+   host-generated container name. Teardown removes only that container and
+   verifies absence, even after the attached client exits. Both the normal
+   and interrupted no-spend pilot tests passed. The interrupted container
+   outlived its client; the production abort path removed it and retained an
+   unscoreable, aborted result. Its checkpoint was unavailable, recorded as a
+   shutdown error. The running container's cgroup limits also matched the
+   profile. Evidence: `evidence/deployment/oci-solo-cleanup-20260914.json`.
+   Controller/VM loss and interruption during container creation remain outside
+   this check; the cleanup handle is held by the live controller.
+4. **Complete offline: resource settings and shared dollar admission.** GPU
+   functions request and limit CPU to four physical cores and memory to 16 GiB,
+   with an explicit 600-second container startup timeout. Evidence helpers use
+   one core and 1 GiB. All 12 evaluation allowances now match the 1,800-second
+   function timeout. A shared, append-only journal accounts for qualification,
+   overhead, and pilot allowances before durable compute authority is issued.
+   Model capacity is reserved before reference compute. Failed attempts do not
+   refund capacity; automatic run restart is disabled. Tests exercise all 12
+   requests against the real durable authorization service without dispatch.
+5. **Next: remaining execution gates.** Verify the provider's gross-usage cap,
+   qualify the current model route/billing and bounded Modal cancellation, and
+   finish remaining deployment checks. The changed Modal settings still need
+   live verification. The live candidate remains disabled. The process-only
    `development_conformance` profile is explicitly rejected by the live factory.
 
 The current image is
@@ -117,6 +136,12 @@ before paid execution. Keep the current historical catalog immutable.
 
 ## Conditionally approved budget: US$15 gross usage
 
+The user confirmed on September 14, 2026, that Modal workspace `chiffre970`
+is dedicated to this experiment. Workspace scope is resolved; the current
+billing-cycle gross usage, existing usage limit, and applied cap still need
+verification. No connected browser was available to inspect the dashboard.
+Do not treat this scope confirmation as evidence that the cap is configured.
+
 - Modal: $12 total, including setup, one bounded cancellation qualification,
   the public reference/candidate, hidden evaluations, and cleanup overhead.
 - OpenRouter: $3 total for route qualification and the one agent attempt.
@@ -125,28 +150,81 @@ before paid execution. Keep the current historical catalog immutable.
   if a top-up is necessary. Do not purchase credits automatically.
 
 Published Modal task rates are $0.000222/L4-second, $0.0000131/physical-core-second,
-and $0.00000222/GiB-second. The 13,200 planned evaluation seconds cost $2.9304 for
-the GPU alone. Assuming four physical CPU cores and 16 GiB RAM throughout, the
-combined illustration is $4.09; twelve full 1,800-second function timeouts would
-be $6.69. A further 600 seconds per invocation adds about $2.23 under that same
-resource assumption. These are calculations, not observed charges or hard upper
-bounds. Source: [Modal pricing](https://modal.com/pricing).
+and $0.00000222/GiB-second, checked September 14, 2026. The live pilot now
+reserves 21,600 function seconds, including 18,000 hidden seconds. The offline
+estimate includes 600 startup seconds per GPU invocation, a 60-second margin,
+and one bounded CPU evidence-persistence invocation per execution. It reserves
+$0.76608 per evaluation and $1 of shared overhead: $10.19296 for all 12
+evaluations, leaving $1.80704 of the Modal envelope for qualification. Overhead
+is reserved for setup, warm-up, storage, and cleanup; it is not measured usage.
+Source: [Modal pricing](https://modal.com/pricing).
 
-The current functions do not pin CPU/memory ceilings, and some ledger allowances
-are shorter than their function timeout. Pin resource requests/limits and include
-startup, platform retries, storage, and cleanup in admission estimates before
-treating the proposal as an enforceable envelope. Modal bills the greater of
-requested and used CPU/memory; requesting a minimum is not a maximum.
-[Modal resource configuration](https://modal.com/docs/guide/resources).
+These are admission estimates, not invoice guarantees. CPU throttling is soft;
+memory limits are hard. Execution timeouts exclude container startup and can
+overshoot. GPU preemption can restart work independently of the application's
+retry policy. Repeated evidence-helper dispatch and platform restarts therefore
+remain covered by the required outer provider usage cap, not a claim that one
+local reservation proves a maximum invoice.
+[Modal resource configuration](https://modal.com/docs/guide/resources),
+[Modal timeouts](https://modal.com/docs/guide/timeouts),
+[Modal preemption](https://modal.com/docs/guide/preemption).
+
+`config/pilots/solo-spend-envelope-v1.json` pins a conservative $11.95 Modal
+allowance and the approved $3 OpenRouter allowance. All future
+qualification and pilot operations must use the same host-private
+`PilotSpendEnvelope` directory. Receipts are immutable and fsynced under a
+cross-process lock; retries cannot alter an operation's allowance. The production
+live factory requires a concrete `PilotSpendGuard`, rather than an arbitrary
+authorization callback. This journal assumes a trusted host and is not an
+independently anchored billing ledger or registered-study authority. Do not
+delete it or create a fresh directory to recover budget. The existing provider
+route and model-gateway qualification commands now require `--spend-envelope`,
+reserving $0.05 and $0.01 respectively. Each command is one-shot for that journal;
+failure keeps its reservation and a repeated invocation fails before provider
+access. Run them on the pilot's controller, not against separate Mac/VM journals.
+The existing Modal access preflight now uses the same journal for GPU
+qualification. It reserves $1.53216 before either of two calls: a device check
+and a running-call cancellation check. Both calls have explicit CPU, memory,
+startup, and execution limits, no secrets or volumes, and blocked network access.
+It retains dispatch intent, exact call IDs, results, cancellation requests, and
+resource observations. Failed or ambiguous dispatch and cleanup stop the
+sequence without refund or automatic retry. Function statistics are observational;
+they do not prove final billing or qualify the full scored evaluator boundary.
+The qualification plus the planned pilot reserve $11.72512, leaving $0.22488
+unallocated under the local Modal allowance.
+
+The OCI pilot's model allowance is $2.90, leaving $0.10 for route qualification
+within the $3 total. Neither adapter construction nor the offline cost profile
+verifies a provider billing cap or opens the operator gate.
 
 Use gross usage before promotional credits when comparing experiments. Modal
-workspace budgets apply to the billing cycle, not one run; environment budgets
-and programmatic billing reports require Team/Enterprise. Confirm the actual
-account plan and prior cycle usage rather than assuming these APIs are available.
+workspace budgets apply to the billing cycle, not one run. Environment budgets
+require Team/Enterprise. The installed billing-summary command worked on this
+Starter workspace; do not assume every billing endpoint has the same availability.
 Do not upgrade a plan for this pilot. If necessary, retain dashboard billing
 evidence after it settles and label unresolved cost explicitly.
 [Modal budgets](https://modal.com/docs/guide/budgets),
 [Modal billing](https://modal.com/docs/guide/billing).
+
+On September 14, the user supplied dashboard evidence that the dedicated
+`chiffre970` workspace's gross **Usage limit** is saved at $12.50, with $0.54
+displayed usage for September 1–October 1. The $11.95 local allowance leaves a
+margin below the displayed $11.96 headroom. A read-only CLI summary returned
+$0.83550918 metered cost, a $0.29550918 free-storage adjustment, and $0.54 in
+credits. Neither that credit nor the $0 invoice erases experimental usage.
+Retained observations are in `evidence/deployment/modal-usage-cap-20260914.json`
+and `modal-billing-summary-20260914.json`. This verifies the saved setting, not
+real-time cutoff behavior. Recheck the baseline before dispatch and after a
+billing-cycle change; no paid qualification has run yet.
+
+The September 14 read-only OpenRouter refresh is retained as
+`config/provider_qualification/openrouter-deepseek-v4-flash-zdr-20260914T083745Z.json`,
+with raw endpoint and ZDR responses resolved by its source manifest. DeepInfra
+remains the cheapest listed candidate for the declared input/output mix. Its
+listed uncached input price is now $0.06 per million tokens; output remains
+$0.18 per million. The active gateway still references the historical billing
+catalog. Create and pin a current development billing profile before paid
+qualification; the refresh neither changes that profile nor proves billed usage.
 
 ## Execution boundaries
 
@@ -157,13 +235,16 @@ evidence after it settles and label unresolved cost explicitly.
 - No automatic credits, plan upgrades, provider fallback, or new cloud hosts.
 - A cancellation acknowledgment is not proof of terminal resources or final
   billing. Unresolved dispatches stop further paid work and require review.
-- The current callback-based live wiring does not yet enforce the approved
-  Modal dollar envelope. Implement and verify that binding before opening the
-  operator gate. The OCI candidate records $12 Modal and $3 OpenRouter; the
-  historical Darwin configuration retains null limits. Qualification and pilot
-  usage must share this total envelope, not receive separate full allocations.
+- The live wiring enforces admitted allowances, not provider billing. Verify
+  the workspace gross-usage limit and its current-cycle baseline before opening
+  the operator gate. A net spend limit after credits is not the requested gross
+  usage cap. Workspace limits affect every application in that workspace; do
+  not change them without confirming scope. The historical Darwin configuration
+  retains null limits.
 
-Next action: finish and verify the local deployment, then qualify the provider
-and resource/spending controls. No further approval is needed for the scope
+Next action: use one controller and spending journal, pin a current billing
+profile from the refreshed sources, and run bounded provider/Modal qualification after the
+deployment prerequisites pass. The workspace scope and saved outer cap are
+confirmed; the qualification journal wiring passes without spend. No further approval is needed for the scope
 already granted. New paid hosts, top-ups, upgrades, reruns, and peer comparisons
 remain outside that scope.

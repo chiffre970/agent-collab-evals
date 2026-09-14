@@ -40,6 +40,10 @@ VLLM_CACHE_PATH = "/cache/vllm"
 SERVER_LOG_PATH = "/tmp/reference-vllm.log"
 STARTUP_TIMEOUT_SECONDS = 600
 FUNCTION_TIMEOUT_SECONDS = 1800
+# Requests equal limits. CPU throttling is soft; these are admission inputs,
+# not a substitute for the provider's gross-usage workspace budget.
+GPU_RESOURCES = {"cpu": (4.0, 4.0), "memory": (16384, 16384), "startup_timeout": 600}
+EVIDENCE_RESOURCES = {"cpu": (1.0, 1.0), "memory": (1024, 1024), "startup_timeout": 60}
 BENCHMARK_RESULT_ROOT = Path("/tmp/reference-benchmark")
 EVIDENCE_VOLUME_NAME = "agent-collab-evals-evaluator-evidence-v2"
 EVIDENCE_MOUNT_PATH = Path("/evaluator-evidence")
@@ -747,6 +751,7 @@ def _run_quality_request(
 
 @app.function(
     image=reference_image,
+    **GPU_RESOURCES,
     secrets=[huggingface_secret],
     volumes={HF_CACHE_PATH: model_cache, VLLM_CACHE_PATH: vllm_cache},
     gpu="L4",
@@ -802,6 +807,7 @@ def smoke_reference(candidate: dict[str, Any]) -> dict[str, Any]:
 
 @app.function(
     image=reference_image,
+    **GPU_RESOURCES,
     volumes={HF_CACHE_PATH: model_cache.with_mount_options(read_only=True)},
     gpu="L4",
     max_containers=1,
@@ -899,6 +905,7 @@ def benchmark_serving_repetition(
 
 @app.function(
     image=reference_image,
+    **GPU_RESOURCES,
     volumes={HF_CACHE_PATH: model_cache.with_mount_options(read_only=True)},
     gpu="L4",
     max_containers=1,
@@ -999,6 +1006,7 @@ def quality_serving_repetition(
 
 @app.function(
     image=modal.Image.debian_slim(),
+    **EVIDENCE_RESOURCES,
     retries=0,
     block_network=True,
     restrict_modal_access=True,
@@ -1038,6 +1046,7 @@ def probe_staged_evidence(evidence_root: str, size_bytes: int) -> dict[str, Any]
 
 @app.function(
     image=modal.Image.debian_slim(),
+    **EVIDENCE_RESOURCES,
     volumes={EVIDENCE_MOUNT_PATH: evidence_volume},
     retries=0,
     block_network=True,
@@ -1059,6 +1068,7 @@ def persist_evaluator_evidence(
 
 @app.function(
     image=modal.Image.debian_slim(),
+    **EVIDENCE_RESOURCES,
     volumes={EVIDENCE_MOUNT_PATH: evidence_volume},
     retries=0,
     block_network=True,

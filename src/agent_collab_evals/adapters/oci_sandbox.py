@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +22,41 @@ _IMAGE_REFERENCE = re.compile(
 _CPU_LIMIT = re.compile(r"[1-9][0-9]*(?:\.[0-9]+)?|0\.[0-9]*[1-9][0-9]*")
 _BYTE_LIMIT = re.compile(r"[1-9][0-9]*(?:m|g)")
 _BRIDGE_RELATIVE = Path("opencode_bridge.mjs")
+
+
+@dataclass(frozen=True, slots=True)
+class OciContainerCleanup:
+    """Remove only this launch's host-generated container and verify absence."""
+
+    engine: Path
+    name: str
+    environment: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"ace-[0-9a-f]{32}", self.name):
+            raise ValueError("invalid launch-owned container name")
+
+    def _exists(self) -> bool:
+        result = subprocess.run(
+            (str(self.engine), "ps", "--all", "--filter", f"name=^{self.name}$",
+             "--format", "{{.Names}}"),
+            env=self.environment, capture_output=True, text=True, check=True, timeout=15,
+        )
+        names = result.stdout.splitlines()
+        if names not in ([], [self.name]):
+            raise RuntimeError("container cleanup identity differs")
+        return bool(names)
+
+    def __call__(self) -> None:
+        if self._exists():
+            # Auto-removal can race this request. Verified absence, not the
+            # removal command's exit status, is the completion boundary.
+            subprocess.run(
+                (str(self.engine), "rm", "--force", self.name),
+                env=self.environment, capture_output=True, text=True, check=False, timeout=30,
+            )
+        if self._exists():
+            raise RuntimeError("launch-owned container remains after cleanup")
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,11 +422,14 @@ class OciSandboxExec:
         assert self._profile.image_reference is not None
         assert self._profile.image_digest is not None
         image = f"{self._profile.image_reference}@{self._profile.image_digest}"
+        container_name = "ace-" + uuid.uuid4().hex
         args = [
             str(self._engine),
             "run",
             "--interactive",
             "--rm",
+            "--name",
+            container_name,
             "--init",
             "--pull=never",
             "--read-only",
@@ -470,6 +510,7 @@ class OciSandboxExec:
             working_directory=context.runtime_assets_root,
             environment=engine_environment,
             runtime_assets_root=Path(self._profile.bridge_executable).parent,
+            cleanup=OciContainerCleanup(self._engine, container_name, engine_environment),
         )
 
     def evidence(self) -> dict[str, object]:
@@ -482,6 +523,7 @@ class OciSandboxExec:
             "network_mode": "none_with_dedicated_session_unix_socket",
             "filesystem_enforcement": "read_only_root_and_explicit_mounts",
             "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+            "container_cleanup": "exact_launch_name_and_verified_absence",
             "credential_environment_allowlist": [],
             "required_conformance": list(self._profile.required_conformance),
         }

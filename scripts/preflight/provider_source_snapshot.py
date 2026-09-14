@@ -22,20 +22,13 @@ from agent_collab_evals.provider_qualification import (
     ZDR_CATALOG_URL,
     extract_candidate_snapshot,
 )
+from agent_collab_evals.pilot_evidence import retain_bytes
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = (
     REPOSITORY_ROOT
     / "config/provider_qualification/deepseek-v4-flash-development-policy.json"
-)
-SOURCE_MANIFEST_PATH = (
-    REPOSITORY_ROOT
-    / "config/provider_qualification/openrouter-deepseek-v4-flash-sources-20260822.json"
-)
-SNAPSHOT_PATH = (
-    REPOSITORY_ROOT
-    / "config/provider_qualification/openrouter-deepseek-v4-flash-zdr-20260822.json"
 )
 SOURCE_DIRECTORY = REPOSITORY_ROOT / "evidence/provider_qualification/sources"
 
@@ -45,7 +38,7 @@ def main() -> int:
     parser.add_argument(
         "--execute",
         action="store_true",
-        help="fetch and replace the retained source bundle; otherwise spend nothing",
+        help="fetch a new immutable source bundle without changing the selected route",
     )
     args = parser.parse_args()
     if not args.execute:
@@ -73,6 +66,10 @@ def main() -> int:
 
     observed = datetime.now(UTC).replace(microsecond=0)
     timestamp = observed.strftime("%Y%m%dT%H%M%SZ")
+    source_manifest_path = REPOSITORY_ROOT / (
+        f"config/provider_qualification/openrouter-deepseek-v4-flash-sources-{timestamp}.json")
+    snapshot_path = REPOSITORY_ROOT / (
+        f"config/provider_qualification/openrouter-deepseek-v4-flash-zdr-{timestamp}.json")
     endpoints_raw = _fetch(ENDPOINT_CATALOG_URL, None)
     zdr_raw = _fetch(ZDR_CATALOG_URL, api_key)
     metadata_model, candidates = extract_candidate_snapshot(
@@ -111,7 +108,7 @@ def main() -> int:
         "sources": source_rows,
     }
     _write(
-        SOURCE_MANIFEST_PATH,
+        source_manifest_path,
         canonical_json_bytes(source_manifest) + b"\n",
     )
     snapshot = {
@@ -119,15 +116,15 @@ def main() -> int:
         "snapshot_id": f"openrouter-deepseek-v4-flash-zdr-{timestamp}",
         "status": "development",
         "observed_at": source_manifest["observed_at"],
-        "source_manifest": str(SOURCE_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)),
-        "source_manifest_digest": digest_file(SOURCE_MANIFEST_PATH),
+        "source_manifest": str(source_manifest_path.relative_to(REPOSITORY_ROOT)),
+        "source_manifest_digest": digest_file(source_manifest_path),
         "model_id": model_id,
         "expected_metadata_model": metadata_model,
         "candidate_scope": "predeclared_reputable_routes",
         "candidate_providers": list(providers),
         "candidates": list(candidates),
     }
-    _write(SNAPSHOT_PATH, canonical_json_bytes(snapshot) + b"\n")
+    _write(snapshot_path, canonical_json_bytes(snapshot) + b"\n")
     print(
         json.dumps(
             {
@@ -135,11 +132,11 @@ def main() -> int:
                 "executed": True,
                 "observed_at": source_manifest["observed_at"],
                 "source_manifest": str(
-                    SOURCE_MANIFEST_PATH.relative_to(REPOSITORY_ROOT)
+                    source_manifest_path.relative_to(REPOSITORY_ROOT)
                 ),
-                "source_manifest_digest": digest_file(SOURCE_MANIFEST_PATH),
-                "candidate_snapshot": str(SNAPSHOT_PATH.relative_to(REPOSITORY_ROOT)),
-                "candidate_snapshot_digest": digest_file(SNAPSHOT_PATH),
+                "source_manifest_digest": digest_file(source_manifest_path),
+                "candidate_snapshot": str(snapshot_path.relative_to(REPOSITORY_ROOT)),
+                "candidate_snapshot_digest": digest_file(snapshot_path),
                 "candidate_providers": list(providers),
             },
             indent=2,
@@ -164,9 +161,7 @@ def _fetch(url: str, api_key: str | None) -> bytes:
 
 
 def _write(path: Path, value: bytes) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_bytes(value)
-    temporary.replace(path)
+    retain_bytes(path, value)
 
 
 if __name__ == "__main__":

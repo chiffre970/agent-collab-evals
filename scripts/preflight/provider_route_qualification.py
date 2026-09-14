@@ -24,6 +24,7 @@ from agent_collab_evals.canonical import (
 )
 from agent_collab_evals.domain import SessionHandle
 from agent_collab_evals.model_gateway import ModelBudgetGateway, ModelGatewayProfile
+from agent_collab_evals.pilot_spend import admit_openrouter_qualification
 from agent_collab_evals.provider_qualification import (
     ProviderQualificationPlan,
     QualifiedProviderRoute,
@@ -51,6 +52,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     parser.add_argument("--gateway-profile", type=Path, default=DEFAULT_GATEWAY_PROFILE)
+    parser.add_argument("--spend-envelope", type=Path, help="existing shared pilot admission directory; required for --execute")
     parser.add_argument(
         "--selection-record", type=Path, default=DEFAULT_SELECTION_RECORD
     )
@@ -60,6 +62,8 @@ def main() -> int:
         help="send three live requests; without this flag the command spends nothing",
     )
     args = parser.parse_args()
+    if args.execute and args.spend_envelope is None:
+        raise ValueError("--execute requires --spend-envelope shared with the solo pilot")
     policy_path = _direct_config_member(
         args.policy,
         REPOSITORY_ROOT / "config/provider_qualification",
@@ -100,7 +104,7 @@ def main() -> int:
                     "selection_record_digest": qualified.resolved_digest,
                     "maximum_budget_usd_nanos": QUALIFICATION_BUDGET_USD_NANOS,
                     "probe_count": 3,
-                    "next": "rerun with --execute to qualify the selected route",
+                    "next": "after verifying the outer usage cap, use --execute --spend-envelope <shared-pilot-directory>",
                 },
                 indent=2,
             )
@@ -110,6 +114,11 @@ def main() -> int:
     api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is missing")
+    admission = admit_openrouter_qualification(REPOSITORY_ROOT, args.spend_envelope,
+        operation_key="qualification:provider-route-v1",
+        request_digest=digest_value({"selection": selection.resolved_digest, "gateway": profile.resolved_digest,
+            "probe_count": 3, "maximum_elapsed_ms": MAX_PROBE_ELAPSED_MS}),
+        maximum_usd_nanos=QUALIFICATION_BUDGET_USD_NANOS)
     started = datetime.now(UTC)
     campaign_run_id = "provider-route-qualification"
     actor_id = f"{campaign_run_id}:actor:0"
@@ -284,6 +293,7 @@ def main() -> int:
                 "qualified": True,
                 "selected_provider": selection.selected_provider,
                 "probe_count": len(probes),
+                "spend_admission_digest": digest_value(admission),
                 "total_charged_usd_nanos": (
                     snapshot.organisation_charged_usd_nanos
                 ),

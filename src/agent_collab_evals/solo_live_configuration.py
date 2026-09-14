@@ -24,6 +24,8 @@ from .canonical import digest_bytes, digest_value, parse_json
 from .compute_backend import FrozenComputeRunManifest
 from .evaluation import EvaluationReservation, EvaluationReservationStatus, EvaluationScope
 from .model_gateway import ModelGatewayProfile
+from .modal_pilot_cost import modal_pilot_cost
+from .pilot_spend_guard import PilotSpendGuard
 from .sandbox import SandboxProfile
 from .solo_pilot_stack import compose_pilot_stack
 
@@ -133,11 +135,11 @@ class LivePilotConfiguration:
             registered_manifest_digest=self.document["hidden_manifest_digest"])
 
 
-def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize):
+def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_guard=None):
     """Compose the live lifecycle below the still-closed operator authority gate.
 
-    `authorize` must enforce the approved run-bound dollar envelope, including
-    reference compute. This factory never supplies approval or reads credentials.
+    The concrete spend guard reserves allowances before issuing request-bound
+    authority. Provider cap verification still belongs to the closed operator gate.
     """
     from .adapters.modal_cleanup import ModalCallCanceller
     from .solo_pilot_command import LivePilotDependencies, make_opencode_runtime_dependencies
@@ -155,6 +157,10 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
         expected_sandbox_digest = OciSandboxExec.profile_digest_for(sandbox, engine_digest)
     if process_sandbox.profile_digest != expected_sandbox_digest:
         raise ValueError("live runtime sandbox differs from configuration")
+    if not isinstance(spend_guard, PilotSpendGuard):
+        raise ValueError("live execution requires a shared pilot spend guard")
+    if spend_guard.configuration_digest != digest_value(configuration.document):
+        raise ValueError("pilot spend guard configuration differs")
     hidden = configuration.hidden_bundle()
     policy = configuration.campaign.quality_policy()
     canceller = ModalCallCanceller(configuration.repository, configuration.modal_cli)
@@ -165,10 +171,11 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
     runtime = make_opencode_runtime_dependencies(configuration.runtime, sandbox, process_sandbox,
         timeout_seconds=configuration.document["runtime_timeout_seconds"])
 
-    return LivePilotDependencies(stack, lambda: configuration.model_upstream(api_key), authorize,
+    return LivePilotDependencies(stack, lambda: configuration.model_upstream(api_key), spend_guard.authorize,
         lambda stack: stack.inventory.cleanup(canceller), runtime.harness,
         configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"],
-        gateway_options=runtime.gateway_options, sandbox_evidence=runtime.sandbox_evidence)
+        gateway_options=runtime.gateway_options, sandbox_evidence=runtime.sandbox_evidence,
+        spend_guard=spend_guard)
 
 
 def build_live_stack(root, configuration, run_id, hidden, policy):
@@ -236,6 +243,10 @@ def build_live_stack(root, configuration, run_id, hidden, policy):
 def check_live_pilot(config_path: Path, repository: Path) -> dict:
     """Validate local inputs and construct every adapter without network or keys."""
     configuration = LivePilotConfiguration.load(config_path, repository)
+    cost = modal_pilot_cost(configuration.public_compute.modal_script,
+        repository / "config/compute/modal-pilot-cost-v1.json")
+    if any(value != cost["function_timeout_seconds"] for value in configuration.document["phase_seconds"].values()):
+        raise ValueError("pilot phase allowances must match the pinned function timeout")
     hidden = configuration.hidden_bundle()
     with tempfile.TemporaryDirectory(prefix="solo-live-check-") as directory:
         root = Path(directory)
@@ -268,9 +279,12 @@ def check_live_pilot(config_path: Path, repository: Path) -> dict:
         "gpu": configuration.campaign.raw["hardware"]["gpu_type"],
         "compute_adapter_count": len(adapters), "planned_compute_executions": sum(len(group) for _, group in requests),
         "planned_reserved_seconds": reserved_seconds, "hidden_reserved_seconds": stack.hidden_seconds,
+        "modal_admission_estimate": cost,
+        "planned_modal_allowance_usd_nanos": cost["shared_overhead_allowance_usd_nanos"]
+            + sum(len(group) for _, group in requests) * cost["per_execution_allowance_usd_nanos"],
         "actual_spend_usd_nanos": 0,
         "remaining_gates": ["live operator authority gate remains disabled; cancellation needs live qualification",
-            "durable binding and enforcement of the approved model and Modal dollar envelope",
+            "shared admission journal must cover qualification and pilot; provider gross-usage cap must be verified",
             "current provider route and billing qualification",
             "isolated deployment: pinned OCI image/engine and live boundary conformance"],
         "billing_note": "Function allowances are not provider-billed time or a dollar spending cap."}

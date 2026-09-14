@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.oci_sandbox import (
     OciSandboxExec,
     OciSandboxProfile,
+    OciContainerCleanup,
 )
 from agent_collab_evals.canonical import digest_value
 from agent_collab_evals.sandbox import SandboxLaunchContext
@@ -132,6 +134,8 @@ class OciSandboxTests(unittest.TestCase):
                 self.assertEqual(podman_process.runtime_assets_root, Path(profile.bridge_executable).parent)
 
         command = process.command
+        self.assertEqual(command[command.index("--name") + 1], process.cleanup.name)
+        self.assertNotEqual(process.cleanup.name, podman_process.cleanup.name)
         self.assertEqual(command[:2], ("/usr/bin/true", "run"))
         for required in (
             "--read-only",
@@ -180,6 +184,32 @@ class OciSandboxTests(unittest.TestCase):
             path.write_text(json.dumps(value), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "fully registered"):
                 OciSandboxProfile.load(path, repository_root=REPOSITORY_ROOT)
+
+    def test_cleanup_is_exact_targeted_and_verifies_absence(self) -> None:
+        name = "ace-" + "1" * 32
+        cleanup = OciContainerCleanup(Path("/usr/bin/podman"), name, {"PATH": "/usr/bin:/bin"})
+        with patch("agent_collab_evals.adapters.oci_sandbox.subprocess.run",
+            side_effect=[Mock(stdout=name + "\n"), Mock(returncode=1), Mock(stdout="")]) as run:
+            cleanup()  # A concurrent auto-removal is harmless only if absence is verified.
+        self.assertEqual(run.call_args_list[1].args[0], ("/usr/bin/podman", "rm", "--force", name))
+        self.assertIn(f"name=^{name}$", run.call_args_list[0].args[0])
+        with patch("agent_collab_evals.adapters.oci_sandbox.subprocess.run", return_value=Mock(stdout="")) as run:
+            cleanup()
+            self.assertEqual(run.call_count, 2)
+            self.assertTrue(all("rm" not in call.args[0] for call in run.call_args_list))
+
+    def test_cleanup_fails_closed_on_engine_error_wrong_identity_or_residue(self) -> None:
+        name = "ace-" + "1" * 32
+        cleanup = OciContainerCleanup(Path("/usr/bin/podman"), name, {})
+        for output in ("unrelated-container\n", name + "\n"):
+            with self.subTest(output=output), patch("agent_collab_evals.adapters.oci_sandbox.subprocess.run",
+                return_value=Mock(stdout=output)), self.assertRaises(RuntimeError):
+                cleanup()
+        with patch("agent_collab_evals.adapters.oci_sandbox.subprocess.run",
+            side_effect=subprocess.CalledProcessError(125, "podman")), self.assertRaises(subprocess.CalledProcessError):
+            cleanup()
+        with self.assertRaises(ValueError):
+            OciContainerCleanup(Path("/usr/bin/podman"), "--all", {})
 
     def test_runtime_image_recipe_matches_profile_identity_and_sources(self) -> None:
         profile = OciSandboxProfile.load(

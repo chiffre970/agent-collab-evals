@@ -1,0 +1,488 @@
+{
+  "schema_version": "oci-solo-cleanup-observation/v1",
+  "observed_on": "2026-09-14",
+  "status": "development_observation_only",
+  "registered_conformance_complete": false,
+  "source_snapshot": "Separate credential-free VM checkout; each retained run configuration identifies its clean source snapshot.",
+  "actual_spend_usd_nanos": 0,
+  "runs": [
+    {
+      "label": "normal",
+      "private_evidence_directory": "tmp/oci-pilot-conformance/ace-2rjxbdaa",
+      "audit": {
+        "actual_spend_usd_nanos": 0,
+        "budget_reconciliation": {
+          "accounting_mode": "plan_and_synthetic_receipts_verified",
+          "active_reservation_ids": [],
+          "budget_plan_digest": "sha256:6e24b06a5f0f11b1e58f66d854a3530b4e0a3f38ab86aea1735d1c898b76a1b6",
+          "campaign_run_id": "pilot",
+          "forfeited_reservation_ids": [],
+          "ledger_errors": [],
+          "missing_receipt_reservation_ids": [],
+          "overrun_reservation_ids": [],
+          "receipt_verifier_digest": "sha256:42e93c2536bebedd515fc6fc6a56cf6113e4639f6a28b4530fc90874b340e739",
+          "valid": true
+        },
+        "elapsed_ms": 3856,
+        "evidence_digests": {
+          "compute-receipts.json": "sha256:7c885f641ee4d9247ff5a6c82077cf9df489e89fb15762dd0d7c855922d384b5",
+          "compute-snapshot.json": "sha256:e10a8fb5aaea74c85d185026c2428f87203b36f200e36b80a774a01ea4adb6d9",
+          "hidden-result.json": "sha256:68da54fcdc71b1b44b3ed6cccff2dec2fa1255cf7ead881a97e5343b3ea8e173",
+          "model-budget-snapshot.json": "sha256:3549c754495f52611a71953e0d574b210056692f86773e842869e82286f060b6",
+          "model-requests.json": "sha256:3e5742d217f21df68ec30be19874e0b2c7e2b54f7a5aeabf3b5029553e28849a",
+          "public-submissions.json": "sha256:39b8e9ae9efd9a51e322775c0ad8ef5119decd82c51994c64a0cebc74fcbbb80",
+          "runtime-snapshot.json": "sha256:ca41b9621496a0e69a637334a250f00b5fd78092f09240425cd9937beab85179",
+          "selection.json": "sha256:8af0ff71250e2db017f720cc5380e6f692b7d684ea2e126e150bf40dd5bb3245"
+        },
+        "execution_mode": "no_spend",
+        "external_compute_executions": 0,
+        "external_model_calls": 0,
+        "failure": null,
+        "hidden_result": {
+          "criterion_units": 1001000,
+          "diagnostics": {
+            "hidden_workload_manifest_digest": "sha256:58fd326dc9e295b65636ed1f746cd117f360e6ef9a7523a748b826d7a5e9d916",
+            "performance_criterion_units": 1001000,
+            "phase_evidence_digests": {
+              "correctness": "sha256:cd8b4fad9da55c1f9703b07ee7c27eb233f3c53127de1d38928cf8b1bd143080",
+              "performance": "sha256:a95ee20cbb3e7d4d17fa2bda189c2882a34969783ab159bcce5b6f04fac05129",
+              "quality": "sha256:173811f0113a7cbda34a204aacd4460c1792902734573026961031fb81d000d9"
+            }
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:31f4b01779a1441540bf0a675e441115c5469b9ba6fa560cfdad34e0adf93e11",
+          "failures": []
+        },
+        "inventory_digest": "sha256:de0fe6789815f91117dcc8f3206f35a51aa573765c7885e11f1ce7eb29e4d171",
+        "live_execution_authorized": false,
+        "public_result": {
+          "criterion_units": 1100000,
+          "diagnostics": {
+            "candidate_id": "synthetic",
+            "development_single_repetition": true,
+            "measurement_profile_digest": null,
+            "modal_function_call_id": null,
+            "scoring_profile_digest": null
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:8d9459ef69159fa3da1c9b1eceeb09fea1e24d25e51a5f437c9e82f9072fa90c",
+          "failures": []
+        },
+        "run_config_digest": "sha256:d226b3de58fe57b722c81019626770891f4215203e2293f12d5e8ac79bd0b49f",
+        "run_id": "pilot",
+        "runtime": "opencode",
+        "schema_version": "solo-pilot-audit/v1",
+        "scoreable": false,
+        "selected_artifact_digest": "sha256:a5633a16a81584322eec4f07c549673d3a30bae576983515744d85e13d537f72",
+        "status": "complete",
+        "storage_seal_digest": "sha256:ae358cc1c536ab01492639b9804224fd21386d0716c1c780047bbe1cfab25545",
+        "synthetic_compute_executions": 12,
+        "synthetic_compute_seconds": 84,
+        "synthetic_model_calls": 5,
+        "used_default": false
+      },
+      "audit_raw_sha256": "700e658971c523fb6fac3fe475c1b4904ca1ad12b50cc4132578ae2001e2085f",
+      "configuration": {
+        "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+        "config": {
+          "campaign": "campaigns/model_serving_v0/campaign.toml",
+          "execution_mode": "no_spend",
+          "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+          "runtime": "opencode",
+          "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+          "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+          "schema_version": "solo-pilot-command/v1",
+          "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+          "synthetic_candidate_public_ppm": 1100000,
+          "synthetic_model_limit_usd_nanos": 1000000000,
+          "task_seed": 1729
+        },
+        "config_digest": "sha256:a86575b9187f6966c957303804d0093ffb6eacb1214f187149581a475d4869cc",
+        "gateway_profile_digest": "sha256:39b5d1f8348aa08d71b14ee3508cce699c7863e699bea3a01c6f98be643f2307",
+        "git_commit": "c926130c1788e5ead7f4b302efc6c7a9dd48080e",
+        "git_dirty": false,
+        "platform_source_digest": "sha256:dbff879fa57abd9b63da82f662c3e7ed391b1cc165de552c09148f9c947ab815",
+        "runtime_profile_digest": "sha256:15229995cdf5fb75907addc808ad800a449c8b421f9543f2a86bf15c8e2321d2",
+        "runtime_sandbox_evidence": {
+          "container_cleanup": "exact_launch_name_and_verified_absence",
+          "credential_environment_allowlist": [],
+          "driver": "podman-rootless-keep-id",
+          "filesystem_enforcement": "read_only_root_and_explicit_mounts",
+          "network_mode": "none_with_dedicated_session_unix_socket",
+          "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+          "required_conformance": [
+            "gateway_only_network",
+            "peer_gateway_only_network",
+            "candidate_gateway_only_network",
+            "native_gateway_only_network",
+            "unrelated_loopback_denied",
+            "provider_egress_denied",
+            "evaluator_private_files_denied",
+            "ambient_credentials_absent",
+            "filesystem_write_scope_enforced",
+            "process_resource_limits_enforced"
+          ],
+          "sandbox_profile_digest": "sha256:dc3552ceca70a576548495de522a714fa9a6e11cd533ebec7db9caa7393c809d",
+          "sandbox_profile_id": "oci-opencode-podman-development-v1",
+          "status": "development_conformance",
+          "user_namespace": "keep_id"
+        },
+        "sandbox_profile_digest": "sha256:21dd43db2d866d0685c975102dd0e5e368ee87e2d4cf74e67653121fb7042ee5",
+        "synthetic_candidate_digest": "sha256:9715eb6e469f11a1d1ec2bc7b6e560d8eaedd7489d72735124f86ec789b93c32"
+      },
+      "configuration_raw_sha256": "d226b3de58fe57b722c81019626770891f4215203e2293f12d5e8ac79bd0b49f",
+      "container_observation": {
+        "forced_bridge_stop": false,
+        "container_name": "ace-97cb69792075426ea158895d3d15627f",
+        "cgroup_limits": [
+          "200000 100000",
+          "4294967296",
+          "0",
+          "256"
+        ],
+        "read_only_root": true,
+        "network_mode": "none",
+        "security_options": [
+          "no-new-privileges"
+        ],
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-2rjxbdaa/pilot/workspace/actor-0000",
+            "Destination": "/tmp/ace-2rjxbdaa/pilot/workspace/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-2rjxbdaa/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Destination": "/tmp/ace-2rjxbdaa/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-2rjxbdaa/pilot/brokers/model/s-8f17372d5ca2",
+            "Destination": "/tmp/ace-2rjxbdaa/pilot/brokers/model/s-8f17372d5ca2",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-2rjxbdaa/pilot/brokers/candidate/c-3731f8a9fe16",
+            "Destination": "/tmp/ace-2rjxbdaa/pilot/brokers/candidate/c-3731f8a9fe16",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          }
+        ],
+        "new_containers_remaining": []
+      },
+      "container_observation_raw_sha256": "81129469942c48ba8520738f495ffc5744040d1ee9ff944d10497b69ce7f3283",
+      "engine_identity": {
+        "engine_binary_digest": "sha256:f93ee492920150e229b9b41729bfe675073a4df0569ee5d570a8106b5a64506a",
+        "version": {
+          "APIVersion": "4.9.3",
+          "Version": "4.9.3",
+          "GoVersion": "go1.22.2",
+          "GitCommit": "",
+          "BuiltTime": "Thu Jan  1 10:00:00 1970",
+          "Built": 0,
+          "OsArch": "linux/arm64",
+          "Os": "linux"
+        },
+        "kernel": "6.8.0-134-generic",
+        "security": {
+          "apparmorEnabled": false,
+          "capabilities": "CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_FOWNER,CAP_FSETID,CAP_KILL,CAP_NET_BIND_SERVICE,CAP_SETFCAP,CAP_SETGID,CAP_SETPCAP,CAP_SETUID,CAP_SYS_CHROOT",
+          "rootless": true,
+          "seccompEnabled": true,
+          "seccompProfilePath": "/usr/share/containers/seccomp.json",
+          "selinuxEnabled": false
+        },
+        "runtime": {
+          "name": "runc",
+          "package": "containerd.io_2.3.5-1~ubuntu.24.04~noble_arm64",
+          "path": "/usr/bin/runc",
+          "version": "runc version 1.5.1\ncommit: v1.5.1-0-g8f2685a4\nspec: 1.3.0\ngo: go1.26.8\nlibseccomp: 2.5.5"
+        },
+        "id_mappings": {
+          "gidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ],
+          "uidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ]
+        }
+      },
+      "engine_identity_raw_sha256": "85bf8581ecbc5bd051e226bb5bcc70a4d97db95a51bda3e224c119b61c9c42a8"
+    },
+    {
+      "label": "forced_client_stop",
+      "private_evidence_directory": "tmp/oci-pilot-conformance/ace-ivzndddd",
+      "audit": {
+        "actual_spend_usd_nanos": 0,
+        "budget_reconciliation": {
+          "accounting_mode": "plan_and_synthetic_receipts_verified",
+          "active_reservation_ids": [],
+          "budget_plan_digest": "sha256:6e24b06a5f0f11b1e58f66d854a3530b4e0a3f38ab86aea1735d1c898b76a1b6",
+          "campaign_run_id": "pilot",
+          "forfeited_reservation_ids": [],
+          "ledger_errors": [],
+          "missing_receipt_reservation_ids": [],
+          "overrun_reservation_ids": [],
+          "receipt_verifier_digest": "sha256:42e93c2536bebedd515fc6fc6a56cf6113e4639f6a28b4530fc90874b340e739",
+          "valid": true
+        },
+        "cleanup_failure": "ExceptionGroup",
+        "elapsed_ms": 1608,
+        "execution_mode": "no_spend",
+        "external_compute_executions": 0,
+        "external_model_calls": 0,
+        "failure": {
+          "stage": "agent_job",
+          "type": "RuntimeError"
+        },
+        "live_execution_authorized": false,
+        "partial_compute_snapshot": {
+          "actor_reserved_seconds": {
+            "pilot:actor:0": 0
+          },
+          "actor_used_seconds": {
+            "pilot:actor:0": 0
+          },
+          "audit_events": [],
+          "campaign_run_id": "pilot",
+          "hidden_reserved_seconds": 0,
+          "hidden_used_seconds": 0,
+          "organisation_limit_seconds": 60,
+          "released_actor_ids": [],
+          "reservations": []
+        },
+        "run_config_digest": "sha256:d226b3de58fe57b722c81019626770891f4215203e2293f12d5e8ac79bd0b49f",
+        "run_id": "pilot",
+        "runtime": "opencode",
+        "schema_version": "solo-pilot-audit/v1",
+        "scoreable": false,
+        "status": "aborted"
+      },
+      "audit_raw_sha256": "963c2c18cc672d6b7f07d81200144fdb692b9172d8900c70f69a5ea9b2d53545",
+      "configuration": {
+        "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+        "config": {
+          "campaign": "campaigns/model_serving_v0/campaign.toml",
+          "execution_mode": "no_spend",
+          "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+          "runtime": "opencode",
+          "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+          "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+          "schema_version": "solo-pilot-command/v1",
+          "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+          "synthetic_candidate_public_ppm": 1100000,
+          "synthetic_model_limit_usd_nanos": 1000000000,
+          "task_seed": 1729
+        },
+        "config_digest": "sha256:a86575b9187f6966c957303804d0093ffb6eacb1214f187149581a475d4869cc",
+        "gateway_profile_digest": "sha256:39b5d1f8348aa08d71b14ee3508cce699c7863e699bea3a01c6f98be643f2307",
+        "git_commit": "c926130c1788e5ead7f4b302efc6c7a9dd48080e",
+        "git_dirty": false,
+        "platform_source_digest": "sha256:dbff879fa57abd9b63da82f662c3e7ed391b1cc165de552c09148f9c947ab815",
+        "runtime_profile_digest": "sha256:15229995cdf5fb75907addc808ad800a449c8b421f9543f2a86bf15c8e2321d2",
+        "runtime_sandbox_evidence": {
+          "container_cleanup": "exact_launch_name_and_verified_absence",
+          "credential_environment_allowlist": [],
+          "driver": "podman-rootless-keep-id",
+          "filesystem_enforcement": "read_only_root_and_explicit_mounts",
+          "network_mode": "none_with_dedicated_session_unix_socket",
+          "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+          "required_conformance": [
+            "gateway_only_network",
+            "peer_gateway_only_network",
+            "candidate_gateway_only_network",
+            "native_gateway_only_network",
+            "unrelated_loopback_denied",
+            "provider_egress_denied",
+            "evaluator_private_files_denied",
+            "ambient_credentials_absent",
+            "filesystem_write_scope_enforced",
+            "process_resource_limits_enforced"
+          ],
+          "sandbox_profile_digest": "sha256:dc3552ceca70a576548495de522a714fa9a6e11cd533ebec7db9caa7393c809d",
+          "sandbox_profile_id": "oci-opencode-podman-development-v1",
+          "status": "development_conformance",
+          "user_namespace": "keep_id"
+        },
+        "sandbox_profile_digest": "sha256:21dd43db2d866d0685c975102dd0e5e368ee87e2d4cf74e67653121fb7042ee5",
+        "synthetic_candidate_digest": "sha256:9715eb6e469f11a1d1ec2bc7b6e560d8eaedd7489d72735124f86ec789b93c32"
+      },
+      "configuration_raw_sha256": "d226b3de58fe57b722c81019626770891f4215203e2293f12d5e8ac79bd0b49f",
+      "container_observation": {
+        "forced_bridge_stop": true,
+        "container_name": "ace-8ab210f0d98e409182696242fdc88b28",
+        "cgroup_limits": [
+          "200000 100000",
+          "4294967296",
+          "0",
+          "256"
+        ],
+        "read_only_root": true,
+        "network_mode": "none",
+        "security_options": [
+          "no-new-privileges"
+        ],
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ivzndddd/pilot/brokers/model/s-665b9a71d9b4",
+            "Destination": "/tmp/ace-ivzndddd/pilot/brokers/model/s-665b9a71d9b4",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ivzndddd/pilot/brokers/candidate/c-d138f5272d4b",
+            "Destination": "/tmp/ace-ivzndddd/pilot/brokers/candidate/c-d138f5272d4b",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ivzndddd/pilot/workspace/actor-0000",
+            "Destination": "/tmp/ace-ivzndddd/pilot/workspace/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ivzndddd/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Destination": "/tmp/ace-ivzndddd/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          }
+        ],
+        "container_after_client_exit": true,
+        "new_containers_remaining": []
+      },
+      "container_observation_raw_sha256": "b75d5200e7d1a81b080777dc5eff309c4df5a4fb14f24a3255b4c3e03817face",
+      "engine_identity": {
+        "engine_binary_digest": "sha256:f93ee492920150e229b9b41729bfe675073a4df0569ee5d570a8106b5a64506a",
+        "version": {
+          "APIVersion": "4.9.3",
+          "Version": "4.9.3",
+          "GoVersion": "go1.22.2",
+          "GitCommit": "",
+          "BuiltTime": "Thu Jan  1 10:00:00 1970",
+          "Built": 0,
+          "OsArch": "linux/arm64",
+          "Os": "linux"
+        },
+        "kernel": "6.8.0-134-generic",
+        "security": {
+          "apparmorEnabled": false,
+          "capabilities": "CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_FOWNER,CAP_FSETID,CAP_KILL,CAP_NET_BIND_SERVICE,CAP_SETFCAP,CAP_SETGID,CAP_SETPCAP,CAP_SETUID,CAP_SYS_CHROOT",
+          "rootless": true,
+          "seccompEnabled": true,
+          "seccompProfilePath": "/usr/share/containers/seccomp.json",
+          "selinuxEnabled": false
+        },
+        "runtime": {
+          "name": "runc",
+          "package": "containerd.io_2.3.5-1~ubuntu.24.04~noble_arm64",
+          "path": "/usr/bin/runc",
+          "version": "runc version 1.5.1\ncommit: v1.5.1-0-g8f2685a4\nspec: 1.3.0\ngo: go1.26.8\nlibseccomp: 2.5.5"
+        },
+        "id_mappings": {
+          "gidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ],
+          "uidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ]
+        }
+      },
+      "engine_identity_raw_sha256": "85bf8581ecbc5bd051e226bb5bcc70a4d97db95a51bda3e224c119b61c9c42a8"
+    }
+  ],
+  "limitations": [
+    "Forced interruption targets the attached engine client after the container and OpenCode session start; it does not simulate controller or VM loss, or interrupted container creation.",
+    "The forced-stop audit records cleanup_failure=ExceptionGroup because the interrupted runtime cannot supply its final checkpoint. Independent engine observation confirms that no new containers remain.",
+    "CPU, memory, swap, and process limits were read from the running container's cgroup files; root filesystem and network settings were inspected. This is not full registered sandbox conformance.",
+    "Raw runtime state and database evidence remain in ignored local directories; this public record embeds parsed audit, configuration, engine identity, and container observations.",
+    "No provider or GPU calls were made; spending and provider qualification gates remain closed."
+  ]
+}
