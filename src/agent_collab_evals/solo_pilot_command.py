@@ -11,6 +11,7 @@ from .adapters.darwin_sandbox import DarwinSandboxExec
 from .adapters.fake_harness import FakeHarnessRuntime
 from .adapters.local_events import LocalEventSink
 from .adapters.opencode_harness import OpenCodeHarnessRuntime, OpenCodeRuntimeProfile
+from .adapters.oci_sandbox import OciSandboxExec, OciSandboxProfile
 from .adapters.provider_receipts import OpenRouterReceiptVerifier
 from .adapters.sqlite_budget import SqliteBudgetAccount
 from .adapters.sqlite_delivery import SqliteDeliveryOutbox
@@ -33,6 +34,40 @@ from .solo_pilot_stack import build_no_spend_stack
 
 class PilotAborted(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class PilotRuntimeDependencies:
+    """Runtime-only wiring; it cannot replace model or compute dependencies."""
+
+    harness: Callable
+    gateway_options: Callable
+    sandbox_evidence: dict
+    source_profile_digest: str
+
+
+def make_opencode_runtime_dependencies(runtime_profile, sandbox_profile, process_sandbox, *, timeout_seconds):
+    """Use the same sandbox and broker wiring for synthetic and live transports."""
+    is_oci = isinstance(sandbox_profile, OciSandboxProfile)
+    actual_source = (process_sandbox.source_profile_digest if isinstance(process_sandbox, OciSandboxExec)
+                     else process_sandbox.profile_digest)
+    if actual_source != sandbox_profile.resolved_digest:
+        raise ValueError("runtime sandbox source differs from the configuration")
+
+    def harness(root, services, gateway, candidate_gateway):
+        return OpenCodeHarnessRuntime(runtime_profile, root / "runtime", gateway,
+            process_sandbox=process_sandbox, candidate_gateway=candidate_gateway,
+            timeout_seconds=timeout_seconds)
+
+    def gateway_options(root):
+        if not is_oci:
+            return {}, {}
+        return tuple({"serve_http": False, "unix_socket_root": root / "brokers" / label,
+                      "advertised_endpoint": getattr(sandbox_profile, f"container_{label}_endpoint")}
+                     for label in ("model", "candidate"))
+
+    return PilotRuntimeDependencies(harness, gateway_options, dict(process_sandbox.evidence()),
+                                    sandbox_profile.resolved_digest)
 
 
 @dataclass(frozen=True)
@@ -82,7 +117,8 @@ class _SyntheticCandidateHarness(FakeHarnessRuntime):
         return super().deliver(session, job)
 
 
-def run_solo_pilot(config_path: Path, state_root: Path, run_id: str) -> dict:
+def run_solo_pilot(config_path: Path, state_root: Path, run_id: str, *,
+                   runtime_dependencies: PilotRuntimeDependencies | None = None) -> dict:
     repository = Path(__file__).resolve().parents[2]
     config = parse_json(config_path.read_text())
     if isinstance(config, dict) and config.get("execution_mode") == "live":
@@ -114,21 +150,38 @@ def run_solo_pilot(config_path: Path, state_root: Path, run_id: str) -> dict:
     campaign = ModelServingCampaign.load(path("campaign"))
     gateway_profile = ModelGatewayProfile.load(path("gateway_profile"), repository_root=repository)
     runtime_profile = OpenCodeRuntimeProfile.load(path("runtime_profile"), repository_root=repository)
-    sandbox_profile = SandboxProfile.load(path("sandbox_profile"))
+    sandbox_path = path("sandbox_profile")
+    sandbox_document = parse_json(sandbox_path.read_text())
+    if not isinstance(sandbox_document, dict):
+        raise ValueError("sandbox profile must be an object")
+    if sandbox_document.get("schema_version") == "oci-process-sandbox-profile/v2":
+        sandbox_profile = OciSandboxProfile.load(sandbox_path, repository_root=repository)
+        if runtime_dependencies is None:
+            raise ValueError("OCI pilot requires explicit host runtime dependencies")
+    else:
+        sandbox_profile = SandboxProfile.load(sandbox_path)
+    if runtime_dependencies is not None:
+        if config["runtime"] != "opencode" or runtime_dependencies.source_profile_digest != sandbox_profile.resolved_digest:
+            raise ValueError("pilot runtime dependencies differ from the configuration")
     if gateway_profile.status != "conformance_only":
         raise ValueError("no-spend pilot requires a synthetic model gateway profile")
     candidate_bytes = path("synthetic_candidate").read_bytes()
     candidate = parse_json(candidate_bytes.decode())
     campaign.validate_candidate_document(candidate)
     return _execute_solo_pilot(config, state_root, run_id, repository, campaign,
-        gateway_profile, runtime_profile, sandbox_profile, candidate_bytes)
+        gateway_profile, runtime_profile, sandbox_profile, candidate_bytes,
+        runtime_dependencies=runtime_dependencies)
 
 
 def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
                         gateway_profile, runtime_profile, sandbox_profile,
-                        candidate_bytes=None, *, live: LivePilotDependencies | None = None):
+                        candidate_bytes=None, *, live: LivePilotDependencies | None = None,
+                        runtime_dependencies: PilotRuntimeDependencies | None = None):
     """One lifecycle for both transports, below the operator's authority gate."""
     mode = "live" if live is not None else "no_spend"
+    if live is not None and runtime_dependencies is not None:
+        raise ValueError("select one runtime dependency source")
+    runtime_wiring = live if live is not None else runtime_dependencies
     public_seconds = live.public_seconds if live is not None else 60
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", run_id):
         raise ValueError("pilot run ID is invalid")
@@ -146,8 +199,8 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             for item in sorted((repository / "src/agent_collab_evals").rglob("*.py"))}),
         "git_commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True).stdout.strip(),
         "git_dirty": bool(subprocess.run(["git", "status", "--porcelain"], cwd=repository, check=True, capture_output=True, text=True).stdout)}
-    if live is not None:
-        bindings["runtime_sandbox_evidence"] = live.sandbox_evidence
+    if runtime_wiring is not None:
+        bindings["runtime_sandbox_evidence"] = runtime_wiring.sandbox_evidence
     config_digest = retain_document(root / "run-config.json", bindings)
     if candidate_bytes is not None:
         retain_bytes(root / "synthetic-input-candidate.json", candidate_bytes)
@@ -196,11 +249,11 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
         upstream = (live.upstream() if live is not None else _CandidateModel(candidate=candidate,
             model=gateway_profile.expected_returned_model, provider=gateway_profile.expected_provider, peer_actor_count=1))
         endpoint = "fake://no-spend"
-        if live is not None:
-            model_options, candidate_options = live.gateway_options(root) if live.gateway_options else ({}, {})
+        if runtime_wiring is not None:
+            model_options, candidate_options = runtime_wiring.gateway_options(root) if runtime_wiring.gateway_options else ({}, {})
             gateway = ModelBudgetGateway(gateway_profile, budget, upstream, **model_options)
             candidate_gateway = CandidateToolGateway(services.tools, services.sessions, **candidate_options)
-            runtime = live.harness(root, services, gateway, candidate_gateway)
+            runtime = runtime_wiring.harness(root, services, gateway, candidate_gateway)
             endpoint = gateway.endpoint
         elif config["runtime"] == "opencode":
             gateway = ModelBudgetGateway(gateway_profile, budget, upstream)

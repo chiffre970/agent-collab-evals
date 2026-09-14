@@ -543,30 +543,32 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated September 12, 2026. This sequencing update supersedes earlier "next"
+Updated September 13, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
 Deployment/cost proposal: [first solo pilot](SOLO_PILOT_PROPOSAL.md). Lifecycle
-and cleanup are committed in `050b382`. The current recommendation is a local
+and cleanup are committed in `050b382`; initial OCI wiring/setup in `d13e96f`.
+The current recommendation is a local
 Linux VM with the existing rootless OCI adapter. The user approved setup and
 a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter); paid execution
 still requires verified deployment and enforceable controls.
-Public provider metadata has been checked; authenticated routing/latency and
-deployment conformance have not. Lima 2.2.0 is installed, and the pinned local
-VM is provisioned without host mounts or credential forwarding. Rootless Docker
-29.8.0 and systemd/cgroup v2 are verified; a base container reports the expected
-CPU, memory, swap, and process limits. Full OpenCode image conformance is still
-pending. The runtime image is built and pinned locally, and OpenCode 1.18.19
-passes a no-network version check. Rootless mapped workspace/socket permissions
-and three transitive dependency advisories must be addressed before the full
-session check. Bootstrap observations are retained in
-`evidence/deployment/local-oci-bootstrap-20260912.json`. OCI configuration
-loading, engine-bound sandbox identity, dedicated Unix gateways, and retained
-runtime sandbox evidence are now wired into the existing pilot. The candidate
-remains execution-disabled and has no qualified engine/image. Modal resource
-ceilings and run-bound dollar admission still need wiring. Validation: 343 tests
-ran, 323 passed, and 20 skipped; the OCI offline composition check also passed.
+Lima is provisioned without host mounts or credential forwarding. Rootless
+Podman `keep-id` resolves private workspace/state/socket ownership while
+preserving UID 1000 and resource limits. The three advisory-affected transitive
+dependencies are patched; the rebuilt image reports zero npm advisories.
+The full real-OpenCode container pilot passed with five synthetic model calls,
+12 synthetic compute executions, valid budget reconciliation, and no containers
+left after normal teardown. Both runtime modes use the same broker/sandbox
+wiring; image-relative paths now locate container tools and plugins correctly.
+Evidence: `evidence/deployment/oci-solo-conformance-20260913.json`.
+
+This is no-spend development conformance, not registered qualification. The
+live factory rejects the development profile. Forced-stop cleanup, remaining
+deployment boundaries, current provider/billing qualification, Modal resource
+ceilings, and run-bound dollar admission still gate paid work. Validation:
+347 tests ran, 326 passed, and 21 skipped. The separately enabled Linux/OCI
+and Mac/OpenCode full-pilot tests both passed. No paid calls were made.
 
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
@@ -577,9 +579,9 @@ ran, 323 passed, and 20 skipped; the OCI offline composition check also passed.
    commits this implementation and the preceding cleanup fixes. The same
    entrypoint now supports an offline live-config check with real OpenRouter
    and Modal factories. The shared lifecycle now has live dependency wiring
-   and retained abort cleanup, tested without paid calls. Next, resolve the
-   mapped UID permissions and dependency advisories, then qualify the
-   isolated deployment, current provider/billing route, and remote cancellation;
+   and retained abort cleanup, tested without paid calls. The full OCI no-spend
+   session also passes. Next, finish the remaining deployment checks and qualify
+   the current provider/billing route and remote cancellation;
    bind the approved total dollar envelope's enforcement to the operator
    gate. Live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place

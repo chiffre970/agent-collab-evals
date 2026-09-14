@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,12 +82,12 @@ class OciSandboxProfile:
         if not _SAFE_ID.fullmatch(profile_id):
             raise ValueError("OCI sandbox profile ID is invalid")
         status = value["status"]
-        if status not in {"implementation_candidate", "registered"}:
+        if status not in {"implementation_candidate", "development_conformance", "registered"}:
             raise ValueError("unsupported OCI sandbox profile status")
         authorized = value["execution_authorized"]
         if type(authorized) is not bool:
             raise ValueError("OCI execution authorization must be a boolean")
-        if value["engine"] != "docker-compatible-rootless-oci":
+        if value["engine"] not in {"docker-compatible-rootless-oci", "podman-rootless-keep-id"}:
             raise ValueError("unsupported OCI sandbox engine")
 
         image = _mapping(value["image"], "OCI image")
@@ -246,12 +247,14 @@ class OciSandboxProfile:
         ):
             raise ValueError("OCI runtime source digest differs")
         if authorized:
-            if status != "registered" or unresolved:
+            if status == "implementation_candidate" or (status == "registered" and unresolved):
                 raise ValueError("authorized OCI profile must be fully registered")
+            if status == "development_conformance" and not unresolved:
+                raise ValueError("OCI conformance profile must retain unresolved registration gates")
             if not reference or image_digest is None or launcher_digest is None:
                 raise ValueError("authorized OCI profile requires pinned artifacts")
-        elif status == "registered":
-            raise ValueError("registered OCI profile must authorize execution")
+        elif status != "implementation_candidate":
+            raise ValueError("registered or conformance OCI profile must authorize execution")
         elif not unresolved:
             raise ValueError("OCI implementation candidate must name unresolved gates")
         for name in ("uid", "gid", "pids_limit", "timeout_seconds"):
@@ -301,7 +304,7 @@ class OciSandboxProfile:
 
 
 class OciSandboxExec:
-    """Build one exact rootless OCI invocation for a registered profile."""
+    """Build one exact rootless OCI invocation for an authorized process profile."""
 
     def __init__(
         self,
@@ -322,6 +325,10 @@ class OciSandboxExec:
     @property
     def profile_id(self) -> str:
         return self._profile.profile_id
+
+    @property
+    def source_profile_digest(self) -> str:
+        return self._profile.resolved_digest
 
     @property
     def profile_digest(self) -> str:
@@ -384,6 +391,7 @@ class OciSandboxExec:
             "--interactive",
             "--rm",
             "--init",
+            "--pull=never",
             "--read-only",
             "--network",
             "none",
@@ -408,6 +416,9 @@ class OciSandboxExec:
             "--mount",
             _mount(socket_path.parent, read_only=True),
         ]
+        if self._profile.engine == "podman-rootless-keep-id":
+            args.extend(("--userns", f"keep-id:uid={self._profile.uid},gid={self._profile.gid}",
+                         "--read-only-tmpfs=false"))
         mounted_brokers = {socket_path.parent.resolve()}
         for path in capability_sockets.values():
             if path.parent.resolve() not in mounted_brokers:
@@ -449,10 +460,16 @@ class OciSandboxExec:
             )
         )
         args.extend(launcher)
+        engine_environment = {"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"}
+        if self._profile.engine == "podman-rootless-keep-id":
+            # This is the engine client's runtime directory, never actor input
+            # or an environment variable forwarded into the container.
+            engine_environment["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
         return SandboxedProcess(
             command=tuple(args),
             working_directory=context.runtime_assets_root,
-            environment={"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+            environment=engine_environment,
+            runtime_assets_root=Path(self._profile.bridge_executable).parent,
         )
 
     def evidence(self) -> dict[str, object]:
@@ -460,6 +477,8 @@ class OciSandboxExec:
             "sandbox_profile_id": self.profile_id,
             "sandbox_profile_digest": self.profile_digest,
             "driver": self._profile.engine,
+            "status": self._profile.status,
+            "user_namespace": "keep_id" if self._profile.engine == "podman-rootless-keep-id" else "rootless_default",
             "network_mode": "none_with_dedicated_session_unix_socket",
             "filesystem_enforcement": "read_only_root_and_explicit_mounts",
             "process_resource_enforcement": "cpu_memory_pids_and_timeout",

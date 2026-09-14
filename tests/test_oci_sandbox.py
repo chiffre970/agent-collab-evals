@@ -121,6 +121,15 @@ class OciSandboxTests(unittest.TestCase):
                     context,
                     environment,
                 )
+                podman = OciSandboxExec(replace(profile, engine="podman-rootless-keep-id"),
+                    Path("/usr/bin/true"), digest_value("podman-test"))
+                podman_process = podman.prepare(("/host/node", str(REPOSITORY_ROOT / "scripts/runtime/opencode_bridge.mjs")), context, environment)
+                self.assertIn("keep-id:uid=1000,gid=1000", podman_process.command)
+                self.assertIn("--read-only-tmpfs=false", podman_process.command)
+                self.assertIn("--pull=never", podman_process.command)
+                self.assertIn("XDG_RUNTIME_DIR", podman_process.environment)
+                self.assertFalse(any(item.startswith("XDG_RUNTIME_DIR=") for item in podman_process.command))
+                self.assertEqual(podman_process.runtime_assets_root, Path(profile.bridge_executable).parent)
 
         command = process.command
         self.assertEqual(command[:2], ("/usr/bin/true", "run"))

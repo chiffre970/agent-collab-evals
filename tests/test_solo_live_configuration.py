@@ -120,6 +120,11 @@ class SoloLiveConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not execution-authorized"):
             make_live_dependencies(self.oci_configuration(sandbox_engine_identity_digest=digest_value("engine")),
                 api_key="unused", process_sandbox=None, authorize=None)
+        with self.assertRaisesRegex(ValueError, "not execution-authorized"):
+            make_live_dependencies(self.oci_configuration(
+                sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+                sandbox_engine_identity_digest=digest_value("engine")),
+                api_key="unused", process_sandbox=None, authorize=None)
 
     def test_oci_binding_includes_engine_identity_and_uses_unix_gateways(self):
         engine_digest = digest_value("test-only-engine")

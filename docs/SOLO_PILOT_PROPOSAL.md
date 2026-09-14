@@ -1,6 +1,6 @@
 # First solo pilot: deployment and budget proposal
 
-Prepared September 12, 2026. The user approved local VM setup and the US$15
+Prepared September 12, 2026; updated September 13. The user approved local VM setup and the US$15
 gross usage envelope, conditional on deployment, route, resource, and spending
 checks passing before paid execution. Execution remains disabled. This document
 is not a durable run-bound authorization receipt.
@@ -8,7 +8,7 @@ is not a durable run-bound authorization receipt.
 ## Recommended deployment
 
 Use a disposable local Linux VM through Lima, with the controller and rootless
-Docker daemon inside the VM. Run OpenCode in the existing network-disabled OCI
+container tooling inside the VM. Run OpenCode through Podman in the network-disabled OCI
 actor container, connected to the controller's dedicated Unix sockets. Keep the
 Qwen target and all GPU evaluation on Modal L4. This follows ADR 0002 without
 introducing a cloud-hosting account or a remote agent transport.
@@ -43,33 +43,48 @@ also connects to the rootless daemon. These observations are retained in
 `evidence/deployment/local-oci-bootstrap-20260912.json`; they do not qualify
 the complete OpenCode boundary or authorize execution.
 
-Concrete remaining deployment work:
+Deployment progress:
 
-1. Resolve mapped workspace/state/socket access and review dependency advisories.
-   The image now builds with bounded installation steps and retains digest
-   `sha256:9586106b78b99d8dbdf54b6933124bce8fb71f9196cc472a58443001cbc5c946`.
-   OpenCode 1.18.19 passes a no-network version check with a writable temporary
-   home. However, rootless mapping exposes a controller-owned directory as
-   UID 0 to container UID 1000, preventing writes. Add explicit mapped ownership
-   or narrowly scoped ACL preparation; do not make actor directories world-writable.
-   `npm audit` also reports transitive `fast-uri@3.1.5` (high), `hono@4.13.3`, and
-   `qs@6.15.3` (moderate) through the MCP SDK. Review or remediate these before
-   promoting the image; no dependency versions were changed during setup.
-2. Exercise the OCI pilot wiring in that VM. Live configuration v2 now accepts
-   the existing OCI profile, binds the instantiated sandbox digest to its engine
-   identity, and selects dedicated Unix-socket gateways. The candidate at
-   `config/pilots/solo-live-oci-v1.json` records the approved ceiling but has no
-   engine identity or execution authority. Offline composition is verified;
-   this does not establish live container compatibility or isolation.
-3. Verify allowed gateway access, excluded files/credentials, resource limits,
-   and container teardown. Keep the execution-authorized flag false until the
-   necessary deployment evidence and run-bound approval are available.
+1. **Complete: mapped identity and dependency remediation.** Rootless Podman
+   4.9.3 uses `keep-id` to preserve UID 1000 on private mounts. A `0700` workspace
+   is accessible without ACL repair or relaxed permissions; CPU, memory, swap,
+   and process limits remain unchanged. Only three transitive packages changed:
+   `fast-uri` 3.1.7, `hono` 4.13.7, and `qs` 6.16.0. The updated lock and rebuilt
+   image report zero npm advisories. OpenCode remains 1.18.19.
+2. **Complete: full no-spend container session.** The existing pilot ran real
+   OpenCode through Unix model/candidate brokers, public feedback, selection,
+   all hidden phases, reconciliation, and normal teardown. It made five synthetic
+   model calls and 12 synthetic compute executions, with zero external calls
+   or spend. No containers remained. The retained observation is
+   `evidence/deployment/oci-solo-conformance-20260913.json`; the full generated
+   evidence remains private under `tmp/oci-pilot-conformance/ace-z__8hnoz`.
+3. **Next: remaining execution gates.** Qualify forced-stop cleanup and the
+   remaining deployment boundaries; bind the approved dollar envelope, Modal
+   resource ceilings, and current provider/billing qualification before paid
+   execution. The live candidate remains disabled. The process-only
+   `development_conformance` profile is explicitly rejected by the live factory.
+
+The current image is
+`docker.io/agent-collab/opencode-runtime@sha256:8c0242a1761cda906ba87127d44686871f1b8c8afaa1d6eda369c1a05fc61e21`.
+The September 12 image and bootstrap record are historical, not the current
+dependency baseline. The existing VM now has Podman and controller prerequisites
+in addition to the original bootstrap. A fresh controller checkout needs its
+Python package, Modal 1.5.4, a Node executable, and the locked runtime packages.
+The controller's package metadata checks still require local `node_modules`;
+the VM reuses those packages from the image. No credentials are needed for this test.
+
+Run the no-spend acceptance test inside that VM's project checkout:
+
+```sh
+RUN_OCI_PILOT_INTEGRATION=1 .venv/bin/python -W error::ResourceWarning \
+  -m unittest tests.test_oci_pilot.OciPilotIntegrationTests -v
+```
 
 The idle VM was stopped after setup to release RAM; its disk and image remain.
 The image exists only in the local VM; it was not pushed to a registry. The
 bootstrap observation is not a signed or independently resolved conformance
-receipt. Keep the executable image/engine fields unqualified until the full
-session checks pass. Use `limactl start agent-collab-solo --tty=false` to resume
+receipt. Registered deployment conformance remains incomplete despite the
+successful development session. Use `limactl start agent-collab-solo --tty=false` to resume
 the existing VM; do not create another instance for the next step.
 
 ## Provider recommendation

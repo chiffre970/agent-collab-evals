@@ -1,0 +1,195 @@
+{
+  "schema_version": "oci-solo-conformance-observation/v1",
+  "date": "2026-09-13",
+  "authority": "development_observation_only",
+  "registered_conformance_complete": false,
+  "host_checkpoint": "d13e96f",
+  "source_note": "Includes follow-up source changes executed in the separate VM snapshot recorded below.",
+  "image": "docker.io/agent-collab/opencode-runtime@sha256:8c0242a1761cda906ba87127d44686871f1b8c8afaa1d6eda369c1a05fc61e21",
+  "package_lock_sha256": "75c96b8e61aaaa0cd6a0c31fd70e2e916c51f8015c8761665405e2c873684b65",
+  "new_containers_remaining": [],
+  "private_evidence_directory": "tmp/oci-pilot-conformance/ace-z__8hnoz",
+  "pilot_audit": {
+    "actual_spend_usd_nanos": 0,
+    "budget_reconciliation": {
+      "accounting_mode": "plan_and_synthetic_receipts_verified",
+      "active_reservation_ids": [],
+      "budget_plan_digest": "sha256:6e24b06a5f0f11b1e58f66d854a3530b4e0a3f38ab86aea1735d1c898b76a1b6",
+      "campaign_run_id": "pilot",
+      "forfeited_reservation_ids": [],
+      "ledger_errors": [],
+      "missing_receipt_reservation_ids": [],
+      "overrun_reservation_ids": [],
+      "receipt_verifier_digest": "sha256:42e93c2536bebedd515fc6fc6a56cf6113e4639f6a28b4530fc90874b340e739",
+      "valid": true
+    },
+    "elapsed_ms": 4749,
+    "evidence_digests": {
+      "compute-receipts.json": "sha256:5d2ce3a200d8cd6e2838662e2240a119201ceacaf22765fc9f18fdabe95b2f51",
+      "compute-snapshot.json": "sha256:ca4e7d5e9c7ffd7b53cea90fd5550d23fd4b36652df27beb079a9c6ee492bde6",
+      "hidden-result.json": "sha256:561db4567dec9aa6df7a16ab0ec89b52d20dbc91630d0b385cabc2a053c23e31",
+      "model-budget-snapshot.json": "sha256:102c160e599f877854afe9934e903095fa0274451e8de848495923be81235022",
+      "model-requests.json": "sha256:eaa34d11f52e64173bc8d57b5bba54684071d3cc479d34c616d4b5ee4cd2604d",
+      "public-submissions.json": "sha256:7bf2dbc100cf040459db2e39494fc47d1eae46b584f90add6e8ff3632fe9aa37",
+      "runtime-snapshot.json": "sha256:30bb292b6e1428b9a5ce70680fe366cc4420c7c635465e0fb4cf00bc64f47c12",
+      "selection.json": "sha256:2211128a6de69bcdfbd7b89e41d3a36763274f8bbfe19fa4e39fd5e88c7ae32e"
+    },
+    "execution_mode": "no_spend",
+    "external_compute_executions": 0,
+    "external_model_calls": 0,
+    "failure": null,
+    "hidden_result": {
+      "criterion_units": 1001000,
+      "diagnostics": {
+        "hidden_workload_manifest_digest": "sha256:58fd326dc9e295b65636ed1f746cd117f360e6ef9a7523a748b826d7a5e9d916",
+        "performance_criterion_units": 1001000,
+        "phase_evidence_digests": {
+          "correctness": "sha256:cd8b4fad9da55c1f9703b07ee7c27eb233f3c53127de1d38928cf8b1bd143080",
+          "performance": "sha256:9053d98f38ce19cb6e0a8b39d9907d5b253d3726629878b4b3c5799d92aa4ce9",
+          "quality": "sha256:331ddf7a61facee9af460ab3c8a6be1540d24395bfffcfc2711a8b45638e55fa"
+        }
+      },
+      "eligible": true,
+      "evidence_digest": "sha256:6323ca5ee401a6351d8f952cafceb8abd14617a587047e122b6dac211e9db087",
+      "failures": []
+    },
+    "inventory_digest": "sha256:ed4b377ad20a64065d8a6c9eea00da626a45655b652c434c0e48d07adb6e6a02",
+    "live_execution_authorized": false,
+    "public_result": {
+      "criterion_units": 1100000,
+      "diagnostics": {
+        "candidate_id": "synthetic",
+        "development_single_repetition": true,
+        "measurement_profile_digest": null,
+        "modal_function_call_id": null,
+        "scoring_profile_digest": null
+      },
+      "eligible": true,
+      "evidence_digest": "sha256:8d9459ef69159fa3da1c9b1eceeb09fea1e24d25e51a5f437c9e82f9072fa90c",
+      "failures": []
+    },
+    "run_config_digest": "sha256:054745e626574d49b5a1443763698f7aa52c481497c8e14e2f9beaab198be64c",
+    "run_id": "pilot",
+    "runtime": "opencode",
+    "schema_version": "solo-pilot-audit/v1",
+    "scoreable": false,
+    "selected_artifact_digest": "sha256:a5633a16a81584322eec4f07c549673d3a30bae576983515744d85e13d537f72",
+    "status": "complete",
+    "storage_seal_digest": "sha256:39eee60c84dd3cb518bea8ce322cede4eb8ad8b6c71a13ede4584bf95e82d460",
+    "synthetic_compute_executions": 12,
+    "synthetic_compute_seconds": 84,
+    "synthetic_model_calls": 5,
+    "used_default": false
+  },
+  "pilot_audit_raw_sha256": "b814d5bdf3d453e392ef829e4fb7d3d342c77ced9a811d9068974b93c3e151d8",
+  "run_configuration": {
+    "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+    "config": {
+      "campaign": "campaigns/model_serving_v0/campaign.toml",
+      "execution_mode": "no_spend",
+      "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+      "runtime": "opencode",
+      "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+      "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+      "schema_version": "solo-pilot-command/v1",
+      "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+      "synthetic_candidate_public_ppm": 1100000,
+      "synthetic_model_limit_usd_nanos": 1000000000,
+      "task_seed": 1729
+    },
+    "config_digest": "sha256:a86575b9187f6966c957303804d0093ffb6eacb1214f187149581a475d4869cc",
+    "gateway_profile_digest": "sha256:39b5d1f8348aa08d71b14ee3508cce699c7863e699bea3a01c6f98be643f2307",
+    "git_commit": "a349f9feefc2ba73d018bd4520008250c03d71f0",
+    "git_dirty": false,
+    "platform_source_digest": "sha256:4f637c11ed3731501e33cca97fd6aab87c0e6c024b7532946f72e0ccc37b298e",
+    "runtime_profile_digest": "sha256:15229995cdf5fb75907addc808ad800a449c8b421f9543f2a86bf15c8e2321d2",
+    "runtime_sandbox_evidence": {
+      "credential_environment_allowlist": [],
+      "driver": "podman-rootless-keep-id",
+      "filesystem_enforcement": "read_only_root_and_explicit_mounts",
+      "network_mode": "none_with_dedicated_session_unix_socket",
+      "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+      "required_conformance": [
+        "gateway_only_network",
+        "peer_gateway_only_network",
+        "candidate_gateway_only_network",
+        "native_gateway_only_network",
+        "unrelated_loopback_denied",
+        "provider_egress_denied",
+        "evaluator_private_files_denied",
+        "ambient_credentials_absent",
+        "filesystem_write_scope_enforced",
+        "process_resource_limits_enforced"
+      ],
+      "sandbox_profile_digest": "sha256:dc3552ceca70a576548495de522a714fa9a6e11cd533ebec7db9caa7393c809d",
+      "sandbox_profile_id": "oci-opencode-podman-development-v1",
+      "status": "development_conformance",
+      "user_namespace": "keep_id"
+    },
+    "sandbox_profile_digest": "sha256:21dd43db2d866d0685c975102dd0e5e368ee87e2d4cf74e67653121fb7042ee5",
+    "synthetic_candidate_digest": "sha256:9715eb6e469f11a1d1ec2bc7b6e560d8eaedd7489d72735124f86ec789b93c32"
+  },
+  "run_configuration_raw_sha256": "054745e626574d49b5a1443763698f7aa52c481497c8e14e2f9beaab198be64c",
+  "engine_identity": {
+    "engine_binary_digest": "sha256:f93ee492920150e229b9b41729bfe675073a4df0569ee5d570a8106b5a64506a",
+    "version": {
+      "APIVersion": "4.9.3",
+      "Version": "4.9.3",
+      "GoVersion": "go1.22.2",
+      "GitCommit": "",
+      "BuiltTime": "Thu Jan  1 10:00:00 1970",
+      "Built": 0,
+      "OsArch": "linux/arm64",
+      "Os": "linux"
+    },
+    "kernel": "6.8.0-134-generic",
+    "security": {
+      "apparmorEnabled": false,
+      "capabilities": "CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_FOWNER,CAP_FSETID,CAP_KILL,CAP_NET_BIND_SERVICE,CAP_SETFCAP,CAP_SETGID,CAP_SETPCAP,CAP_SETUID,CAP_SYS_CHROOT",
+      "rootless": true,
+      "seccompEnabled": true,
+      "seccompProfilePath": "/usr/share/containers/seccomp.json",
+      "selinuxEnabled": false
+    },
+    "runtime": {
+      "name": "runc",
+      "package": "containerd.io_2.3.5-1~ubuntu.24.04~noble_arm64",
+      "path": "/usr/bin/runc",
+      "version": "runc version 1.5.1\ncommit: v1.5.1-0-g8f2685a4\nspec: 1.3.0\ngo: go1.26.8\nlibseccomp: 2.5.5"
+    },
+    "id_mappings": {
+      "gidmap": [
+        {
+          "container_id": 0,
+          "host_id": 1000,
+          "size": 1
+        },
+        {
+          "container_id": 1,
+          "host_id": 100000,
+          "size": 65536
+        }
+      ],
+      "uidmap": [
+        {
+          "container_id": 0,
+          "host_id": 1000,
+          "size": 1
+        },
+        {
+          "container_id": 1,
+          "host_id": 100000,
+          "size": 65536
+        }
+      ]
+    }
+  },
+  "engine_identity_raw_sha256": "85bf8581ecbc5bd051e226bb5bcc70a4d97db95a51bda3e224c119b61c9c42a8",
+  "limitations": [
+    "Model responses and all compute evidence are synthetic; no optimization or collaboration effect is measured.",
+    "The embedded audit and run configuration reproduce their raw canonical JSON bytes. The engine document is parsed from formatted JSON; its raw formatting is retained privately.",
+    "Full generated databases and runtime state are retained privately, not embedded here.",
+    "Normal container teardown passed; forced-termination and full registered peer/native isolation qualification remain open.",
+    "This observation does not authorize paid execution or substitute for run-bound budget and provider-route qualification."
+  ]
+}

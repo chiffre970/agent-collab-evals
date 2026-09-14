@@ -140,8 +140,7 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
     reference compute. This factory never supplies approval or reads credentials.
     """
     from .adapters.modal_cleanup import ModalCallCanceller
-    from .adapters.opencode_harness import OpenCodeHarnessRuntime
-    from .solo_pilot_command import LivePilotDependencies
+    from .solo_pilot_command import LivePilotDependencies, make_opencode_runtime_dependencies
 
     if any(configuration.document[field] is None for field in ("model_limit_usd_nanos", "modal_limit_usd_nanos")):
         raise ValueError("live execution requires explicit model and Modal dollar limits")
@@ -151,7 +150,7 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
         engine_digest = configuration.document.get("sandbox_engine_identity_digest")
         if engine_digest is None:
             raise ValueError("live OCI execution requires a pinned engine identity")
-        if not sandbox.execution_authorized:
+        if not sandbox.execution_authorized or sandbox.status != "registered":
             raise ValueError("live OCI sandbox is not execution-authorized")
         expected_sandbox_digest = OciSandboxExec.profile_digest_for(sandbox, engine_digest)
     if process_sandbox.profile_digest != expected_sandbox_digest:
@@ -163,22 +162,13 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, authorize
     def stack(root, run_id):
         return build_live_stack(root, configuration, run_id, hidden, policy)[0]
 
-    def harness(root, services, gateway, candidate_gateway):
-        return OpenCodeHarnessRuntime(configuration.runtime, root / "runtime", gateway,
-            process_sandbox=process_sandbox, candidate_gateway=candidate_gateway,
-            timeout_seconds=configuration.document["runtime_timeout_seconds"])
-
-    def gateway_options(root):
-        if not isinstance(sandbox, OciSandboxProfile):
-            return {}, {}
-        return tuple({"serve_http": False, "unix_socket_root": root / "brokers" / label,
-                      "advertised_endpoint": getattr(sandbox, f"container_{label}_endpoint")}
-                     for label in ("model", "candidate"))
+    runtime = make_opencode_runtime_dependencies(configuration.runtime, sandbox, process_sandbox,
+        timeout_seconds=configuration.document["runtime_timeout_seconds"])
 
     return LivePilotDependencies(stack, lambda: configuration.model_upstream(api_key), authorize,
-        lambda stack: stack.inventory.cleanup(canceller), harness,
+        lambda stack: stack.inventory.cleanup(canceller), runtime.harness,
         configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"],
-        gateway_options=gateway_options, sandbox_evidence=process_sandbox.evidence())
+        gateway_options=runtime.gateway_options, sandbox_evidence=runtime.sandbox_evidence)
 
 
 def build_live_stack(root, configuration, run_id, hidden, policy):

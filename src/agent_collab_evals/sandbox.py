@@ -82,8 +82,11 @@ class SandboxedProcess:
     command: tuple[str, ...]
     working_directory: Path
     environment: Mapping[str, str]
+    runtime_assets_root: Path | None = None
 
     def __post_init__(self) -> None:
+        if self.runtime_assets_root is not None and not self.runtime_assets_root.is_absolute():
+            raise ValueError("sandbox runtime asset path must be absolute")
         if not self.command or any(not value for value in self.command):
             raise ValueError("sandboxed process command must be nonempty")
         if (

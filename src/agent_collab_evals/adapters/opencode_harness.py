@@ -305,6 +305,7 @@ class _Bridge:
                     peer_access,
                     candidate_access,
                     native_access,
+                    runtime_assets_root=process.runtime_assets_root,
                 ),
             )["surface"]
         except Exception:
@@ -1230,7 +1231,10 @@ def _runtime_config(
     peer_access: PeerToolAccess | None = None,
     candidate_access: CandidateToolAccess | None = None,
     native_access: CandidateToolAccess | None = None,
+    *,
+    runtime_assets_root: Path | None = None,
 ) -> Mapping[str, Any]:
+    assets = runtime_assets_root or _BRIDGE_PATH.parent
     denied_tools = {"bash": False, "edit": False, "webfetch": False, "write": False}
     peer_tools = {
         f"peer_{name}": peer_access is not None for name in _PEER_TOOL_NAMES
@@ -1314,7 +1318,7 @@ def _runtime_config(
         config["mcp"] = {
             "peer": {
                 "type": "local",
-                "command": ["node", str(_PEER_TOOL_PATH)],
+                "command": ["node", str(assets / "peer_tool_server.mjs")],
                 "environment": {
                     "AGENT_COLLAB_PEER_ENDPOINT": peer_access.endpoint,
                     "AGENT_COLLAB_PEER_TOKEN": peer_access.token,
@@ -1325,13 +1329,13 @@ def _runtime_config(
         }
     if native_access is not None:
         config["plugin"] = [[
-            (_BRIDGE_PATH.parent / "native_admission_plugin.mjs").as_uri(),
+            (assets / "native_admission_plugin.mjs").as_uri(),
             {"endpoint": native_access.endpoint, "token": native_access.token},
         ]]
     if candidate_access is not None:
         config.setdefault("mcp", {})["candidate"] = {
             "type": "local",
-            "command": ["node", str(_BRIDGE_PATH.parent / "candidate_tool_server.mjs")],
+            "command": ["node", str(assets / "candidate_tool_server.mjs")],
             "environment": {
                 "AGENT_COLLAB_CANDIDATE_ENDPOINT": candidate_access.endpoint,
                 "AGENT_COLLAB_CANDIDATE_TOKEN": candidate_access.token,

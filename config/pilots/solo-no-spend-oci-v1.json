@@ -1,0 +1,13 @@
+{
+  "schema_version": "solo-pilot-command/v1",
+  "execution_mode": "no_spend",
+  "runtime": "opencode",
+  "campaign": "campaigns/model_serving_v0/campaign.toml",
+  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+  "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+  "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+  "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+  "synthetic_candidate_public_ppm": 1100000,
+  "synthetic_model_limit_usd_nanos": 1000000000,
+  "task_seed": 1729
+}

@@ -88,6 +88,30 @@ and [Modal Sandbox resource limits](https://modal.com/docs/guide/sandbox-resourc
 
 ## Promotion gates
 
+### Local development engine
+
+The September 13, 2026 deployment uses rootless Podman with
+`--userns=keep-id:uid=1000,gid=1000` inside the existing Lima VM. Rootless Docker
+maps the host owner to container UID 0, which prevented the declared UID-1000
+actor from accessing its private bind mounts. Podman's identity mapping keeps
+the controller and actor able to use private directories, files, and Unix sockets
+without a separate ACL or ownership-repair service. The controller still mounts
+only the assigned actor roots and dedicated broker directories. Sources:
+[Docker UID mapping](https://docs.docker.com/engine/security/rootless/uid-gid-mapping/),
+[Podman user namespaces](https://docs.podman.io/en/latest/markdown/podman-run.1.html#userns-mode).
+
+The command disables automatic extra writable tmpfs mounts and image pulls.
+Network isolation, read-only root, non-root UID, dropped capabilities, and fixed
+resource limits remain unchanged. Container-side tool and plugin paths come
+from the sandbox's image asset directory, not the controller's filesystem.
+
+The `development_conformance` status permits local actor execution with pinned
+image inputs and unresolved registration gates. It is not a registered sandbox;
+the live dependency factory rejects it. No-spend runtime injection changes only
+the sandbox and broker transport, never the synthetic model or compute backend.
+
+### Registered execution
+
 The candidate must not authorize execution until all of these gates pass:
 
 1. Build and retain a runtime image by immutable digest.
