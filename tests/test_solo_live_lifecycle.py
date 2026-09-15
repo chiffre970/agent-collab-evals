@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.opencode_harness import OpenCodeRuntimeProfile
+from agent_collab_evals.adapters.synthetic_pilot_compute import SyntheticPilotTransport
 from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
 from agent_collab_evals.budget import BudgetCharge, BudgetSnapshot, ProviderUsage
 from agent_collab_evals.canonical import canonical_json_bytes, digest_value
@@ -87,6 +88,27 @@ class SoloLiveLifecycleTests(unittest.TestCase):
         self.assertEqual(audit["status"], "aborted")
         self.assertEqual(audit["remote_cleanup"][0]["status"], "cancellation_requested")
         self.assertFalse(audit["remote_cleanup"][0]["terminal_confirmed"])
+
+    def test_ineligible_reference_cleans_up_without_starting_model_or_agent(self):
+        original_result = SyntheticPilotTransport._result
+
+        def result(transport, request):
+            document = original_result(transport, request)
+            document["performance_score"].update(eligible=False, failures=[])
+            return document
+
+        upstream, harness = Mock(), Mock()
+        self.dependencies = replace(self.dependencies, upstream=upstream, harness=harness)
+        with patch.object(SyntheticPilotTransport, "_result", result):
+            with self.assertRaises(PilotAborted):
+                self.run_pilot()
+        upstream.assert_not_called()
+        harness.assert_not_called()
+        self.cleanup.assert_called_once()
+        self.assertEqual(len(self.authorized), 1)
+        audit = json.loads((self.root / "live-branch-test/audit.json").read_bytes())
+        self.assertEqual(audit["failure"]["stage"], "reference")
+        self.assertIn("reference_evidence_digest", audit)
 
     def test_spend_admission_precedes_reference_and_failure_retains_audit(self):
         guard = Mock()

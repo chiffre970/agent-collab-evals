@@ -635,6 +635,21 @@ The queried billing report was empty and the summary remained unchanged, so
 qualification cost is not reconciled. Observations are retained in
 `evidence/deployment/solo-readiness-20260915.json`.
 
+September 15 deployment follow-up: `57f2a6e` is pushed and deployed to the
+existing local controller. Five authorization tests and both real OCI lifecycle
+tests passed there, with no leftover containers. The actual private hidden
+bundle and engine-pinned configuration now pass the offline live-config check.
+The engine was remeasured after boot (kernel `6.8.0-139-generic`); the private
+configuration pins that current identity. The authoritative journal is unchanged.
+See `evidence/deployment/solo-controller-20260915.json`.
+
+The reference-first follow-up stops before starting model or actor services if
+the resolved reference result is ineligible or reports failures. It retains the
+result and uses existing abort cleanup without automatic retry. Host validation:
+378 tests ran, 356 passed, and 22 skipped. No new paid calls ran. Next: deploy
+that small follow-up, review the remaining evaluator/billing assessments, and
+issue the one-run approval. No separate qualification runner is needed.
+
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
    held-out evaluator phases, durable routing/authorization, and closure in one

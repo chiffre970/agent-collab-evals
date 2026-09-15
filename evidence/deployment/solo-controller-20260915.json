@@ -1,0 +1,34 @@
+{
+  "schema_version": "exploratory-controller-observation/v1",
+  "observed_local_date": "2026-09-15",
+  "timezone": "Australia/Melbourne",
+  "controller": "local Lima VM agent-collab-solo",
+  "tested_commit": "57f2a6e",
+  "engine_identity_digest": "sha256:10b84d1d73b90c1601ddb86fdb39c8c4ef103c413817b34ad651a8373a1206ab",
+  "kernel": "6.8.0-139-generic",
+  "no_spend_checks": {
+    "authorization_tests_passed": 5,
+    "real_oci_lifecycle_tests_passed": 2,
+    "normal_evidence": "/home/rmh.guest/agent-collab-evals/tmp/oci-pilot-conformance/ace-47ozm_fc",
+    "interrupted_evidence": "/home/rmh.guest/agent-collab-evals/tmp/oci-pilot-conformance/ace-oql7d86g",
+    "new_containers_remaining": [],
+    "live_configuration_check_passed": true,
+    "configuration_digest": "sha256:6849ae657738d7444a61eff7b67c7fbc207a0ccc90b6ffa5b64b72b1266c1a3c",
+    "hidden_manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8"
+  },
+  "spending_journal": {
+    "path": "/home/rmh.guest/agent-collab-evals/.private/solo-spend/first-solo",
+    "plan_digest": "sha256:93939a9d8a2f7c51c67d2157e92204290814d90c3c28a5374db4ebd7ffdf5f2e",
+    "reserved_usd_nanos": {"modal": 1532160000, "openrouter": 50000000},
+    "remaining_usd_nanos": {"modal": 10417840000, "openrouter": 2950000000},
+    "new_admissions": 0
+  },
+  "execution_authorized": false,
+  "new_paid_calls": 0,
+  "limitations": [
+    "Development conformance only; this does not qualify registered studies.",
+    "The reference-first eligibility guard was tested separately on the host after this deployed commit.",
+    "Offline configuration validation verifies hidden-workload bindings, not live vLLM loading.",
+    "The prior qualification's actual Modal billing remains unresolved; its full allowance stays reserved."
+  ]
+}

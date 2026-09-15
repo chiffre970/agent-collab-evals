@@ -23,7 +23,7 @@ from .campaigns.model_serving import ModelServingCampaign
 from .canonical import canonical_json_bytes, digest_bytes, digest_value, parse_json
 from .controller import CampaignController
 from .domain import AgentIdentity, CampaignStatus, CoordinationCondition, OrganisationSpec
-from .evaluation import ActorComputeAllocation, ComputePlan, SubmissionPolicy
+from .evaluation import ActorComputeAllocation, ComputePlan, EvaluationScope, SubmissionPolicy
 from .model_gateway import ModelBudgetGateway, ModelGatewayProfile
 from .pilot_evidence import retain_bytes, retain_document
 from .sandbox import SandboxProfile
@@ -241,6 +241,12 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
         stack.inventory.register("public", (reference_request,))
         authorize(reference_request)
         reference_receipt = stack.evaluator.visible_evaluate(reference, None, "visible:reference")
+        reference_result = stack.evaluator.resolve(reference_receipt, reference, None, EvaluationScope.VISIBLE)
+        audit["reference_evidence_digest"] = retain_document(root / "reference-result.json", {
+            "receipt": asdict(reference_receipt), "result": asdict(reference_result),
+        })
+        if not reference_result.eligible or reference_result.failures:
+            raise RuntimeError("reference evaluation failed; the agent was not started")
         actor = AgentIdentity(run_id, 0)
         compute_plan = ComputePlan("solo-pilot", run_id, public_seconds, (ActorComputeAllocation(run_id, actor.actor_id, public_seconds),),
             stack.hidden_seconds, digest_value({"run_config": config_digest, "actor_seconds": public_seconds, "hidden_seconds": stack.hidden_seconds}))

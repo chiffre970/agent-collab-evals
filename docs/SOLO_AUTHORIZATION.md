@@ -69,6 +69,13 @@ uses a single-attempt reservation key independent of the run ID; a new run ID
 cannot restart the attempt. Failures do not refund admissions. The run audit
 retains the exact operator approval alongside its configuration and spend plan.
 
+The existing public reference phase runs before the model gateway or actor starts.
+The lifecycle resolves and retains its receipt and result, and aborts if the
+reference is ineligible or reports failures. This is a stop condition within the
+single attempt, not another qualification run. Failure consumes its admitted
+allowances and invokes the same cleanup path; it does not permit an automatic
+retry. Passing the public reference does not replace hidden quality evaluation.
+
 `--check` remains offline and does not authorize or start work. Passing it does
 not prove deployment or evaluator readiness. Registered and multi-condition
 experiments remain outside this command's exploratory authorization.

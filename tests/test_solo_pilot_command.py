@@ -70,6 +70,30 @@ class SoloPilotCommandTests(unittest.TestCase):
             run_solo_pilot(self.config(execution_mode="live"), self.root, "live")
         self.assertFalse((self.root / "live").exists())
 
+    def test_failed_reference_stops_before_creating_agent_services(self):
+        original_result = SyntheticPilotTransport._result
+        for eligible, failures in ((False, []), (True, ["reference_failed"])):
+            with self.subTest(eligible=eligible, failures=failures):
+                def result(transport, request):
+                    document = original_result(transport, request)
+                    document["performance_score"].update(eligible=eligible, failures=failures)
+                    return document
+
+                run_id = f"reference-failed-{eligible}"
+                with (patch.object(SyntheticPilotTransport, "_result", result),
+                      patch("agent_collab_evals.solo_pilot_command.create_solo_candidate_services") as services):
+                    with self.assertRaises(PilotAborted):
+                        run_solo_pilot(self.config(), self.root, run_id)
+                    services.assert_not_called()
+                root = self.root / run_id
+                audit = json.loads((root / "audit.json").read_bytes())
+                self.assertEqual(audit["status"], "aborted")
+                self.assertEqual(audit["failure"]["stage"], "reference")
+                self.assertFalse(audit["scoreable"])
+                self.assertEqual(digest_bytes((root / "reference-result.json").read_bytes()),
+                                 audit["reference_evidence_digest"])
+                self.assertFalse((root / "budget.sqlite3").exists())
+
     def test_agent_failure_aborts_retains_evidence_and_stops_runtime(self):
         original_stop = _SyntheticCandidateHarness.stop
         with (patch.object(_SyntheticCandidateHarness, "deliver", side_effect=RuntimeError("agent failed")),
