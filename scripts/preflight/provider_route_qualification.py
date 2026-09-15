@@ -327,6 +327,10 @@ def _validate_profile_binding(
         raise ValueError("selected provider differs from the gateway route")
     if profile.cache_policy != "disabled":
         raise ValueError("development qualification requires disabled caching")
+    candidate = next(item for item in plan.candidates if item.provider_name == selected_provider)
+    if (candidate.prompt_usd_per_token * 10**15 != profile.rate_card.uncached_input_usd_nanos_per_million
+        or candidate.completion_usd_per_token * 10**15 != profile.rate_card.output_usd_nanos_per_million):
+        raise ValueError("gateway rates differ from the retained provider source")
 
 
 def _request(

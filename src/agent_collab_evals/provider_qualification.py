@@ -1102,7 +1102,18 @@ class QualifiedProviderRoute:
         ).resolve()
         if index_path != expected or not index_path.is_file():
             raise ValueError("provider attempt index path differs")
-        if digest_file(index_path) != qualification["attempt_index_digest"]:
+        # Historical records pin a complete index snapshot. Later append-only
+        # attempts must not invalidate that snapshot; require an exact prefix
+        # ending at a record boundary, not a rewritten historical digest.
+        raw_index = index_path.read_bytes()
+        prefix = b""
+        matched_snapshot = False
+        for line in raw_index.splitlines(keepends=True):
+            prefix += line
+            if digest_bytes(prefix) == qualification["attempt_index_digest"]:
+                matched_snapshot = True
+                break
+        if not matched_snapshot:
             raise ValueError("provider attempt index digest differs")
         attempts: list[Mapping[str, Any]] = []
         for line_number, line in enumerate(
@@ -1152,6 +1163,10 @@ class QualifiedProviderRoute:
         if len(selected_attempts) != 1:
             raise ValueError("selected provider attempt is absent from its index")
         attempt = selected_attempts[0]
+        if str(attempt["attempt_id"]) not in {
+            str(parse_json(line)["attempt_id"]) for line in prefix.decode("utf-8").splitlines()
+        }:
+            raise ValueError("selected provider attempt is outside its pinned index snapshot")
         if (
             attempt.get("disposition") != "retained_qualification"
             or attempt.get("retained_record")

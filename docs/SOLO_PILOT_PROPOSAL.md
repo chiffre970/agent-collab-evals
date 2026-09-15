@@ -1,6 +1,6 @@
 # First solo pilot: deployment and budget proposal
 
-Prepared September 12, 2026; updated September 13. The user approved local VM setup and the US$15
+Prepared September 12, 2026; updated September 14. The user approved local VM setup and the US$15
 gross usage envelope, conditional on deployment, route, resource, and spending
 checks passing before paid execution. Execution remains disabled. This document
 is not a durable run-bound authorization receipt.
@@ -77,11 +77,18 @@ Deployment progress:
    Model capacity is reserved before reference compute. Failed attempts do not
    refund capacity; automatic run restart is disabled. Tests exercise all 12
    requests against the real durable authorization service without dispatch.
-5. **Next: remaining execution gates.** Verify the provider's gross-usage cap,
-   qualify the current model route/billing and bounded Modal cancellation, and
-   finish remaining deployment checks. The changed Modal settings still need
-   live verification. The live candidate remains disabled. The process-only
-   `development_conformance` profile is explicitly rejected by the live factory.
+5. **Complete: bounded provider and device/cancellation qualification.** On
+   September 14 the current DeepInfra route passed three live probes for
+   $0.00004386, with valid receipt reconciliation and zero reported cached tokens.
+   Two resource-bounded Modal calls passed the L4 and running-call cancellation
+   checks; observed runner/input/backlog counts returned to zero. Actual Modal
+   cost remains unresolved because the immediate billing summary was unchanged.
+   The full scored evaluator boundary is not covered by this small check.
+6. **Next: scoped live execution gate.** The command still rejects live execution
+   unconditionally, and the factory requires a registered OCI profile. Wire one
+   run-bound exploratory authorization to the existing lifecycle and retained
+   qualifications without labeling development conformance as registered. Finish
+   the actual model-serving evaluator prerequisites before spending on the pilot.
 
 The current image is
 `docker.io/agent-collab/opencode-runtime@sha256:8c0242a1761cda906ba87127d44686871f1b8c8afaa1d6eda369c1a05fc61e21`.
@@ -129,18 +136,20 @@ The public [ZDR catalog](https://openrouter.ai/api/v1/endpoints/zdr) also listed
 `deepinfra/fp8` for this model, with `supports_implicit_caching: false`. This was
 a metadata check only; its complete raw response was not retained, so it is not
 a replacement qualification receipt. Latency and throughput fields were null.
-No authenticated provider call was made; account routing and measured latency
-remain unverified. The current billing catalog still uses $0.08 input and $0.016
-cached input and must be refreshed through the existing evidence-backed process
-before paid execution. Keep the current historical catalog immutable.
+That September 12 observation was not authenticated qualification. The September
+14 live qualification now verifies the account route and receipts, with probe
+latencies of 12.035, 20.358, and 14.565 seconds. The OCI pilot now references a
+separate September 14 gateway and billing catalog: $0.06 input, $0.015 cached
+input, and $0.18 output per million tokens. Historical profiles remain unchanged.
 
 ## Conditionally approved budget: US$15 gross usage
 
 The user confirmed on September 14, 2026, that Modal workspace `chiffre970`
-is dedicated to this experiment. Workspace scope is resolved; the current
-billing-cycle gross usage, existing usage limit, and applied cap still need
-verification. No connected browser was available to inspect the dashboard.
-Do not treat this scope confirmation as evidence that the cap is configured.
+is dedicated to this experiment. The supplied dashboard shows a saved $12.50
+gross usage cap and $0.54 cycle usage. Read-only CLI billing also confirmed that
+baseline after the free-storage adjustment, before credits. Cutoff behavior has
+not been exercised. The OpenRouter key has no provider-side limit; its gateway
+and shared journal bound requested work.
 
 - Modal: $12 total, including setup, one bounded cancellation qualification,
   the public reference/candidate, hidden evaluations, and cleanup overhead.
@@ -215,16 +224,18 @@ credits. Neither that credit nor the $0 invoice erases experimental usage.
 Retained observations are in `evidence/deployment/modal-usage-cap-20260914.json`
 and `modal-billing-summary-20260914.json`. This verifies the saved setting, not
 real-time cutoff behavior. Recheck the baseline before dispatch and after a
-billing-cycle change; no paid qualification has run yet.
+billing-cycle change. The bounded paid qualifications have now run; do not repeat
+them or recreate their spending journal.
 
 The September 14 read-only OpenRouter refresh is retained as
 `config/provider_qualification/openrouter-deepseek-v4-flash-zdr-20260914T083745Z.json`,
 with raw endpoint and ZDR responses resolved by its source manifest. DeepInfra
 remains the cheapest listed candidate for the declared input/output mix. Its
 listed uncached input price is now $0.06 per million tokens; output remains
-$0.18 per million. The active gateway still references the historical billing
-catalog. Create and pin a current development billing profile before paid
-qualification; the refresh neither changes that profile nor proves billed usage.
+$0.18 per million. The OCI pilot references the new dated gateway and billing
+profile, which passed live qualification. The resolved selection is
+`config/provider_qualification/deepseek-v4-flash-deepinfra-development-selection-20260914.json`.
+Its exact provider receipts independently reconcile $0.00004386 in charges.
 
 ## Execution boundaries
 
@@ -242,9 +253,12 @@ qualification; the refresh neither changes that profile nor proves billed usage.
   not change them without confirming scope. The historical Darwin configuration
   retains null limits.
 
-Next action: use one controller and spending journal, pin a current billing
-profile from the refreshed sources, and run bounded provider/Modal qualification after the
-deployment prerequisites pass. The workspace scope and saved outer cap are
-confirmed; the qualification journal wiring passes without spend. No further approval is needed for the scope
+Next action: connect the existing live lifecycle to one run-bound exploratory
+authorization, preserving the registered-study gate, then finish the full
+model-serving evaluator prerequisites. Qualifications are retained at
+`evidence/deployment/solo-qualification-20260914`; that directory is a read-only
+snapshot, not the authoritative journal. The authoritative VM journal has
+$10.41784 Modal and $2.95 OpenRouter admission capacity remaining. No further
+approval is needed for the scope
 already granted. New paid hosts, top-ups, upgrades, reruns, and peer comparisons
 remain outside that scope.

@@ -1,0 +1,62 @@
+{
+  "schema_version": "provider-selection-record/v1",
+  "record_id": "deepseek-v4-flash-deepinfra-development-20260914",
+  "status": "development",
+  "selection_policy": "config/provider_qualification/deepseek-v4-flash-development-policy-20260914.json",
+  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-development-20260914.json",
+  "selected_route": {
+    "provider_name": "DeepInfra",
+    "tag": "deepinfra/fp8",
+    "quantization": "fp8",
+    "selection_digest": "sha256:3c96d8d93b047c7211a404dcc12d2cf7369439176a065beeaa3ca83bffa07cb9"
+  },
+  "qualification": {
+    "attempt_id": "provider-route-2026-09-14T13-42-13Z",
+    "attempt_index_file": "evidence/provider_qualification/development-attempts.jsonl",
+    "attempt_index_digest": "sha256:609d95346e8c8a7a7e927986eddcca2df2b8e97e93987212feeabebd2a64f253",
+    "started_at": "2026-09-14T13:41:27.656935+00:00",
+    "finished_at": "2026-09-14T13:42:13.932783+00:00",
+    "qualification_record_file": "evidence/provider_qualification/records/provider-route-2026-09-14T13-42-13Z.json",
+    "qualification_record_digest": "sha256:b9effdfb607aa21b7b83fec8b2776303454668424674f363fa3c1c82354afe4b",
+    "probe_count": 3,
+    "text_probe_passed": true,
+    "tool_call_probe_passed": true,
+    "cache_isolation": {
+      "gateway_cache_policy": "disabled",
+      "openrouter_response_cache_header": "false",
+      "provider_supports_implicit_caching": false,
+      "repeated_request_digest": "sha256:70bb3a45026e2cd8f2563c2438b1c82bf1ddb7f73bc4d35ee6571da96484894b",
+      "reported_cached_input_tokens": [
+        0,
+        0,
+        0
+      ]
+    },
+    "maximum_probe_elapsed_ms": 20358,
+    "total_charged_usd_nanos": 43860,
+    "budget_reconciliation_valid": true,
+    "receipt_verifier_digest": "sha256:b88bca2881bef2605e0c591d9f704866accbc7c63a519317f77fe3b0599f1e12",
+    "conformance_failures": [],
+    "receipt_digests": [
+      {
+        "stream_digest": "sha256:d13fd73ea38635a33ef4747aac0a3d14f6a3fd68b10bef838f0a6ced7ccff9a1",
+        "stream_file": "evidence/provider_qualification/receipts/20260914T134213Z-00.stream.sse",
+        "metadata_digest": "sha256:fc428eb96154495cfd03b57d3337b25159dbdc09552075a481ff3b74dbe4770c",
+        "metadata_file": "evidence/provider_qualification/receipts/20260914T134213Z-00.metadata.json"
+      },
+      {
+        "stream_digest": "sha256:2ee79e3cf6a52d1f93e9193aff7b990167ad720c4fde56a75aa31f73611db135",
+        "stream_file": "evidence/provider_qualification/receipts/20260914T134213Z-01.stream.sse",
+        "metadata_digest": "sha256:34eb39162aadeb0cffa0c98c3101343d6c46d4edb38920cb70b2a78dd4b325f8",
+        "metadata_file": "evidence/provider_qualification/receipts/20260914T134213Z-01.metadata.json"
+      },
+      {
+        "stream_digest": "sha256:2d257c3e1e12a6cc9fa84cce0b949dbde6f27365553dd8c7ec60ad7e939d0ee5",
+        "stream_file": "evidence/provider_qualification/receipts/20260914T134213Z-02.stream.sse",
+        "metadata_digest": "sha256:d233b0fba2203a481321b11997cee9fcdcb837cc9d6f9671da37fbeee065c4eb",
+        "metadata_file": "evidence/provider_qualification/receipts/20260914T134213Z-02.metadata.json"
+      }
+    ],
+    "raw_receipts_storage": "repository_retained_development_evidence"
+  }
+}

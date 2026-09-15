@@ -365,7 +365,21 @@ After verifying the outer provider cap, run the three-probe route qualification
 with its `$0.05` gateway allowance and the shared pilot journal:
 
 ```bash
-npm run qualify:provider-route -- --spend-envelope .private/solo-spend/first-solo
+npm run qualify:provider-route -- \
+  --policy config/provider_qualification/deepseek-v4-flash-development-policy-20260914.json \
+  --gateway-profile config/gateway_profiles/openrouter-deepinfra-development-20260914.json \
+  --spend-envelope .private/solo-spend/first-solo
+```
+
+The first solo pilot's qualification already passed on September 14; do not
+repeat it or initialize another journal. Validate its retained evidence without
+spend instead:
+
+```bash
+.venv/bin/python scripts/preflight/provider_route_qualification.py \
+  --policy config/provider_qualification/deepseek-v4-flash-development-policy-20260914.json \
+  --gateway-profile config/gateway_profiles/openrouter-deepinfra-development-20260914.json \
+  --selection-record config/provider_qualification/deepseek-v4-flash-deepinfra-development-selection-20260914.json
 ```
 
 The qualification sends two identical text probes and one forced tool-call
@@ -464,7 +478,10 @@ Neither downloads a model or receives secrets. The journal reserves $1.53216
 before dispatch and retains results and exact call IDs under `modal-access-v1`.
 Failures keep the allowance and stop the sequence. Observed quiescence is not
 proof of final billing or conformance of the full model-serving evaluator.
-This qualification has passed no-spend tests but has not run against Modal.
+This qualification passed against Modal on September 14. The completed app is
+`ap-MWBSQb6OU0ns6Hr8TU3EA0`; retained evidence is under
+`evidence/deployment/solo-qualification-20260914`. Do not repeat the first pilot's
+qualification. Its actual Modal cost is pending billing reconciliation.
 
 Run the separate, billable stock-reference smoke check with:
 

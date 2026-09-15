@@ -1,0 +1,14 @@
+{
+  "schema_version": "model-gateway-profile/v1",
+  "profile_id": "openrouter-deepinfra-development-20260914",
+  "status": "development",
+  "model_profile": "config/model_profiles/deepseek-v4-flash-openrouter-deepinfra-development.json",
+  "request_limits": {
+    "max_body_bytes": 1048576,
+    "max_response_bytes": 16777216,
+    "input_token_overhead": 4096,
+    "default_max_output_tokens": 32768
+  },
+  "billing_catalog": "config/billing_catalogs/openrouter-deepinfra-deepseek-v4-flash-20260914.json",
+  "cache_policy": "disabled"
+}

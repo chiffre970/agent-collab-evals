@@ -3,7 +3,7 @@
   "execution_mode": "live",
   "execution_authorized": false,
   "campaign": "campaigns/model_serving_v0/campaign.toml",
-  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-development-v0.json",
+  "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-development-20260914.json",
   "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
   "sandbox_profile": "config/enforcement_profiles/oci-opencode-v0-candidate.json",
   "sandbox_engine_identity_digest": null,

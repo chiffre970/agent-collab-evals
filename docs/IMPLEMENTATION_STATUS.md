@@ -594,15 +594,34 @@ IDs and observes running-call cancellation and quiescence. Failure stops the
 sequence without refund. These observations do not prove final billing or the
 full scored evaluator boundary. The saved $12.50 workspace usage cap and $0.54
 baseline are retained in September 14 dashboard and read-only billing evidence.
-Current route/billing qualification, live Modal settings/cancellation, and
-remaining deployment checks still gate paid work. The September 14 source refresh
-retains new immutable endpoint/ZDR evidence without changing the selected route.
-DeepInfra remains the cheapest declared candidate, but its current input price
-differs from the active historical billing catalog; pin a current profile before
-paid qualification. Validation: 369 tests ran,
-347 passed, and 22 skipped. The Mac/OpenCode no-spend pilot also passed previously. The prior
-Linux/OCI tests passed separately; these
-new Modal settings have not been executed remotely. No paid calls were made.
+The September 14 live qualifications now pass. The OCI pilot pins a separate
+current DeepInfra billing profile; three live probes independently reconciled
+$0.00004386 in charges with zero reported cached tokens. Exact receipts and the
+resolved current selection are retained without changing historical profiles.
+Historical selections now verify their exact line-boundary index prefix so
+appending a new attempt does not invalidate prior evidence.
+
+The updated VM controller passed both existing no-spend OCI pilot/cleanup tests,
+then completed the bounded two-call Modal device/cancellation check. The actual
+model-serving evaluator boundary remains unqualified by that check. The immediate
+Modal billing summary did not yet reflect the completed app; actual cost remains
+unresolved. The authoritative VM journal retains $0.05 OpenRouter and $1.53216
+Modal reservations, leaving $2.95 and $10.41784 respectively. The repository copy
+at `evidence/deployment/solo-qualification-20260914` is evidence only, not another
+spending journal. Credentials were passed only to trusted controller processes,
+not actor containers, and were not written to credential files.
+
+The remaining implementation blocker is explicit: `run_solo_pilot()` rejects
+live mode unconditionally and the live factory requires a registered OCI profile.
+Next, connect one run-bound exploratory authorization to the existing lifecycle
+without weakening registered execution, and finish the full evaluator
+prerequisites. Do not rerun passed qualifications or introduce another runner.
+
+Validation after retaining the new evidence: 371 tests ran, 349 passed, and 22
+skipped. Both real OCI pilot/cleanup tests and all 12 provider/billing regression
+tests passed separately in the VM. Fixture selection now follows the referenced
+catalog/receipt rather than filesystem enumeration order. The VM is stopped
+after qualification; its authoritative journal and disk are preserved.
 
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
@@ -616,9 +635,9 @@ new Modal settings have not been executed remotely. No paid calls were made.
    and retained abort cleanup, tested without paid calls. The full OCI no-spend
    session and bridge-client interruption cleanup also pass. The resource and
    admission follow-up is implemented offline. The saved workspace gross usage
-   cap is verified, and Modal qualification uses the shared journal. Next, finish remaining
-   deployment checks, and qualify the current provider/billing route and remote
-   cancellation. Live mode remains disabled.
+   cap is verified. Current provider/billing and bounded Modal cancellation
+   qualification now pass in the shared journal. Next, implement the scoped live
+   operator gate and finish the full evaluator prerequisites. Live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place
    of that work.
 2. **Then: one bounded exploratory run, within conditional approval.** Verify the

@@ -91,11 +91,10 @@ class ProviderQualificationTests(unittest.TestCase):
                 REPOSITORY_ROOT / "evidence/provider_qualification/sources",
                 root / "evidence/provider_qualification/sources",
             )
-            source = next(
-                (root / "evidence/provider_qualification/sources").glob(
-                    "openrouter-endpoints-*.json.gz"
-                )
-            )
+            policy = json.loads((root / "config/provider_qualification/deepseek-v4-flash-development-policy.json").read_text())
+            snapshot = json.loads((root / policy["candidate_snapshot"]).read_text())
+            manifest = json.loads((root / snapshot["source_manifest"]).read_text())
+            source = root / manifest["sources"]["endpoints"]["file"]
             source.write_bytes(source.read_bytes() + b"tampered")
 
             with self.assertRaisesRegex(ValueError, "compressed source digest"):
@@ -142,11 +141,8 @@ class ProviderQualificationTests(unittest.TestCase):
                 REPOSITORY_ROOT / "evidence/provider_qualification",
                 root / "evidence/provider_qualification",
             )
-            receipt = next(
-                (root / "evidence/provider_qualification/receipts").glob(
-                    "*.stream.sse"
-                )
-            )
+            selection = json.loads((root / "config/provider_qualification/deepseek-v4-flash-deepinfra-development-selection.json").read_text())
+            receipt = root / selection["qualification"]["receipt_digests"][0]["stream_file"]
             receipt.write_bytes(receipt.read_bytes() + b"tampered")
 
             with self.assertRaisesRegex(ValueError, "retained evidence"):
@@ -202,17 +198,20 @@ class ProviderQualificationTests(unittest.TestCase):
             for line in index.read_text(encoding="utf-8").splitlines()
         ]
 
-        self.assertEqual(len(attempts), 4)
+        self.assertGreaterEqual(len(attempts), 5)
+        self.assertEqual(attempts[4]["charged_usd_nanos"], 43_860)
+        # New retained attempts append without rewriting the original history.
+        historical = attempts[:4]
         self.assertEqual(
-            sum(attempt["charged_usd_nanos"] for attempt in attempts[-3:]),
+            sum(attempt["charged_usd_nanos"] for attempt in historical[-3:]),
             152_760,
         )
         self.assertEqual(
-            sum(attempt["charged_usd_nanos"] for attempt in attempts),
+            sum(attempt["charged_usd_nanos"] for attempt in historical),
             207_640,
         )
         self.assertEqual(
-            [attempt["disposition"] for attempt in attempts[-3:]],
+            [attempt["disposition"] for attempt in historical[-3:]],
             [
                 "diagnostic_local_evidence",
                 "retained_qualification",

@@ -1,0 +1,24 @@
+{
+  "schema_version": "modal-billing-observation/v1",
+  "workspace": "chiffre970",
+  "billing_month": "2026-09",
+  "observed_on": "2026-09-14",
+  "command": "modal billing summary --for 2026-09 --json",
+  "before_and_immediate_after_response": {
+    "metered_cost": "0.85824217",
+    "billed_cost": "0E-8",
+    "adjustments": {
+      "credits": "-0.54000000",
+      "plan_cost": "0E-8",
+      "reservation_adjustment": "-0E-8",
+      "free_storage": "-0.31824217"
+    },
+    "metered_cost_breakdown": {
+      "ephemeral_apps": "0.53624190",
+      "volumes": "0.31824217",
+      "llm_tokens": "0E-8"
+    }
+  },
+  "qualification_cost_usd_nanos": null,
+  "limitation": "The immediate summary did not yet reflect the new completed app. An unchanged summary does not mean the qualification was free."
+}
