@@ -84,11 +84,13 @@ Deployment progress:
    checks; observed runner/input/backlog counts returned to zero. Actual Modal
    cost remains unresolved because the immediate billing summary was unchanged.
    The full scored evaluator boundary is not covered by this small check.
-6. **Next: scoped live execution gate.** The command still rejects live execution
-   unconditionally, and the factory requires a registered OCI profile. Wire one
-   run-bound exploratory authorization to the existing lifecycle and retained
-   qualifications without labeling development conformance as registered. Finish
-   the actual model-serving evaluator prerequisites before spending on the pilot.
+6. **Implemented, not yet exercised live: scoped execution gate.** The existing
+   command accepts a separate digest-pinned, run-bound exploratory authorization.
+   It checks the controller, experiment inputs, retained qualification admissions,
+   readiness assessments, and full remaining allowance. A second run ID cannot
+   reopen the journal's attempt. Development conformance is not labeled registered.
+   No real approval has been issued. Finish evaluator and billing readiness,
+   then issue the one approval described in [Solo authorization](SOLO_AUTHORIZATION.md).
 
 The current image is
 `docker.io/agent-collab/opencode-runtime@sha256:8c0242a1761cda906ba87127d44686871f1b8c8afaa1d6eda369c1a05fc61e21`.
@@ -253,9 +255,9 @@ Its exact provider receipts independently reconcile $0.00004386 in charges.
   not change them without confirming scope. The historical Darwin configuration
   retains null limits.
 
-Next action: connect the existing live lifecycle to one run-bound exploratory
-authorization, preserving the registered-study gate, then finish the full
-model-serving evaluator prerequisites. Qualifications are retained at
+Next action: finish the model-serving evaluator and billing readiness assessments,
+deploy the tested gate to the controller, and issue one run-bound exploratory
+authorization. The registered-study gate is unchanged. Qualifications are retained at
 `evidence/deployment/solo-qualification-20260914`; that directory is a read-only
 snapshot, not the authoritative journal. The authoritative VM journal has
 $10.41784 Modal and $2.95 OpenRouter admission capacity remaining. No further

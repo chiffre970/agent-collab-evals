@@ -212,9 +212,9 @@ class SoloLiveConfigurationTests(unittest.TestCase):
             self.assertEqual(len(snapshot["receipts"]), 15)
             self.assertEqual(snapshot["reserved_usd_nanos"]["modal"], 10_192_960_000)
             self.assertEqual(snapshot["remaining_usd_nanos"]["modal"], 1_757_040_000)
-            # Qualification + a full $3 model allowance must fail before authority.
+            # A second run cannot reclaim the journal's single attempt.
             full = replace(configuration, document={**configuration.document, "model_limit_usd_nanos": 3_000_000_000})
-            with self.assertRaisesRegex(PermissionError, "exhausted"):
+            with self.assertRaisesRegex(RuntimeError, "retry differs"):
                 PilotSpendGuard(full, envelope, "second-run").begin("second-run", digest_value("other"))
 
     def test_failed_compute_issuance_does_not_refund_its_admission(self):

@@ -164,11 +164,13 @@ def _parser() -> argparse.ArgumentParser:
     candidates.add_argument("--restart-runtime", action="store_true", help="reconstruct candidate services and resume OpenCode between jobs")
     readiness = subparsers.add_parser("readiness", help="inspect remaining deployment and registration gates without running workloads")
     readiness.add_argument("--composition", type=Path, default=DEFAULT_STUDY_CANDIDATE)
-    pilot = subparsers.add_parser("solo-pilot", help="run the integrated solo pilot in explicitly no-spend mode; live execution is disabled")
+    pilot = subparsers.add_parser("solo-pilot", help="run the solo pilot; live mode requires digest-pinned operator authorization")
     pilot.add_argument("--config", type=Path, default=Path("config/pilots/solo-no-spend-v1.json"))
     pilot.add_argument("--state-root", type=Path, default=Path("tmp/solo-pilots"))
     pilot.add_argument("--run-id", required=True)
     pilot.add_argument("--check", action="store_true", help="check live adapter configuration offline; never authorize or dispatch")
+    pilot.add_argument("--authorization", type=Path, help="operator-owned authorization for one exploratory solo attempt")
+    pilot.add_argument("--authorization-digest", help="independently supplied SHA-256 digest of that authorization")
     return parser
 
 
@@ -666,9 +668,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         output = readiness_report(Path(__file__).resolve().parents[2], arguments.composition)
     elif arguments.command == "solo-pilot":
         from .solo_pilot_command import run_solo_pilot
+        if bool(arguments.authorization) != bool(arguments.authorization_digest):
+            raise ValueError("authorization file and digest must be supplied together")
         if arguments.check:
             from .solo_live_configuration import check_live_pilot
             output = check_live_pilot(arguments.config, Path(__file__).resolve().parents[2])
+        elif arguments.authorization:
+            from .solo_authorization import run_authorized_solo
+            output = run_authorized_solo(arguments.config, arguments.state_root, arguments.run_id,
+                arguments.authorization, arguments.authorization_digest)
         else:
             output = run_solo_pilot(arguments.config, arguments.state_root, arguments.run_id)
     else:  # pragma: no cover - argparse enforces the command set.

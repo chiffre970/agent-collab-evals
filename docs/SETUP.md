@@ -228,8 +228,9 @@ A passing check proves local composition, not provider availability, deployment
 containment, cancellation, or cost qualification. The current Darwin sandbox
 does not protect the filesystem or unrelated loopback services. The shared
 lifecycle has live dependency wiring and targeted abort cleanup, but the public
-operator gate is still closed. An isolated deployment, live cancellation and
-provider/billing qualification, and run-bound dollar enforcement/approval remain
+operator gate requires the separate approval described in
+[Solo authorization](SOLO_AUTHORIZATION.md). Deployment and evaluator readiness,
+current qualifications, and run-bound dollar enforcement/approval remain
 required. Do not
 treat a config edit, authorization reference, or simulated score as permission
 to start a live experiment.

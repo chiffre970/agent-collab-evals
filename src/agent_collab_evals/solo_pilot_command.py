@@ -84,6 +84,7 @@ class LivePilotDependencies:
     gateway_options: Callable | None = None
     sandbox_evidence: dict | None = None
     spend_guard: object | None = None
+    operator_authorization: dict | None = None
 
     def __post_init__(self):
         if any(type(value) is not int or value < 1 for value in (self.model_limit_usd_nanos, self.public_seconds)):
@@ -204,6 +205,8 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
         bindings["runtime_sandbox_evidence"] = runtime_wiring.sandbox_evidence
     if live is not None and live.spend_guard is not None:
         bindings["spend_admission"] = live.spend_guard.evidence()
+    if live is not None and live.operator_authorization is not None:
+        bindings["operator_authorization"] = live.operator_authorization
     config_digest = retain_document(root / "run-config.json", bindings)
     if candidate_bytes is not None:
         retain_bytes(root / "synthetic-input-candidate.json", candidate_bytes)

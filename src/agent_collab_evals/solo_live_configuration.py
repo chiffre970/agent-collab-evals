@@ -135,7 +135,8 @@ class LivePilotConfiguration:
             registered_manifest_digest=self.document["hidden_manifest_digest"])
 
 
-def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_guard=None):
+def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_guard=None,
+                           exploratory_authorization=None, state_root=None):
     """Compose the live lifecycle below the still-closed operator authority gate.
 
     The concrete spend guard reserves allowances before issuing request-bound
@@ -147,13 +148,22 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_gua
     if any(configuration.document[field] is None for field in ("model_limit_usd_nanos", "modal_limit_usd_nanos")):
         raise ValueError("live execution requires explicit model and Modal dollar limits")
     sandbox = configuration.sandbox
+    if exploratory_authorization is not None and not isinstance(sandbox, OciSandboxProfile):
+        raise ValueError("exploratory authorization requires OCI isolation")
     expected_sandbox_digest = sandbox.resolved_digest
     if isinstance(sandbox, OciSandboxProfile):
         engine_digest = configuration.document.get("sandbox_engine_identity_digest")
         if engine_digest is None:
             raise ValueError("live OCI execution requires a pinned engine identity")
-        if not sandbox.execution_authorized or sandbox.status != "registered":
-            raise ValueError("live OCI sandbox is not execution-authorized")
+        if exploratory_authorization is None:
+            if not sandbox.execution_authorized or sandbox.status != "registered":
+                raise ValueError("live OCI sandbox is not execution-authorized")
+        else:
+            from .solo_authorization import ExploratorySoloAuthorization
+            if not isinstance(exploratory_authorization, ExploratorySoloAuthorization) or not isinstance(spend_guard, PilotSpendGuard) or state_root is None:
+                raise ValueError("exploratory live execution requires concrete operator authority")
+            exploratory_authorization.validate(configuration, spend_guard.envelope, spend_guard.run_id, state_root)
+            spend_guard.operator_authorization = exploratory_authorization
         expected_sandbox_digest = OciSandboxExec.profile_digest_for(sandbox, engine_digest)
     if process_sandbox.profile_digest != expected_sandbox_digest:
         raise ValueError("live runtime sandbox differs from configuration")
@@ -175,7 +185,9 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_gua
         lambda stack: stack.inventory.cleanup(canceller), runtime.harness,
         configuration.document["model_limit_usd_nanos"], configuration.document["phase_seconds"]["public"],
         gateway_options=runtime.gateway_options, sandbox_evidence=runtime.sandbox_evidence,
-        spend_guard=spend_guard)
+        spend_guard=spend_guard, operator_authorization=(
+            {"digest": exploratory_authorization.digest, "document": exploratory_authorization.document}
+            if exploratory_authorization is not None else None))
 
 
 def build_live_stack(root, configuration, run_id, hidden, policy):
@@ -283,10 +295,10 @@ def check_live_pilot(config_path: Path, repository: Path) -> dict:
         "planned_modal_allowance_usd_nanos": cost["shared_overhead_allowance_usd_nanos"]
             + sum(len(group) for _, group in requests) * cost["per_execution_allowance_usd_nanos"],
         "actual_spend_usd_nanos": 0,
-        "remaining_gates": ["live operator authority gate remains disabled; cancellation needs live qualification",
+        "remaining_gates": ["live execution requires a separate digest-pinned exploratory solo authorization",
             "shared admission journal must cover qualification and pilot; provider gross-usage cap must be verified",
             "current provider route and billing qualification",
-            "isolated deployment: pinned OCI image/engine and live boundary conformance"],
+            "isolated deployment: pinned OCI image/engine and retained readiness assessments"],
         "billing_note": "Function allowances are not provider-billed time or a dollar spending cap."}
 
 

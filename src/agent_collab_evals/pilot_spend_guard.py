@@ -21,23 +21,28 @@ class PilotSpendGuard:
             raise ValueError("pilot limits differ from the shared envelope")
         self._run_config_digest = None
         self._inventory_root = None
+        self.operator_authorization = None
 
     def evidence(self):
         return {"spend_plan_digest": self.envelope.plan_digest, "configuration_digest": self.configuration_digest,
             "run_id": self.run_id, "estimate": self.estimate}
 
     def begin(self, run_id, run_config_digest):
+        if self.operator_authorization is not None:
+            self.operator_authorization.require_current()
         if run_id != self.run_id or self._run_config_digest not in (None, run_config_digest):
             raise ValueError("spend guard run binding differs")
         for provider, amount in (("openrouter", self.model_limit),
             ("modal", self.estimate["shared_overhead_allowance_usd_nanos"])):
-            self.envelope.reserve(operation_key=f"pilot:{run_id}:{provider}:base", provider=provider,
+            self.envelope.reserve(operation_key=f"pilot:single-attempt:{provider}:base", provider=provider,
                 purpose="pilot" if provider == "openrouter" else "overhead",
                 request_digest=digest_value({"run_config_digest": run_config_digest, "spend": self.evidence()}),
                 maximum_usd_nanos=amount, allow_existing=False)
         self._run_config_digest = run_config_digest
 
     def authorize(self, stack, request, run_config_digest):
+        if self.operator_authorization is not None:
+            self.operator_authorization.require_current()
         if self._run_config_digest is None or run_config_digest != self._run_config_digest:
             raise PermissionError("pilot spend guard has no matching run admission")
         if request.maximum_seconds != self.estimate["function_timeout_seconds"]:

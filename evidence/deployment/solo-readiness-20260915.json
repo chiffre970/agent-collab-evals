@@ -1,0 +1,41 @@
+{
+  "schema_version": "exploratory-readiness-observation/v1",
+  "observed_local_date": "2026-09-15",
+  "timezone": "Australia/Melbourne",
+  "execution_authorized": false,
+  "model_cache": {
+    "environment": "dev",
+    "volume": "agent-collab-evals-huggingface-cache",
+    "model": "Qwen/Qwen3-4B",
+    "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+    "snapshot_directory_listed": true,
+    "observed_links": [
+      "config.json", "generation_config.json", "merges.txt",
+      "model-00001-of-00003.safetensors", "model-00002-of-00003.safetensors",
+      "model-00003-of-00003.safetensors", "model.safetensors.index.json",
+      "tokenizer.json", "tokenizer_config.json", "vocab.json"
+    ],
+    "blob_integrity_verified": false,
+    "current_scored_function_load_verified": false
+  },
+  "billing": {
+    "report_command": "modal billing report --start 2026-09-14 --end 2026-09-15 --json",
+    "report_response": [],
+    "summary_month": "2026-09",
+    "summary_response": {
+      "metered_cost": "0.85824217",
+      "billed_cost": "0E-8",
+      "adjustments": {
+        "credits": "-0.54000000", "plan_cost": "0E-8",
+        "free_storage": "-0.31824217", "reservation_adjustment": "-0E-8"
+      },
+      "metered_cost_breakdown": {
+        "ephemeral_apps": "0.53624190", "volumes": "0.31824217", "llm_tokens": "0E-8"
+      }
+    },
+    "qualification_cost_reconciled": false,
+    "qualification_reservation_usd_nanos": 1532160000,
+    "reservation_refunded": false
+  },
+  "limitation": "Read-only observations only. Snapshot links do not prove readable blobs or successful loading. Empty billing results do not establish zero cost. This is not an operator readiness approval."
+}

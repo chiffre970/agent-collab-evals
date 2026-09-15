@@ -611,17 +611,29 @@ at `evidence/deployment/solo-qualification-20260914` is evidence only, not anoth
 spending journal. Credentials were passed only to trusted controller processes,
 not actor containers, and were not written to credential files.
 
-The remaining implementation blocker is explicit: `run_solo_pilot()` rejects
-live mode unconditionally and the live factory requires a registered OCI profile.
-Next, connect one run-bound exploratory authorization to the existing lifecycle
-without weakening registered execution, and finish the full evaluator
-prerequisites. Do not rerun passed qualifications or introduce another runner.
+The existing CLI now has a separate digest-pinned exploratory authorization path
+into the same lifecycle. It binds one run, resolved inputs/source, the controller
+engine, one existing spending journal, retained qualifications, and operator
+readiness assessments. The journal's single-attempt key is independent of run ID.
+The registered factory behavior is unchanged unless concrete exploratory authority
+is supplied; development conformance remains explicitly unregistered. No real
+authorization has been issued. Finish evaluator/billing readiness and deploy the
+gate before the first attempt. See [Solo authorization](SOLO_AUTHORIZATION.md).
 
 Validation after retaining the new evidence: 371 tests ran, 349 passed, and 22
 skipped. Both real OCI pilot/cleanup tests and all 12 provider/billing regression
 tests passed separately in the VM. Fixture selection now follows the referenced
 catalog/receipt rather than filesystem enumeration order. The VM is stopped
 after qualification; its authoritative journal and disk are preserved.
+
+September 15 gate validation: 376 tests ran, 354 passed, and 22 skipped, including
+the real-profile, retained-qualification authorization tests. No operator approval
+has been issued, no new paid calls ran, and the gate has not been deployed to the
+VM. Read-only checks found the pinned Qwen snapshot links in the Modal volume;
+blob integrity and loading in the current scored function are still unverified.
+The queried billing report was empty and the summary remained unchanged, so
+qualification cost is not reconciled. Observations are retained in
+`evidence/deployment/solo-readiness-20260915.json`.
 
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
@@ -636,8 +648,9 @@ after qualification; its authoritative journal and disk are preserved.
    session and bridge-client interruption cleanup also pass. The resource and
    admission follow-up is implemented offline. The saved workspace gross usage
    cap is verified. Current provider/billing and bounded Modal cancellation
-   qualification now pass in the shared journal. Next, implement the scoped live
-   operator gate and finish the full evaluator prerequisites. Live mode remains disabled.
+   qualification now pass in the shared journal. The scoped operator gate is
+   implemented and tested without spend. Next, finish readiness and issue its
+   one-run approval. Without that approval, live mode remains disabled.
    Do not create another standalone rehearsal or orchestration layer in place
    of that work.
 2. **Then: one bounded exploratory run, within conditional approval.** Verify the
