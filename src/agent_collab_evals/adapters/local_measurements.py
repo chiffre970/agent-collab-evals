@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -16,6 +17,7 @@ from ..canonical import (
     DuplicateKeyError,
     canonical_json_bytes,
     digest_bytes,
+    digest_value,
     load_json,
 )
 
@@ -40,6 +42,32 @@ class LocalMeasurementBundleStore:
 
     def __init__(self, root: Path) -> None:
         self._root = root.resolve()
+
+    def remote_namespace(self, measurement_id: str) -> str:
+        """Keep remote outputs distinct across runs and stable across collection.
+
+        Persist the store identity before any dispatch. Copying an existing store
+        preserves its identity; a new run must use a fresh store directory.
+        """
+        from ..pilot_evidence import retain_document
+
+        _validate_identity(measurement_id, 1, 1)
+        self._root.mkdir(parents=True, exist_ok=True)
+        path = self._root / ".remote-namespace.json"
+        with (self._root / ".remote-namespace.lock").open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            if not path.exists():
+                if any((self._root / ".dispatch").rglob("*.json")):
+                    raise MeasurementBundleError("existing dispatches have no remote namespace; retain the original collector")
+                retain_document(path, {"schema_version": "measurement-store-namespace/v1", "namespace": uuid.uuid4().hex})
+            with path.open(encoding="utf-8") as source:
+                document = load_json(source)
+            if (not isinstance(document, dict) or set(document) != {"schema_version", "namespace"}
+                or document["schema_version"] != "measurement-store-namespace/v1"
+                or not isinstance(document["namespace"], str)
+                or not re.fullmatch(r"[0-9a-f]{32}", document["namespace"])):
+                raise MeasurementBundleError("measurement store namespace is invalid")
+            return digest_value({"store_namespace": document["namespace"], "measurement_id": measurement_id})[7:]
 
     def save(
         self,

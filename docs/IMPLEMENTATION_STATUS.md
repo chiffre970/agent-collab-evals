@@ -6,6 +6,17 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest live checkpoint (September 21): the explicitly approved solo retry
+aborted in public reference persistence before the agent started. The reference
+measurement ID reused the prior run's global remote evidence destination.
+All previous evidence remains intact. A durable per-store namespace now separates
+new runs while preserving collection identity across restarts, with no-spend
+regressions for both distinct runs and concurrent collectors. The correction
+still needs live validation. Retained failure and billing evidence are in
+`evidence/solo_pilot/20260921-solo-retry`. No Modal apps or actor containers remain;
+the VM is stopped. Next: review and authorize any further attempt; do not
+automatically rerun the consumed approval or reset its budget journal.
+
 ## Implemented
 
 - Core campaign lifecycle types and narrow `HarnessRuntime`, `EventSink` and

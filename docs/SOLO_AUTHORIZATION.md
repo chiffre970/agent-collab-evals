@@ -126,3 +126,10 @@ marker prevents reopening it with the old plan alone or another amendment.
 The new attempt has distinct, one-use admission keys and a new run directory;
 neither a crash nor a new run ID grants another retry. This remains exploratory
 execution, not registered or multi-condition experimentation.
+
+That retry ran and aborted during reference evidence persistence, before any
+model calls. Its reference measurement ID collided with the earlier run's remote
+evidence destination. The local correction gives each measurement store a
+durable remote namespace. See `evidence/solo_pilot/20260921-solo-retry` for the
+failed audit, reported $0.22239952 app cost, and cleanup confirmation. The
+one-use retry approval is consumed; no further attempt is authorized.

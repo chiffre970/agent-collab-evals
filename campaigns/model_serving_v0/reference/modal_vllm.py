@@ -2061,7 +2061,7 @@ def _run_baseline_repetition(
         warmup_requests=profile.point_warmups,
         goodput_slos_ms_by_bucket=scoring.goodput_slos_ms_by_bucket,
     )
-    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_namespace = store.remote_namespace(measurement_id)
     evidence_root = (
         f"model-serving/{evidence_namespace}/"
         f"repetition-{repetition:04d}-attempt-{attempt:02d}"
@@ -2549,7 +2549,7 @@ def _run_quality_repetition(
     requests = build_quality_requests(
         profile, workload, served_model_name=str(candidate["server"]["served_model_name"])
     )
-    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_namespace = store.remote_namespace(measurement_id)
     evidence_root = (
         f"model-serving-quality/{evidence_namespace}/"
         f"repetition-{repetition:04d}-attempt-{attempt:02d}"
@@ -2939,7 +2939,7 @@ def _run_correctness_repetition(
                 "body": {**body, "top_k": 0, "min_p": 0},
             }
         )
-    evidence_namespace = hashlib.sha256(measurement_id.encode("utf-8")).hexdigest()
+    evidence_namespace = store.remote_namespace(measurement_id)
     evidence_root = (
         f"model-serving-correctness/{evidence_namespace}/"
         f"repetition-{repetition:04d}-attempt-{attempt:02d}"
