@@ -668,6 +668,17 @@ this fix, then explicitly authorize a new attempt with a reconciled spending
 plan. The original approval has expired; do not reset or silently refund its
 journal. This update supersedes the earlier pending-first-attempt notes.
 
+The fix is committed as `f0316df` and deployed to the existing controller. A real
+OpenCode session completed the existing no-spend pilot in
+`/home/rmh.guest/ace-runs/check-0921`: five synthetic model calls, 12 synthetic
+compute executions, valid budget reconciliation, and no leftover containers.
+Audit and configuration: `evidence/deployment/solo-short-path-20260921`.
+The original journal remains unchanged: $8.65176 Modal and $0.05 OpenRouter in
+remaining admission capacity, versus $10.19296 and $2.90 required for another
+identical pilot. These are reservations, not actual charges. A retry needs an
+explicit decision about reconciling unused reservations or expanding the budget;
+no new journal, refund, or paid retry has been authorized or performed.
+
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
    held-out evaluator phases, durable routing/authorization, and closure in one
