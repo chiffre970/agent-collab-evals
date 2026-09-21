@@ -133,3 +133,15 @@ evidence destination. The local correction gives each measurement store a
 durable remote namespace. See `evidence/solo_pilot/20260921-solo-retry` for the
 failed audit, reported $0.22239952 app cost, and cleanup confirmation. The
 one-use retry approval is consumed; no further attempt is authorized.
+
+The user subsequently authorized reconciliation and one further run within the
+same $14 Modal/$3 OpenRouter caps. A v2 retry amendment links the previous
+amendment, reference-only failure audit, clean run configuration, and app billing
+report. It retains the qualification and first-reference allowances and the
+original $1 overhead reserve. It settles the failed retry's reference to its
+reported $0.22239952 plus a $0.10 buffer, and releases that retry's unused $2.90
+model and $1 extra-overhead allowances. The resulting headroom is $10.37936048
+Modal/$2.95 OpenRouter, sufficient for the unchanged full-run allowances.
+The previous amendment and every receipt remain immutable; a second write-once
+marker prevents either earlier authority from reopening capacity. This is
+operator-reviewed exploratory reconciliation, not final invoice settlement.

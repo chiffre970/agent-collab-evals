@@ -176,6 +176,64 @@ class PilotSpendTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unapproved retry"):
             PilotSpendEnvelope(self.envelope.root, self.plan, retry=document)
 
+    def settlement_document(self):
+        previous = self.retry_document()
+        previous_path = self.root / "previous.json"
+        retain_document(previous_path, previous)
+        retry = PilotSpendEnvelope(self.envelope.root, self.plan, retry=previous)
+        prefix = "pilot:retry-" + retry.retry_digest[7:]
+        self.reserve(prefix + ":openrouter:base", 2_900_000_000, provider="openrouter", envelope=retry)
+        self.reserve(prefix + ":modal:base", 1_000_000_000, purpose="overhead", envelope=retry)
+        request_digest = digest_value("second-reference")
+        self.reserve("pilot:retry-one:compute:" + request_digest[7:], 766_080_000, envelope=retry)
+        prior = self.root / "failed-reference"
+        config = prior / "run-config.json"
+        retain_document(config, {"git_commit": "c116488efd2bdd3af6abe766320781104c793420", "git_dirty": False})
+        audit = prior / "audit.json"
+        retain_document(audit, {"run_id": "retry-one", "status": "aborted", "scoreable": False,
+            "failure": {"stage": "reference"}, "run_config_digest": digest_file(config),
+            "remote_cleanup": [{"terminal_confirmed": True, "request_digest": request_digest}],
+            "spend_admission": retry.snapshot()})
+        billing = self.root / "billing.json"
+        retain_document(billing, [{"object_id": "app-reference", "environment": "dev", "cost": "0.22239952"}])
+        def ref(path):
+            return {"file": str(path), "digest": digest_file(path)}
+        return retry, {"schema_version": "exploratory-solo-retry/v2", "previous_amendment": ref(previous_path),
+            "prior_plan_digest": retry.plan_digest, "prior_receipts_digest": digest_value(retry.snapshot()["receipts"]),
+            "prior_audit": ref(audit), "prior_run_config": ref(config), "billing_report": ref(billing),
+            "reference_app_id": "app-reference", "run_id": "settled-retry",
+            "provider_limits_usd_nanos": previous["provider_limits_usd_nanos"],
+            "total_limit_usd_nanos": 17_000_000_000, "billing_buffer_usd_nanos": 100_000_000}
+
+    def test_reviewed_settlement_fits_full_run_without_raising_limits(self):
+        prior, document = self.settlement_document()
+        original = {p.name: p.read_bytes() for p in prior.root.glob("*.json")}
+        settled = PilotSpendEnvelope(prior.root, self.plan, retry=document)
+        snapshot = settled.snapshot()
+        self.assertEqual(snapshot["remaining_usd_nanos"], {"modal": 10_379_360_480, "openrouter": 2_950_000_000})
+        self.assertGreater(snapshot["remaining_usd_nanos"]["modal"], 10_192_960_000)
+        with self.assertRaisesRegex(PermissionError, "settlement"):
+            prior.snapshot()
+        with self.assertRaisesRegex(PermissionError, "settlement"):
+            PilotSpendEnvelope(prior.root, self.plan, retry=prior.retry)
+        key = "pilot:retry-" + settled.retry_digest[7:] + ":openrouter:base"
+        self.reserve(key, 2_900_000_000, provider="openrouter", envelope=settled)
+        reopened = PilotSpendEnvelope(prior.root, self.plan, retry=document)
+        self.assertEqual(reopened.snapshot()["remaining_usd_nanos"]["openrouter"], 50_000_000)
+        for name, content in original.items():
+            self.assertEqual((prior.root / name).read_bytes(), content)
+
+    def test_settlement_rejects_any_actor_budget_or_missing_report(self):
+        prior, document = self.settlement_document()
+        budget = Path(document["prior_audit"]["file"]).parent / "budget.sqlite3"
+        budget.touch()
+        with self.assertRaisesRegex(ValueError, "pre-agent"):
+            PilotSpendEnvelope(prior.root, self.plan, retry=document)
+        budget.unlink()
+        with self.assertRaisesRegex(ValueError, "billing row"):
+            PilotSpendEnvelope(prior.root, self.plan, retry={**document, "reference_app_id": "absent"})
+        self.assertFalse((prior.root / "retry/settlement-approval.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,16 +61,22 @@ class PilotSpendEnvelope:
         self.retry_digest = digest_value(retry) if retry is not None else None
         self._prior_receipts = None
         self._model_release = 0
+        self._releases = {"modal": 0, "openrouter": 0}
+        self._previous_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
-            self._prior_receipts, self._model_release = validate_retry(retry, self.plan_digest)
+            self._prior_receipts, self._releases = validate_retry(retry, self.plan_digest)
+            self._model_release = self._releases["openrouter"]
+            if retry["schema_version"] == "exploratory-solo-retry/v2":
+                self._previous_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
             self._limits = dict(retry["provider_limits_usd_nanos"])
             self._total = retry["total_limit_usd_nanos"]
         with self._locked():
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                retain_document(self.root / "retry/approval.json", retry)
+                filename = "settlement-approval.json" if self._previous_retry is not None else "approval.json"
+                retain_document(self.root / "retry" / filename, retry)
 
     @contextmanager
     def _locked(self):
@@ -114,9 +120,15 @@ class PilotSpendEnvelope:
 
     def _snapshot(self) -> dict:
         amendment = self.root / "retry/approval.json"
-        if amendment.exists() and (self.retry is None
-            or amendment.read_bytes() != canonical_json_bytes(self.retry)):
+        expected_previous = self._previous_retry if self._previous_retry is not None else self.retry
+        if amendment.exists() and (expected_previous is None
+            or amendment.read_bytes() != canonical_json_bytes(expected_previous)):
             raise PermissionError("journal requires its pinned retry amendment")
+        settlement = self.root / "retry/settlement-approval.json"
+        if (self._previous_retry is not None and not amendment.exists()
+            or settlement.exists() and (self._previous_retry is None
+                or settlement.read_bytes() != canonical_json_bytes(self.retry))):
+            raise PermissionError("journal requires its pinned settlement amendment")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}
@@ -141,7 +153,8 @@ class PilotSpendEnvelope:
             if any(item["operation_key"] not in prior_keys and not item["operation_key"].startswith(allowed)
                 for item in receipts):
                 raise RuntimeError("journal contains an unapproved retry")
-            totals["openrouter"] -= self._model_release
+            for provider, release in self._releases.items():
+                totals[provider] -= release
         if any(totals[key] > self._limits[key] for key in totals) or sum(totals.values()) > self._total:
             raise RuntimeError("pilot admission journal exceeds its plan")
         return {"plan_digest": self.plan_digest, "reserved_usd_nanos": totals,
@@ -149,7 +162,8 @@ class PilotSpendEnvelope:
             "provider_limits_usd_nanos": dict(self._limits), "receipts": receipts,
             "actual_spend_usd_nanos": None, "provider_billing_cap_verified": False,
             **({"retry_amendment_digest": self.retry_digest,
-                "released_unused_model_usd_nanos": self._model_release} if self.retry is not None else {})}
+                "released_unused_model_usd_nanos": self._model_release,
+                "released_allowances_usd_nanos": self._releases} if self.retry is not None else {})}
 
     def _validate_receipt(self, record):
         if (not isinstance(record, dict) or set(record) != {"operation_key", "provider", "purpose",
