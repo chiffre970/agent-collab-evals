@@ -1,0 +1,15 @@
+{
+  "observed_local_date": "2026-09-21",
+  "command": "modal billing report --start 2026-09-14 --end 2026-09-17 --json",
+  "response": [
+    {
+      "object_id": "ap-prLVu6B1U3GH3DTD9D8CzI",
+      "description": "agent-collab-evals-model-serving-reference",
+      "environment": "dev",
+      "interval_start": "2026-09-15T00:00:00",
+      "cost": "0.23026748"
+    }
+  ],
+  "scope": "Provider-reported cost for the reference app, not a complete per-call invoice reconciliation.",
+  "admission_refunded": false
+}

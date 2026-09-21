@@ -128,6 +128,29 @@ class SoloLiveLifecycleTests(unittest.TestCase):
         binding = json.loads((self.root / "live-branch-test/run-config.json").read_bytes())
         self.assertEqual(binding["spend_admission"], guard.evidence.return_value)
 
+    def test_long_socket_paths_fail_before_spend_admission_or_reference(self):
+        for label in ("model", "candidate"):
+            with self.subTest(label=label):
+                guard = Mock()
+                guard.evidence.return_value = {}
+                guard.snapshot.return_value = {}
+                build = Mock(side_effect=AssertionError("reference must not start"))
+                options = {"unix_socket_root": self.root / ("long-" * 25) / label}
+                gateway_options = Mock(return_value=(options, {}) if label == "model" else ({}, options))
+                live = replace(self.dependencies, spend_guard=guard, build_stack=build,
+                               gateway_options=gateway_options)
+                run_id = "long-path-" + label
+                # Do not patch gateway classes: preflight must use their real validation.
+                with self.assertRaises(PilotAborted):
+                    _execute_solo_pilot(self.config, self.root, run_id, REPOSITORY,
+                        self.campaign, self.gateway, self.runtime, self.sandbox, live=live)
+                guard.begin.assert_not_called()
+                build.assert_not_called()
+                gateway_options.assert_called_once()
+                audit = json.loads((self.root / run_id / "audit.json").read_bytes())
+                self.assertEqual(audit["failure"]["stage"], "runtime_preflight")
+                self.assertFalse(options["unix_socket_root"].exists())
+
     def test_cleanup_error_does_not_suppress_aborted_audit(self):
         self.cleanup.side_effect = TimeoutError()
         with patch.object(_SyntheticCandidateHarness, "deliver", side_effect=RuntimeError("test failure")):

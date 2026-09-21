@@ -58,7 +58,7 @@ From the trusted VM controller, with credentials injected only into that process
 ```sh
 .venv/bin/python -m agent_collab_evals solo-pilot \
   --config .private/first-solo/configuration.json \
-  --state-root /home/rmh.guest/agent-collab-evals/tmp/solo-pilots \
+  --state-root /home/rmh.guest/ace-runs \
   --run-id first-solo \
   --authorization .private/first-solo/authorization.json \
   --authorization-digest sha256:REVIEWED_APPROVAL_DIGEST
@@ -68,6 +68,14 @@ The gate validates the full remaining allowance before dispatch. The journal
 uses a single-attempt reservation key independent of the run ID; a new run ID
 cannot restart the attempt. Failures do not refund admissions. The run audit
 retains the exact operator approval alongside its configuration and spend plan.
+
+Use a short, durable state root and bind that exact path in the approval. Before
+any spend admission or reference dispatch, the lifecycle validates both full
+per-session socket paths, including their token directories and filenames. Each
+resolved UTF-8 path must be shorter than 100 bytes. A deeply nested repository
+path can exceed that limit even when the run ID is short. Invalid paths retain
+an aborted preflight audit but consume no new admission allowance. Do not move
+or overwrite a previous attempt to reuse its run ID.
 
 The existing public reference phase runs before the model gateway or actor starts.
 The lifecycle resolves and retains its receipt and result, and aborts if the
@@ -82,8 +90,15 @@ experiments remain outside this command's exploratory authorization.
 
 ## Current status
 
-The gate passes no-spend tests. No real approval has been issued and no
-optimization attempt has started. The pinned Qwen revision's snapshot entries
-exist in the Modal cache, but a directory listing does not prove blob integrity
-or successful loading. The September 14 qualification app's cost has not appeared
-in the queried billing report; do not describe it as free or settled.
+The first authorized attempt ran on September 15. The pinned Qwen model loaded
+successfully and all nine public reference benchmark points passed. Agent
+startup then failed because the original state root produced an overlong Unix
+socket path. No model API calls, candidate optimization, or hidden evaluation ran.
+Evidence is retained in `evidence/solo_pilot/20260915-first-solo`.
+
+The local fix checks socket paths before spend admission. The original approval
+has expired, and the original journal remains consumed: no automatic retry or
+refund is authorized. A future attempt needs deployment of the fix, a reviewed
+short state root, refreshed readiness evidence, and explicit spending authority.
+The September 21 report attributes $0.23026748 to the reference app; this is not
+complete invoice reconciliation and does not release reserved capacity.

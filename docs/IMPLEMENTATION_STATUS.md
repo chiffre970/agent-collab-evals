@@ -650,6 +650,24 @@ result and uses existing abort cleanup without automatic retry. Host validation:
 that small follow-up, review the remaining evaluator/billing assessments, and
 issue the one-run approval. No separate qualification runner is needed.
 
+September 21 outcome update: the first live attempt completed the pinned L4
+public reference (nine valid points, no failed requests), then aborted before
+agent creation because the deep state root exceeded the Unix socket path limit.
+No model calls or hidden evaluations ran. Terminal reference evidence was
+verified; all four attempt-owned Modal apps stopped, and no local containers
+remained. Retained public evidence: `evidence/solo_pilot/20260915-first-solo`.
+The provider now attributes $0.23026748 to the reference app. Conservative
+admissions remain consumed, and no automatic retry is authorized.
+
+The local follow-up shares each gateway's full socket-path calculation with
+preflight and validates both transports before spend admission or reference
+dispatch. Use a short durable state root, as documented in `SOLO_AUTHORIZATION.md`.
+Validation: 381 tests ran, 359 passed, and 22 skipped. Two additional local
+socket/launcher integrations passed. Next: review and deploy
+this fix, then explicitly authorize a new attempt with a reconciled spending
+plan. The original approval has expired; do not reset or silently refund its
+journal. This update supersedes the earlier pending-first-attempt notes.
+
 1. **Completed without spend: one runnable solo pilot command.** `solo-pilot`
    connects real OpenCode, candidate tools, public feedback, selection, all
    held-out evaluator phases, durable routing/authorization, and closure in one

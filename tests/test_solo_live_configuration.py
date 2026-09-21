@@ -27,7 +27,7 @@ from tests.quality_fixture import REPOSITORY_ROOT, real_hidden_quality_bundle
 
 class SoloLiveConfigurationTests(unittest.TestCase):
     def setUp(self):
-        directory = tempfile.TemporaryDirectory()
+        directory = tempfile.TemporaryDirectory(prefix="ace-", dir="/tmp")
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
         self.campaign, self.bundle, self.policy = real_hidden_quality_bundle(self.root / "bundle")

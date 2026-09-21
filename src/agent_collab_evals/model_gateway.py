@@ -450,6 +450,7 @@ class ModelBudgetGateway:
             unix_socket_root.resolve() if unix_socket_root is not None else None
         )
         if self._unix_socket_root is not None:
+            self.unix_socket_path(self._unix_socket_root)
             self._unix_socket_root.mkdir(parents=True, exist_ok=True, mode=0o700)
             self._unix_socket_root.chmod(0o700)
         self._advertised_endpoint = advertised_endpoint
@@ -565,15 +566,20 @@ class ModelBudgetGateway:
         if self._thread is not None:
             self._thread.join(timeout=5)
 
+    @staticmethod
+    def unix_socket_path(root: Path, token_id: str = "0" * 12) -> Path:
+        """Validate the full path without creating a directory or socket."""
+        path = root.resolve() / f"s-{token_id[-12:]}" / "model.sock"
+        if len(str(path).encode("utf-8")) >= 100:
+            raise ValueError("Unix gateway socket path exceeds the portable limit; use a shorter state root")
+        return path
+
     def _start_unix_transport(self, token_id: str) -> Path | None:
         if self._unix_socket_root is None:
             return None
-        directory = self._unix_socket_root / f"s-{token_id[-12:]}"
+        socket_path = self.unix_socket_path(self._unix_socket_root, token_id)
+        directory = socket_path.parent
         directory.mkdir(mode=0o755)
-        socket_path = directory / "model.sock"
-        if len(str(socket_path).encode("utf-8")) >= 100:
-            directory.rmdir()
-            raise ValueError("Unix gateway socket path exceeds the portable limit")
         try:
             server = _ThreadingUnixHTTPServer(str(socket_path), self._handler)
             server.expected_token_id = token_id  # type: ignore[attr-defined]

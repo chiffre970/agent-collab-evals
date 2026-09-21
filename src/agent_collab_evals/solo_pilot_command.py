@@ -229,6 +229,13 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             stack.inventory.authorize(request, approval_reference=f"no-spend-command:{config_digest}")
 
     try:
+        stage = "runtime_preflight"
+        model_options, candidate_options = ({}, {})
+        if runtime_wiring is not None and runtime_wiring.gateway_options is not None:
+            model_options, candidate_options = runtime_wiring.gateway_options(root)
+            for gateway_type, options in ((ModelBudgetGateway, model_options), (CandidateToolGateway, candidate_options)):
+                if options.get("unix_socket_root") is not None:
+                    gateway_type.unix_socket_path(options["unix_socket_root"])
         if live is not None and live.spend_guard is not None:
             stage = "spend_admission"
             live.spend_guard.begin(run_id, config_digest)
@@ -266,7 +273,6 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
             model=gateway_profile.expected_returned_model, provider=gateway_profile.expected_provider, peer_actor_count=1))
         endpoint = "fake://no-spend"
         if runtime_wiring is not None:
-            model_options, candidate_options = runtime_wiring.gateway_options(root) if runtime_wiring.gateway_options else ({}, {})
             gateway = ModelBudgetGateway(gateway_profile, budget, upstream, **model_options)
             candidate_gateway = CandidateToolGateway(services.tools, services.sessions, **candidate_options)
             runtime = runtime_wiring.harness(root, services, gateway, candidate_gateway)
