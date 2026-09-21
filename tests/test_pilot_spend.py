@@ -4,10 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import tempfile
+import sqlite3
 import unittest
 from unittest.mock import patch
 
-from agent_collab_evals.canonical import digest_value
+from agent_collab_evals.canonical import digest_file, digest_value
+from agent_collab_evals.pilot_evidence import retain_document
 from agent_collab_evals.modal_pilot_cost import modal_pilot_cost
 from agent_collab_evals.pilot_spend import PilotSpendEnvelope
 
@@ -108,6 +110,71 @@ class PilotSpendTests(unittest.TestCase):
         snapshot = self.envelope.snapshot()
         self.assertEqual(snapshot["reserved_usd_nanos"]["openrouter"], 60_000_000)
         self.assertEqual(len(snapshot["receipts"]), 2)
+
+    def retry_document(self):
+        self.reserve("qualification:provider-route-v1", 50_000_000, provider="openrouter", purpose="qualification")
+        self.reserve("qualification:modal-access-v1", 1_532_160_000, purpose="qualification")
+        self.reserve("pilot:single-attempt:openrouter:base", 2_900_000_000, provider="openrouter")
+        self.reserve("pilot:single-attempt:modal:base", 1_000_000_000, purpose="overhead")
+        self.reserve("pilot:first-solo:compute:reference", 766_080_000)
+        audit = self.root / "prior-audit.json"
+        retain_document(audit, {"run_id": "first-solo", "status": "aborted", "scoreable": False,
+            "budget_reconciliation": {"valid": True}, "remote_cleanup": [{"terminal_confirmed": True}],
+            "spend_admission": self.envelope.snapshot()})
+        budget = self.root / "budget.sqlite3"
+        connection = sqlite3.connect(budget)
+        try:
+            connection.executescript("CREATE TABLE budget_campaigns (campaign_run_id TEXT, charged_usd_nanos INTEGER);"
+                "INSERT INTO budget_campaigns VALUES ('first-solo', 0);"
+                "CREATE TABLE budget_reservations (reservation_id TEXT);")
+        finally:
+            connection.close()
+        return {"schema_version": "exploratory-solo-retry/v1", "prior_plan_digest": self.envelope.plan_digest,
+            "prior_receipts_digest": digest_value(self.envelope.snapshot()["receipts"]),
+            "prior_audit": {"file": str(audit), "digest": digest_file(audit)},
+            "prior_budget": {"file": str(budget), "digest": digest_file(budget)},
+            "run_id": "retry-one", "provider_limits_usd_nanos": {"modal": 14_000_000_000, "openrouter": 3_000_000_000},
+            "total_limit_usd_nanos": 17_000_000_000}
+
+    def test_explicit_retry_preserves_modal_allowances_and_releases_only_unused_model(self):
+        document = self.retry_document()
+        original = {p.name: p.read_bytes() for p in self.envelope.root.glob("*.json")}
+        retry = PilotSpendEnvelope(self.envelope.root, self.plan, retry=document)
+        self.assertEqual(retry.snapshot()["remaining_usd_nanos"], {"modal": 10_701_760_000, "openrouter": 2_950_000_000})
+        key = f"pilot:retry-{retry.retry_digest[7:]}:openrouter:base"
+        retry.reserve(operation_key=key, provider="openrouter", purpose="pilot",
+            request_digest=digest_value("retry"), maximum_usd_nanos=2_900_000_000, allow_existing=False)
+        restarted = PilotSpendEnvelope(retry.root, self.plan, retry=document)
+        self.assertEqual(restarted.snapshot()["remaining_usd_nanos"]["openrouter"], 50_000_000)
+        with self.assertRaisesRegex(RuntimeError, "already admitted"):
+            restarted.reserve(operation_key=key, provider="openrouter", purpose="pilot",
+                request_digest=digest_value("retry"), maximum_usd_nanos=2_900_000_000, allow_existing=False)
+        with self.assertRaisesRegex(PermissionError, "pinned retry"):
+            self.envelope.snapshot()
+        with self.assertRaisesRegex(PermissionError, "approved attempt"):
+            self.reserve("pilot:unapproved:compute:x", 1, envelope=retry)
+        for name, raw in original.items():
+            self.assertEqual((retry.root / name).read_bytes(), raw)
+
+    def test_retry_rejects_nonempty_model_ledger(self):
+        document = self.retry_document()
+        budget = Path(document["prior_budget"]["file"])
+        connection = sqlite3.connect(budget)
+        try:
+            connection.execute("INSERT INTO budget_reservations VALUES ('in-flight')")
+            connection.commit()
+        finally:
+            connection.close()
+        document["prior_budget"]["digest"] = digest_file(budget)
+        with self.assertRaisesRegex(ValueError, "not entirely unused"):
+            PilotSpendEnvelope(self.envelope.root, self.plan, retry=document)
+        self.assertFalse((self.envelope.root / "retry/approval.json").exists())
+
+    def test_retry_requires_exact_existing_receipts(self):
+        document = self.retry_document()
+        self.reserve("unaccounted-prior-admission", 1)
+        with self.assertRaisesRegex(RuntimeError, "unapproved retry"):
+            PilotSpendEnvelope(self.envelope.root, self.plan, retry=document)
 
 
 if __name__ == "__main__":

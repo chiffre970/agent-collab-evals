@@ -35,7 +35,7 @@ class PilotSpendEnvelope:
     Do not create a new directory to recover from exhausted or corrupt evidence.
     """
 
-    def __init__(self, root: Path, plan: dict):
+    def __init__(self, root: Path, plan: dict, *, retry=None):
         if (not isinstance(plan, dict) or set(plan) != {
             "schema_version", "plan_id", "total_limit_usd_nanos",
             "provider_limits_usd_nanos", "accounting"
@@ -57,9 +57,20 @@ class PilotSpendEnvelope:
         self.plan_digest = digest_bytes(self._plan_bytes)
         self._limits = dict(limits)
         self._total = plan["total_limit_usd_nanos"]
+        self.retry = retry
+        self.retry_digest = digest_value(retry) if retry is not None else None
+        self._prior_receipts = None
+        self._model_release = 0
+        if retry is not None:
+            from .pilot_retry import validate_retry
+            self._prior_receipts, self._model_release = validate_retry(retry, self.plan_digest)
+            self._limits = dict(retry["provider_limits_usd_nanos"])
+            self._total = retry["total_limit_usd_nanos"]
         with self._locked():
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
+            if retry is not None:
+                retain_document(self.root / "retry/approval.json", retry)
 
     @contextmanager
     def _locked(self):
@@ -77,6 +88,9 @@ class PilotSpendEnvelope:
             request_digest=request_digest, maximum_usd_nanos=maximum_usd_nanos,
             plan_digest=self.plan_digest)
         self._validate_receipt(record)
+        if self.retry is not None and not operation_key.startswith((
+            f"pilot:retry-{self.retry_digest[7:]}:", f"pilot:{self.retry['run_id']}:compute:")):
+            raise PermissionError("retry journal only accepts the approved attempt")
         path = self.root / (digest_value(operation_key)[7:] + ".json")
         with self._locked():
             snapshot = self._snapshot()
@@ -99,6 +113,10 @@ class PilotSpendEnvelope:
             return self._snapshot()
 
     def _snapshot(self) -> dict:
+        amendment = self.root / "retry/approval.json"
+        if amendment.exists() and (self.retry is None
+            or amendment.read_bytes() != canonical_json_bytes(self.retry)):
+            raise PermissionError("journal requires its pinned retry amendment")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}
@@ -114,12 +132,24 @@ class PilotSpendEnvelope:
                 raise RuntimeError("pilot admission receipt identity differs")
             totals[record["provider"]] += record["maximum_usd_nanos"]
             receipts.append(record)
+        if self.retry is not None:
+            prior_keys = {item["operation_key"] for item in self._prior_receipts}
+            prior = [item for item in receipts if item["operation_key"] in prior_keys]
+            if prior != self._prior_receipts:
+                raise RuntimeError("retry prior admissions differ")
+            allowed = (f"pilot:retry-{self.retry_digest[7:]}:", f"pilot:{self.retry['run_id']}:compute:")
+            if any(item["operation_key"] not in prior_keys and not item["operation_key"].startswith(allowed)
+                for item in receipts):
+                raise RuntimeError("journal contains an unapproved retry")
+            totals["openrouter"] -= self._model_release
         if any(totals[key] > self._limits[key] for key in totals) or sum(totals.values()) > self._total:
             raise RuntimeError("pilot admission journal exceeds its plan")
         return {"plan_digest": self.plan_digest, "reserved_usd_nanos": totals,
             "remaining_usd_nanos": {key: self._limits[key] - totals[key] for key in totals},
             "provider_limits_usd_nanos": dict(self._limits), "receipts": receipts,
-            "actual_spend_usd_nanos": None, "provider_billing_cap_verified": False}
+            "actual_spend_usd_nanos": None, "provider_billing_cap_verified": False,
+            **({"retry_amendment_digest": self.retry_digest,
+                "released_unused_model_usd_nanos": self._model_release} if self.retry is not None else {})}
 
     def _validate_receipt(self, record):
         if (not isinstance(record, dict) or set(record) != {"operation_key", "provider", "purpose",

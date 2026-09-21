@@ -32,9 +32,14 @@ class PilotSpendGuard:
             self.operator_authorization.require_current()
         if run_id != self.run_id or self._run_config_digest not in (None, run_config_digest):
             raise ValueError("spend guard run binding differs")
+        attempt = "single-attempt"
+        if self.envelope.retry is not None:
+            if run_id != self.envelope.retry["run_id"]:
+                raise PermissionError("retry spend guard run differs")
+            attempt = "retry-" + self.envelope.retry_digest[7:]
         for provider, amount in (("openrouter", self.model_limit),
             ("modal", self.estimate["shared_overhead_allowance_usd_nanos"])):
-            self.envelope.reserve(operation_key=f"pilot:single-attempt:{provider}:base", provider=provider,
+            self.envelope.reserve(operation_key=f"pilot:{attempt}:{provider}:base", provider=provider,
                 purpose="pilot" if provider == "openrouter" else "overhead",
                 request_digest=digest_value({"run_config_digest": run_config_digest, "spend": self.evidence()}),
                 maximum_usd_nanos=amount, allow_existing=False)

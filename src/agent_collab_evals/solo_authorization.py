@@ -56,9 +56,11 @@ class ExploratorySoloAuthorization:
         fields = {"schema_version", "scope", "run_id", "expires_at", "configuration_digest",
             "spend_plan_digest", "spend_journal", "state_root", "engine_executable",
             "engine_identity_digest", "provider_selection", "readiness_evidence", "qualification_admissions_digest"}
+        if isinstance(value, dict) and value.get("schema_version") == "exploratory-solo-authorization/v2":
+            fields.add("retry_amendment")
         if not isinstance(value, dict) or set(value) != fields:
             raise ValueError("solo authorization fields differ")
-        if value["schema_version"] != "exploratory-solo-authorization/v1" or value["scope"] != "one_exploratory_solo_attempt":
+        if value["schema_version"] not in {"exploratory-solo-authorization/v1", "exploratory-solo-authorization/v2"} or value["scope"] != "one_exploratory_solo_attempt":
             raise ValueError("authorization is not scoped to one exploratory solo attempt")
         if not isinstance(value["run_id"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", value["run_id"]):
             raise ValueError("authorization run ID is invalid")
@@ -111,9 +113,16 @@ class ExploratorySoloAuthorization:
         for reference in readiness.values():
             self._evidence_path(configuration.repository, reference)
         snapshot = envelope.snapshot()
-        if any(receipt["purpose"] != "qualification" for receipt in snapshot["receipts"]):
+        if envelope.retry is not None:
+            amendment = parse_json(self._evidence_path(configuration.repository, value["retry_amendment"]).read_text())
+            if amendment != envelope.retry or amendment["run_id"] != run_id:
+                raise PermissionError("retry amendment differs")
+            if digest_value(snapshot["receipts"]) != amendment["prior_receipts_digest"]:
+                raise PermissionError("the retry journal already admitted an attempt")
+        elif any(receipt["purpose"] != "qualification" for receipt in snapshot["receipts"]):
             raise PermissionError("the pilot journal already admitted an attempt or overhead")
-        if digest_value(snapshot["receipts"]) != value["qualification_admissions_digest"]:
+        qualifications = [item for item in snapshot["receipts"] if item["purpose"] == "qualification"]
+        if digest_value(qualifications) != value["qualification_admissions_digest"]:
             raise PermissionError("qualification admissions differ from the approved journal")
         receipts = {item["operation_key"]: item for item in snapshot["receipts"]}
         if not {"qualification:provider-route-v1", "qualification:modal-access-v1"}.issubset(receipts):
@@ -173,7 +182,10 @@ def run_authorized_solo(config_path, state_root, run_id, authorization_path, aut
     if not (journal / "plan.json").is_file():
         raise PermissionError("the approved qualification spending journal is missing")
     plan = parse_json((repository / "config/pilots/solo-spend-envelope-v1.json").read_text())
-    envelope = PilotSpendEnvelope(journal, plan)
+    retry = None
+    if "retry_amendment" in authority.document:
+        retry = parse_json(authority._evidence_path(repository, authority.document["retry_amendment"]).read_text())
+    envelope = PilotSpendEnvelope(journal, plan, retry=retry)
     authority.validate(configuration, envelope, run_id, state_root)
     sandbox = authority.process_sandbox(configuration)
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()

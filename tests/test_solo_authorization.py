@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
 import tempfile
+import sqlite3
 import unittest
 from unittest.mock import patch
 
@@ -131,6 +132,44 @@ class SoloAuthorizationTests(unittest.TestCase):
                 run_authorized_solo(self.root / "configuration.json", self.root / "runs", "wrong",
                     self.root / "approval-0.json", authority.digest)
             execute.assert_called_once()
+
+    def test_reviewed_retry_composes_with_authority_and_guard_once(self):
+        PilotSpendGuard(self.configuration, self.envelope, "first-solo").begin("first-solo", digest_value("first-run"))
+        audit = self.root / "aborted.json"
+        retain_document(audit, {"run_id": "first-solo", "status": "aborted", "scoreable": False,
+            "budget_reconciliation": {"valid": True}, "remote_cleanup": [{"terminal_confirmed": True}],
+            "spend_admission": self.envelope.snapshot()})
+        budget = self.root / "budget.sqlite3"
+        connection = sqlite3.connect(budget)
+        try:
+            connection.executescript("CREATE TABLE budget_campaigns (campaign_run_id TEXT, charged_usd_nanos INTEGER);"
+                "INSERT INTO budget_campaigns VALUES ('first-solo', 0); CREATE TABLE budget_reservations (id TEXT);")
+        finally:
+            connection.close()
+        amendment = {"schema_version": "exploratory-solo-retry/v1", "prior_plan_digest": self.envelope.plan_digest,
+            "prior_receipts_digest": digest_value(self.envelope.snapshot()["receipts"]),
+            "prior_audit": {"file": str(audit), "digest": digest_file(audit)},
+            "prior_budget": {"file": str(budget), "digest": digest_file(budget)},
+            "run_id": "one-attempt", "provider_limits_usd_nanos": {"modal": 14_000_000_000, "openrouter": 3_000_000_000},
+            "total_limit_usd_nanos": 17_000_000_000}
+        path = self.root / "amendment.json"
+        retain_document(path, amendment)
+        plan = json.loads((ROOT / "config/pilots/solo-spend-envelope-v1.json").read_text())
+        self.envelope = PilotSpendEnvelope(self.envelope.root, plan, retry=amendment)
+        self.configuration = replace(self.configuration,
+            document={**self.configuration.document, "modal_limit_usd_nanos": 14_000_000_000})
+        authority = self.authority(schema_version="exploratory-solo-authorization/v2",
+            retry_amendment={"file": str(path), "digest": digest_file(path)},
+            configuration_digest=configuration_binding(self.configuration))
+        self.validate(authority)
+        guard = PilotSpendGuard(self.configuration, self.envelope, "one-attempt")
+        guard.operator_authorization = authority
+        guard.begin("one-attempt", digest_value("retry-run"))
+        self.assertEqual(guard.snapshot()["remaining_usd_nanos"]["openrouter"], 50_000_000)
+        with self.assertRaisesRegex(PermissionError, "already admitted"):
+            self.validate(authority)
+        with self.assertRaisesRegex(RuntimeError, "already admitted"):
+            guard.begin("one-attempt", digest_value("retry-run"))
 
 
 if __name__ == "__main__":

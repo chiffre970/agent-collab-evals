@@ -96,9 +96,33 @@ startup then failed because the original state root produced an overlong Unix
 socket path. No model API calls, candidate optimization, or hidden evaluation ran.
 Evidence is retained in `evidence/solo_pilot/20260915-first-solo`.
 
-The local fix checks socket paths before spend admission. The original approval
-has expired, and the original journal remains consumed: no automatic retry or
-refund is authorized. A future attempt needs deployment of the fix, a reviewed
-short state root, refreshed readiness evidence, and explicit spending authority.
+The fix checks socket paths before spend admission. It was deployed and passed
+the real OpenCode/OCI no-spend pilot on September 21 with a short state root.
+Commits `f0316df` and `b374650` are pushed. The original approval has expired,
+and the original journal remains consumed: no automatic retry or refund is
+authorized. A future attempt needs reviewed budget reconciliation, refreshed
+readiness evidence, and fresh spending authority.
 The September 21 report attributes $0.23026748 to the reference app; this is not
 complete invoice reconciliation and does not release reserved capacity.
+The retry capacity check is retained in
+`evidence/solo_pilot/20260915-first-solo/retry-budget-review.md`. Even optimistic
+failed-attempt reconciliation leaves insufficient Modal capacity while the
+unresolved qualification allowance remains held. No retry has started.
+
+### Explicit September 21 retry
+
+The user subsequently approved a $14 cumulative Modal allowance and $3
+OpenRouter allowance, with the provider-side Modal cap unchanged. The original
+plan and every admission receipt remain immutable. An explicitly pinned v2
+authorization can reference one `exploratory-solo-retry/v1` amendment in the same
+journal. The amendment preserves all prior Modal allowances and releases only
+the original $2.90 model allowance, after verifying the retained aborted audit
+and the digest-bound, empty model reservation database. It does not treat
+missing qualification billing as zero.
+
+The amended journal has $10.70176 Modal and $2.95 OpenRouter available before
+the retry, exceeding the required $10.19296 and $2.90. A write-once amendment
+marker prevents reopening it with the old plan alone or another amendment.
+The new attempt has distinct, one-use admission keys and a new run directory;
+neither a crash nor a new run ID grants another retry. This remains exploratory
+execution, not registered or multi-condition experimentation.
