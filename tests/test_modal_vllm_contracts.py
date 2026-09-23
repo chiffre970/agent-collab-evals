@@ -8,6 +8,7 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 
 SCRIPT_PATH = Path("campaigns/model_serving_v0/reference/modal_vllm.py")
@@ -103,6 +104,45 @@ class _EventuallyVisibleVolume:
 
 
 class ModalVllmContractTests(unittest.TestCase):
+    def test_collect_only_recovers_completed_staging_without_call_result(self) -> None:
+        root = "model-serving/finished/repetition-0001-attempt-01"
+        digest = "sha256:" + "a" * 64
+        manifest = {
+            "schema_version": "modal-evaluator-evidence/v0alpha1",
+            "volume_name": MODAL_VLLM.STAGING_VOLUME_NAME,
+            "root": root,
+            "remote_receipt_digest": digest,
+            "raw_digests": {},
+        }
+        volume = _ReadOnlyVolume({
+            f"{root}/evidence/manifest.json": json.dumps(manifest).encode()
+        })
+        call = Mock()
+        with patch.object(MODAL_VLLM, "staging_volume", volume):
+            pointer = MODAL_VLLM._get_scored_call_result(
+                call, root, 300, collect_only=True
+            )
+            self.assertEqual(pointer["remote_receipt_digest"], digest)
+            self.assertEqual(pointer["root"], root)
+            call.get.assert_not_called()
+            changed = dict(manifest, root="model-serving/another/repetition-0001-attempt-01")
+            volume.files[f"{root}/evidence/manifest.json"] = json.dumps(changed).encode()
+            with self.assertRaisesRegex(RuntimeError, "identity differs"):
+                MODAL_VLLM._staged_pointer_if_available(root)
+
+    def test_collect_only_keeps_modal_client_transport_bug_nonterminal(self) -> None:
+        root = "model-serving/pending/repetition-0001-attempt-01"
+        call = Mock()
+        call.get.side_effect = AttributeError("'Connection' object has no attribute '_transport'")
+        with patch.object(MODAL_VLLM, "staging_volume", _ReadOnlyVolume({})):
+            self.assertIsNone(MODAL_VLLM._get_scored_call_result(
+                call, root, 300, collect_only=True
+            ))
+            call.get.assert_called_once_with(timeout=300)
+            call.get.side_effect = AttributeError("different application failure")
+            with self.assertRaisesRegex(AttributeError, "application failure"):
+                MODAL_VLLM._get_scored_call_result(call, root, 300, collect_only=True)
+
     def test_server_command_is_built_from_typed_settings(self) -> None:
         candidate = json.loads(
             Path("campaigns/model_serving_v0/reference/candidate.json").read_text(

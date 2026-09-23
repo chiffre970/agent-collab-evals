@@ -9,6 +9,7 @@ import io
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import tempfile
@@ -1389,6 +1390,62 @@ def _ensure_durable_evidence(
     return persist_evaluator_evidence.remote(evidence_root, result)
 
 
+def _staged_pointer_if_available(evidence_root: str) -> dict[str, str] | None:
+    """Recover an already staged result if the call-result API is unavailable."""
+    _validate_evidence_root(evidence_root)
+    try:
+        content = _read_volume_file(
+            staging_volume, f"{evidence_root}/evidence/manifest.json"
+        )
+    except FileNotFoundError:
+        return None
+    try:
+        manifest = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("staged evidence manifest is invalid") from error
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != {
+            "schema_version", "volume_name", "root",
+            "remote_receipt_digest", "raw_digests",
+        }
+        or manifest["schema_version"] != "modal-evaluator-evidence/v0alpha1"
+        or manifest["volume_name"] != STAGING_VOLUME_NAME
+        or manifest["root"] != evidence_root
+        or not isinstance(manifest["remote_receipt_digest"], str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["remote_receipt_digest"])
+    ):
+        raise RuntimeError("staged evidence manifest identity differs")
+    return {
+        "schema_version": "modal-evaluator-staging-pointer/v0alpha1",
+        "volume_name": STAGING_VOLUME_NAME,
+        "root": evidence_root,
+        "remote_receipt_digest": manifest["remote_receipt_digest"],
+    }
+
+
+def _get_scored_call_result(
+    function_call: Any, evidence_root: str, timeout: int | None, *, collect_only: bool
+) -> Any:
+    if collect_only:
+        try:
+            staged = _staged_pointer_if_available(evidence_root)
+        except AttributeError as error:
+            if str(error) != "'Connection' object has no attribute '_transport'":
+                raise
+        else:
+            if staged is not None:
+                return staged
+    try:
+        return function_call.get(timeout=timeout)
+    except AttributeError as error:
+        # Modal 1.5.4 raised this internal connection error after a completed
+        # call. It says nothing about the scored function's terminal outcome.
+        if collect_only and str(error) == "'Connection' object has no attribute '_transport'":
+            return None
+        raise
+
+
 def _collect_remote_evidence(
     pointer: dict[str, Any], *, expected_root: str
 ) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
@@ -2173,7 +2230,10 @@ def _run_baseline_repetition(
             if collect_timeout_seconds or collect_only
             else None
         )
-        remote_result = function_call.get(timeout=collection_timeout)
+        remote_result = _get_scored_call_result(
+            function_call, evidence_root, collection_timeout,
+            collect_only=collect_only,
+        )
     except modal.exception.ConnectionError:
         print(
             json.dumps(
@@ -2212,6 +2272,10 @@ def _run_baseline_repetition(
         remote_error = error
     else:
         remote_error = None
+
+    if remote_error is None and remote_result is None:
+        print(json.dumps({"status": "collection_interrupted", "function_call_id": function_call_id}))
+        return
 
     if remote_error is not None:
         error = remote_error
@@ -2651,7 +2715,10 @@ def _run_quality_repetition(
             if collect_timeout_seconds or collect_only
             else None
         )
-        remote_result = function_call.get(timeout=collection_timeout)
+        remote_result = _get_scored_call_result(
+            function_call, evidence_root, collection_timeout,
+            collect_only=collect_only,
+        )
     except modal.exception.ConnectionError:
         print(json.dumps({"status": "collection_interrupted", "function_call_id": function_call_id}))
         return
@@ -2667,6 +2734,9 @@ def _run_quality_repetition(
         remote_error = error
     else:
         remote_error = None
+    if remote_error is None and remote_result is None:
+        print(json.dumps({"status": "collection_interrupted", "function_call_id": function_call_id}))
+        return
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
     if remote_error is not None:
         failure = _quality_failure_document(
@@ -3044,7 +3114,10 @@ def _run_correctness_repetition(
             if collect_timeout_seconds or collect_only
             else None
         )
-        remote_pointer = function_call.get(timeout=collection_timeout)
+        remote_pointer = _get_scored_call_result(
+            function_call, evidence_root, collection_timeout,
+            collect_only=collect_only,
+        )
     except modal.exception.ConnectionError:
         print(
             json.dumps(
@@ -3071,6 +3144,9 @@ def _run_correctness_repetition(
         remote_error = error
     else:
         remote_error = None
+    if remote_error is None and remote_pointer is None:
+        print(json.dumps({"status": "collection_interrupted", "function_call_id": function_call_id}))
+        return
     client_observed_ms = round((time.monotonic() - client_started) * 1000)
     if remote_error is not None:
         failure = {
