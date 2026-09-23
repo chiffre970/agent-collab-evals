@@ -8,7 +8,7 @@ import sqlite3
 import unittest
 from unittest.mock import patch
 
-from agent_collab_evals.canonical import digest_file, digest_value
+from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes, digest_file, digest_value
 from agent_collab_evals.pilot_evidence import retain_document
 from agent_collab_evals.modal_pilot_cost import modal_pilot_cost
 from agent_collab_evals.pilot_spend import PilotSpendEnvelope
@@ -233,6 +233,89 @@ class PilotSpendTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "billing row"):
             PilotSpendEnvelope(prior.root, self.plan, retry={**document, "reference_app_id": "absent"})
         self.assertFalse((prior.root / "retry/settlement-approval.json").exists())
+
+    def test_final_settlement_preserves_markers_and_bounds_another_attempt(self):
+        _, second = self.settlement_document()
+        second_path = self.root / "second-amendment.json"
+        retain_document(second_path, second)
+        settled = PilotSpendEnvelope(self.envelope.root, self.plan, retry=second)
+        prefix = "pilot:retry-" + settled.retry_digest[7:]
+        self.reserve(prefix + ":openrouter:base", 2_900_000_000,
+            provider="openrouter", envelope=settled)
+        self.reserve(prefix + ":modal:base", 1_000_000_000,
+            purpose="overhead", envelope=settled)
+        for index in range(2):
+            self.reserve(f"pilot:settled-retry:compute:{index}", 766_080_000,
+                envelope=settled)
+        prior = self.root / "failed-public"
+        config = prior / "run-config.json"
+        retain_document(config, {"git_commit": "90746ce881d053b7c2d0ec11ee1ce0abd8a20cbd",
+            "git_dirty": False, "config": {"gateway_profile": "unused-in-mocked-reconciler"}})
+        audit = prior / "audit.json"
+        retain_document(audit, {"run_id": "settled-retry", "status": "aborted", "scoreable": False,
+            "failure": {"stage": "public_evaluation"}, "run_config_digest": digest_file(config),
+            "budget_reconciliation": {"valid": True},
+            "remote_cleanup": [{"terminal_confirmed": False, "function_call_id": "fc-complete"},
+                               {"terminal_confirmed": True}],
+            "spend_admission": settled.snapshot()})
+        def ref(path):
+            return {"file": str(path), "digest": digest_file(path)}
+        recovery = self.root / "recovery.json"
+        manifest = self.root / "manifest.json"
+        receipt = self.root / "remote-receipt.json"
+        score = self.root / "score.json"
+        cleanup = self.root / "cleanup.json"
+        billing = self.root / "billing-current.json"
+        receipt_value = {"ok": True}
+        receipt_digest = digest_bytes(canonical_json_bytes(receipt_value) + b"\n")
+        retain_document(receipt, receipt_value)
+        retain_document(manifest, {"root": "model-serving/finished", "remote_receipt_digest": receipt_digest})
+        retain_document(recovery, {"output_status": "recovered", "new_compute_dispatched": False,
+            "call_id": "fc-complete", "result": {"root": "model-serving/finished",
+            "remote_receipt_digest": receipt_digest}})
+        retain_document(score, {"campaign_status": "aborted", "diagnostic_only": True,
+            "remote_ok": True, "all_points_valid": True, "hidden_quality_evaluated": False,
+            "new_compute_dispatched": False, "identity_errors": [], "points": [{}] * 9})
+        retain_document(cleanup, {"run_id": "settled-retry", "active_modal_apps": [],
+            "actor_containers": []})
+        current = ("app-candidate", "app-helper", "app-reference-current")
+        rows = [{"object_id": "ap-prLVu6B1U3GH3DTD9D8CzI", "environment": "dev",
+            "description": "agent-collab-evals-model-serving-reference",
+            "interval_start": "2026-09-15T00:00:00", "cost": "0.23026748"}]
+        rows += [{"object_id": item, "environment": "dev",
+            "description": "agent-collab-evals-model-serving-reference",
+            "interval_start": "2026-09-21T00:00:00", "cost": cost}
+            for item, cost in (("app-reference", "0.22239952"),
+                (current[0], "0.21471068"), (current[1], "0.00006161"),
+                (current[2], "0.21475082"))]
+        retain_document(billing, rows)
+        document = {"schema_version": "exploratory-solo-retry/v3",
+            "previous_amendment": ref(second_path), "prior_plan_digest": settled.plan_digest,
+            "prior_receipts_digest": digest_value(settled.snapshot()["receipts"]),
+            "prior_audit": ref(audit), "prior_run_config": ref(config),
+            "prior_budget_plan": ref(config), "prior_budget_database": ref(config),
+            "recovery_output": ref(recovery), "recovery_manifest": ref(manifest),
+            "recovery_receipt": ref(receipt), "recovery_score": ref(score),
+            "cleanup_observation": ref(cleanup), "billing_report": ref(billing),
+            "first_reference_app_id": "ap-prLVu6B1U3GH3DTD9D8CzI",
+            "current_app_ids": list(current), "run_id": "next-attempt",
+            "provider_limits_usd_nanos": second["provider_limits_usd_nanos"],
+            "total_limit_usd_nanos": second["total_limit_usd_nanos"]}
+        with patch("agent_collab_evals.pilot_retry._reconcile_prior_model", return_value=1_351_620):
+            with self.assertRaisesRegex(ValueError, "recovery or cleanup"):
+                PilotSpendEnvelope(settled.root, self.plan, retry={**document,
+                    "recovery_output": ref(score)})
+            final = PilotSpendEnvelope(settled.root, self.plan, retry=document)
+            self.assertEqual(final.snapshot()["remaining_usd_nanos"],
+                {"modal": 10_283_013_000, "openrouter": 2_938_648_380})
+            reopened = PilotSpendEnvelope(settled.root, self.plan, retry=document)
+            self.assertEqual(reopened.snapshot()["remaining_usd_nanos"],
+                final.snapshot()["remaining_usd_nanos"])
+        with self.assertRaisesRegex(PermissionError, "final settlement"):
+            settled.snapshot()
+        self.assertTrue((settled.root / "retry/approval.json").exists())
+        self.assertTrue((settled.root / "retry/settlement-approval.json").exists())
+        self.assertTrue((settled.root / "retry/final-settlement-approval.json").exists())
 
 
 if __name__ == "__main__":
