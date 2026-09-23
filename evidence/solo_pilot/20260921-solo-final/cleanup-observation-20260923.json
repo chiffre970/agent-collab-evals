@@ -1,0 +1,1 @@
+{"run_id":"solo-final-0921","observed_at":"2026-09-23T02:28:41Z","modal_environment":"dev","active_modal_apps":[],"actor_containers":[],"observation":"Read-only Modal app list and Podman ps after recovered remote output. This does not diagnose the original cleanup exception."}

@@ -1,0 +1,13 @@
+[
+  {"object_id":"ap-794GIaRhJ5mLVy2AlZLZFl","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.18346637"},
+  {"object_id":"ap-FQQs1SUQqNrU0w2wi1Of2f","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-21T00:00:00","cost":"0.21471068"},
+  {"object_id":"ap-J5XP8pVGmTJZ3BCb8YxcyI","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-21T00:00:00","cost":"0.22239952"},
+  {"object_id":"ap-QJHU6XyZaN3D0lSF3v9puV","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-21T00:00:00","cost":"0.00006161"},
+  {"object_id":"ap-XNL8ihRvLGh1WrAYrkUw5k","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.00000768"},
+  {"object_id":"ap-eZGyPfYqVO21W4l3LuKe05","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.16487720"},
+  {"object_id":"ap-ovnordML8uytNNyc0O0vv5","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.00000384"},
+  {"object_id":"ap-prLVu6B1U3GH3DTD9D8CzI","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-15T00:00:00","cost":"0.23026748"},
+  {"object_id":"ap-uYuvMDRncMagm0Eo1Fy8J0","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-21T00:00:00","cost":"0.21475082"},
+  {"object_id":"ap-vIjIirj59V1DgLTu0zIicP","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.18788297"},
+  {"object_id":"ap-y34vJ60x9yjpXxQySyg7nM","description":"agent-collab-evals-model-serving-reference","environment":"dev","interval_start":"2026-09-02T00:00:00","cost":"0.00000384"}
+]
