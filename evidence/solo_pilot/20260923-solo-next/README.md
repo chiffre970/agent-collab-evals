@@ -33,3 +33,9 @@ that container and completed, but the controller could not deliver feedback to
 the dead bridge. A new OCI profile with a sufficient lifetime and a fail-closed
 schedule check supersede that profile for future executable pilots. The
 historical profile and this run's audit remain unchanged.
+
+After this attempt, commit `2e312ea` passed 399 local tests (376 passed,
+23 skipped). Its new OCI profile completed a deployed, no-spend OpenCode/Podman
+pilot in the Linux VM with no container left behind; the VM also passed the
+short-profile rejection test. This does not retroactively validate the aborted
+paid attempt or prove a seven-hour container lifetime.

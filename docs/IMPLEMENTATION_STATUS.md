@@ -24,8 +24,10 @@ container exit explains why the bridge was unavailable.
 The 300-second profile is preserved for historical evidence. A versioned
 7-hour development profile now covers the conservative full pilot schedule;
 preflight rejects executable OCI profiles that do not. The full local suite
-ran 399 tests: 376 passed, 23 skipped. This fix has not yet had deployed
-no-spend conformance or a paid validation.
+ran 399 tests: 376 passed, 23 skipped. The pinned profile passed a deployed
+OpenCode/Podman no-spend pilot in the Linux VM, leaving no container. The VM
+also confirmed that the old profile fails the new schedule check. This does
+not test a seven-hour lifetime or constitute paid validation.
 
 Prior checkpoint (September 21–22): `solo-final-0921` also reached a real
 candidate, but local collection failure aborted before feedback. Read-only
@@ -35,11 +37,10 @@ See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
 and public evidence. Neither public-only attempt establishes model-quality
 preservation or a complete experiment.
 
-Next: deploy and run a no-spend pilot using the new OCI profile, verify the
-schedule/cleanup boundaries, and reconcile final provider billing before
-considering a new, separately authorized paid attempt. Do not reset either
-aborted journal or reuse their one-attempt approvals. Do not expand to multiple
-conditions until a solo run completes feedback, selection, and hidden
+Next: review the public-only evidence, finalize provider billing, and decide
+whether a new, separately authorized paid attempt is worthwhile. Do not reset
+either aborted journal or reuse their one-attempt approvals. Do not expand to
+multiple conditions until a solo run completes feedback, selection, and hidden
 evaluation.
 
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
