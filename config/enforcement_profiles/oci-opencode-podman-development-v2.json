@@ -1,0 +1,78 @@
+{
+  "schema_version": "oci-process-sandbox-profile/v2",
+  "profile_id": "oci-opencode-podman-development-v2",
+  "status": "development_conformance",
+  "execution_authorized": true,
+  "engine": "podman-rootless-keep-id",
+  "image": {
+    "reference": "docker.io/agent-collab/opencode-runtime",
+    "digest": "sha256:8c0242a1761cda906ba87127d44686871f1b8c8afaa1d6eda369c1a05fc61e21",
+    "node_executable": "/usr/local/bin/node",
+    "bridge_executable": "/opt/agent-collab/runtime/opencode_bridge.mjs",
+    "bridge_digest": "sha256:c5b18723d488a3bc9b83249f8f0028018910bc22b779fcbea797a769a012d5b9",
+    "launcher_executable": "/opt/agent-collab/bin/session-launcher",
+    "launcher_digest": "sha256:5a58d2b7848cc084e83bd4e2676037ac927d822e614a1c0660dd2232c23a5124"
+  },
+  "network": {
+    "mode": "none",
+    "model_broker_transport": "dedicated_session_unix_socket",
+    "peer_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "candidate_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "native_broker_transport": "dedicated_session_unix_socket_when_enabled",
+    "container_model_endpoint": "http://127.0.0.1:4317/v1",
+    "container_peer_endpoint": "http://127.0.0.1:4318/v1/call",
+    "container_candidate_endpoint": "http://127.0.0.1:4319/v1/call",
+    "container_native_endpoint": "http://127.0.0.1:4320/v1/call",
+    "provider_egress": "denied"
+  },
+  "filesystem": {
+    "root": "read_only",
+    "runtime_assets": "read_only_image_layer",
+    "workspace": "read_write_bind",
+    "runtime_state": "read_write_bind",
+    "broker_socket_parents": "read_only_bind",
+    "temporary": "bounded_noexec_tmpfs",
+    "other_host_paths": "not_mounted"
+  },
+  "process": {
+    "uid": 1000,
+    "gid": 1000,
+    "capabilities": "drop_all",
+    "no_new_privileges": true,
+    "cpu_limit": "2.0",
+    "memory_limit": "4g",
+    "pids_limit": 256,
+    "timeout_seconds": 25200,
+    "tmpfs_size": "512m"
+  },
+  "credentials": {
+    "secrets": "none",
+    "environment_allowlist": [
+      "LANG",
+      "HOME",
+      "TMPDIR",
+      "XDG_DATA_HOME",
+      "XDG_CONFIG_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_STATE_HOME",
+      "AGENT_COLLAB_PROVIDER_ID",
+      "AGENT_COLLAB_MODEL_ID"
+    ]
+  },
+  "required_conformance": [
+    "gateway_only_network",
+    "peer_gateway_only_network",
+    "candidate_gateway_only_network",
+    "native_gateway_only_network",
+    "unrelated_loopback_denied",
+    "provider_egress_denied",
+    "evaluator_private_files_denied",
+    "ambient_credentials_absent",
+    "filesystem_write_scope_enforced",
+    "process_resource_limits_enforced"
+  ],
+  "unresolved_gates": [
+    "registered_deployment_conformance",
+    "registered_engine_evidence"
+  ]
+}

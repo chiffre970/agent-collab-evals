@@ -27,7 +27,7 @@ class SoloAuthorizationTests(unittest.TestCase):
         _, bundle, _ = real_hidden_quality_bundle(self.root / "bundle")
         document = json.loads((ROOT / "config/pilots/solo-live-oci-v1.json").read_text())
         document.update(hidden_manifest=str(bundle.manifest_path), hidden_manifest_digest=bundle.manifest_digest,
-            sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+            sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v2.json",
             sandbox_engine_identity_digest=digest_value("fixture-engine"))
         retain_document(self.root / "configuration.json", document)
         self.configuration = LivePilotConfiguration.load(self.root / "configuration.json", ROOT)

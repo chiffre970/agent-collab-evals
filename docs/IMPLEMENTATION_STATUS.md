@@ -6,30 +6,41 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest live checkpoint (run September 21; recovery September 22): the approved
-`solo-final-0921` attempt reached a real agent-produced candidate. The reference
-completed, validating the remote namespace correction. The agent made three
-model calls and submitted explicit vLLM batch limits. Candidate compute also
-completed, but a local collection timeout aborted the controller before feedback
-and hidden evaluation. Read-only recovery verified all nine public points:
-candidate 998,650 ppm versus same-run reference 1,001,223 ppm (about 0.26% lower).
-This single public comparison is diagnostic only; quality preservation and the
-complete experiment remain unproven. The original aborted audit is unchanged.
+Latest live checkpoint (September 23): the authorized `solo-next-0923` attempt
+reached an agent-submitted candidate and completed both single-run public
+measurements. The candidate scored 993,918 ppm versus the same-run stock
+reference's 999,562 ppm (about 0.56% lower). The controller then aborted at
+public-feedback delivery because the agent's OCI container had exited at its
+300-second wall-time limit while public GPU evaluation was still running.
+Podman recorded exit code 124 almost exactly five minutes after launch. No
+hidden evaluation ran; the audit remains aborted and non-scoreable. The model
+ledger reconciled three calls at $0.00308172. Modal's post-abort billing report
+listed $0.44914279 for the two GPU apps and collection helpers; no Modal app or
+actor container remained active. See
+`evidence/solo_pilot/20260923-solo-next/README.md`; the complete run is retained
+privately. The cleanup audit still contains an `ExceptionGroup`, but the
+container exit explains why the bridge was unavailable.
 
-Public evidence: `evidence/solo_pilot/20260921-solo-final`. Local collection-timeout
-handling now keeps the existing remote execution pending, reloads committed
-evidence, and leaves the evaluator's overall deadline in force. It does not
-redispatch or consume another authorization. Public, quality, and correctness
-regressions pass; the full local suite ran 393 tests: 371 passed, 22 skipped.
-The fix has not been deployed or live-validated. Cleanup also recorded an
-undiagnosed `ExceptionGroup`; subsequent checks found no Modal apps or actor
-containers, and the VM is stopped.
+The 300-second profile is preserved for historical evidence. A versioned
+7-hour development profile now covers the conservative full pilot schedule;
+preflight rejects executable OCI profiles that do not. The full local suite
+ran 399 tests: 376 passed, 23 skipped. This fix has not yet had deployed
+no-spend conformance or a paid validation.
 
-Next: validate the corrected collection path in the deployed no-spend pilot,
-resolve the cleanup diagnostic, then review any further paid attempt against
-the existing $14 Modal/$3 OpenRouter caps. Do not reset the original journal or
-reuse the consumed one-attempt approval. Do not expand to multiple conditions
-until a solo run completes public feedback, selection, and hidden evaluation.
+Prior checkpoint (September 21–22): `solo-final-0921` also reached a real
+candidate, but local collection failure aborted before feedback. Read-only
+recovery verified candidate 998,650 ppm versus reference 1,001,223 ppm. The
+collector now recovers committed staged evidence after a Modal client error.
+See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
+and public evidence. Neither public-only attempt establishes model-quality
+preservation or a complete experiment.
+
+Next: deploy and run a no-spend pilot using the new OCI profile, verify the
+schedule/cleanup boundaries, and reconcile final provider billing before
+considering a new, separately authorized paid attempt. Do not reset either
+aborted journal or reuse their one-attempt approvals. Do not expand to multiple
+conditions until a solo run completes feedback, selection, and hidden
+evaluation.
 
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
 method-neutral brief that matches its actual declarative configuration scope.

@@ -124,16 +124,35 @@ class SoloLiveConfigurationTests(unittest.TestCase):
                 api_key="unused", process_sandbox=None)
         with self.assertRaisesRegex(ValueError, "not execution-authorized"):
             make_live_dependencies(self.oci_configuration(
-                sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v1.json",
+                sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v2.json",
                 sandbox_engine_identity_digest=digest_value("engine")),
                 api_key="unused", process_sandbox=None)
+
+    def test_executable_oci_sandbox_covers_the_whole_pilot_schedule(self):
+        configuration = self.oci_configuration(
+            sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v2.json"
+        )
+        required = configuration.required_sandbox_lifetime_seconds(configuration.document)
+        self.assertEqual(required, 22_200)
+        self.assertGreaterEqual(configuration.sandbox.timeout_seconds, required)
+        with self.assertRaisesRegex(ValueError, "lifetime is shorter"):
+            self.oci_configuration(
+                sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v1.json"
+            )
+        with patch("agent_collab_evals.solo_live_configuration.OciSandboxProfile.load",
+                   return_value=replace(configuration.sandbox, timeout_seconds=300)):
+            with self.assertRaisesRegex(ValueError, "lifetime is shorter"):
+                self.oci_configuration(
+                    sandbox_profile="config/enforcement_profiles/oci-opencode-podman-development-v2.json"
+                )
 
     def test_oci_binding_includes_engine_identity_and_uses_unix_gateways(self):
         engine_digest = digest_value("test-only-engine")
         configuration = self.oci_configuration(sandbox_engine_identity_digest=engine_digest)
         # Construction fixture only: no container or paid transport is started.
         profile = replace(configuration.sandbox, execution_authorized=True, status="registered",
-            unresolved_gates=(), image_reference="test/runtime", image_digest=digest_value("image"))
+            unresolved_gates=(), image_reference="test/runtime", image_digest=digest_value("image"),
+            timeout_seconds=25_200)
         configuration = replace(configuration, sandbox=profile)
         sandbox = OciSandboxExec(profile, Path("/usr/bin/true"), engine_digest)
         different = OciSandboxExec(profile, Path("/usr/bin/true"), digest_value("different-engine"))

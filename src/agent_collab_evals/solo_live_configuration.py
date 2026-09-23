@@ -44,6 +44,19 @@ class LivePilotConfiguration:
     hidden_manifest: Path
     modal_cli: Path
 
+    @staticmethod
+    def required_sandbox_lifetime_seconds(document: dict) -> int:
+        """Bound two agent jobs and every planned public and hidden GPU slot."""
+        seconds = document["phase_seconds"]
+        return (
+            seconds["public"]
+            + seconds["correctness"]
+            + 6 * seconds["quality"]
+            + 3 * seconds["performance"]
+            + 2 * document["runtime_timeout_seconds"]
+            + 600  # Controller, collection, and cleanup margin.
+        )
+
     @classmethod
     def load(cls, path: Path, repository: Path):
         document = parse_json(path.read_text())
@@ -109,6 +122,9 @@ class LivePilotConfiguration:
             raise ValueError("public compute campaign differs")
         if public.modal_environment != campaign.raw["hardware"]["environment"]:
             raise ValueError("Modal environment differs from the campaign")
+        if isinstance(sandbox, OciSandboxProfile) and sandbox.execution_authorized:
+            if sandbox.timeout_seconds < cls.required_sandbox_lifetime_seconds(document):
+                raise ValueError("OCI sandbox lifetime is shorter than the pilot schedule")
         # Private inputs may be outside the repository; they never enter an actor workspace.
         if not isinstance(document["hidden_manifest"], str):
             raise ValueError("hidden_manifest must be a path")
@@ -169,6 +185,9 @@ def make_live_dependencies(configuration, *, api_key, process_sandbox, spend_gua
         raise ValueError("live runtime sandbox differs from configuration")
     if not isinstance(spend_guard, PilotSpendGuard):
         raise ValueError("live execution requires a shared pilot spend guard")
+    if isinstance(sandbox, OciSandboxProfile):
+        if sandbox.timeout_seconds < configuration.required_sandbox_lifetime_seconds(configuration.document):
+            raise ValueError("OCI sandbox lifetime is shorter than the pilot schedule")
     if spend_guard.configuration_digest != digest_value(configuration.document):
         raise ValueError("pilot spend guard configuration differs")
     hidden = configuration.hidden_bundle()

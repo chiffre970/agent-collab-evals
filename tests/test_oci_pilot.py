@@ -19,6 +19,8 @@ from agent_collab_evals.solo_pilot_command import PilotAborted, make_opencode_ru
 REPOSITORY = Path(__file__).resolve().parents[1]
 CONFIG = REPOSITORY / "config/pilots/solo-no-spend-oci-v1.json"
 PROFILE = REPOSITORY / "config/enforcement_profiles/oci-opencode-podman-development-v1.json"
+LONG_CONFIG = REPOSITORY / "config/pilots/solo-no-spend-oci-v2.json"
+LONG_PROFILE = REPOSITORY / "config/enforcement_profiles/oci-opencode-podman-development-v2.json"
 
 
 class OciPilotConfigurationTests(unittest.TestCase):
@@ -84,10 +86,13 @@ class OciPilotIntegrationTests(unittest.TestCase):
     def test_complete_existing_pilot_without_model_or_gpu_spend(self):
         self._run_pilot(force_stop=False)
 
+    def test_complete_long_lived_profile_without_model_or_gpu_spend(self):
+        self._run_pilot(force_stop=False, profile_path=LONG_PROFILE, config_path=LONG_CONFIG)
+
     def test_forced_bridge_stop_aborts_pilot_and_removes_its_container(self):
         self._run_pilot(force_stop=True)
 
-    def _run_pilot(self, *, force_stop):
+    def _run_pilot(self, *, force_stop, profile_path=PROFILE, config_path=CONFIG):
         engine = Path("/usr/bin/podman")
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"}
 
@@ -99,7 +104,7 @@ class OciPilotIntegrationTests(unittest.TestCase):
         self.assertTrue(info["host"]["security"]["rootless"])
         self.assertEqual(info["host"]["cgroupVersion"], "v2")
         self.assertEqual(info["host"]["cgroupManager"], "systemd")
-        profile = OciSandboxProfile.load(PROFILE, repository_root=REPOSITORY)
+        profile = OciSandboxProfile.load(profile_path, repository_root=REPOSITORY)
         image = f"{profile.image_reference}@{profile.image_digest}"
         command("image", "inspect", image)
         before = set(command("ps", "--all", "--quiet", "--no-trunc").splitlines())
@@ -144,13 +149,13 @@ class OciPilotIntegrationTests(unittest.TestCase):
                 with patch.object(_Bridge, "request", observe_request):
                     if force_stop:
                         with self.assertRaises(PilotAborted):
-                            run_solo_pilot(CONFIG, root, "pilot", runtime_dependencies=dependencies)
+                            run_solo_pilot(config_path, root, "pilot", runtime_dependencies=dependencies)
                         audit = json.loads((root / "pilot/audit.json").read_text())
                         self.assertEqual(audit["status"], "aborted")
                         self.assertFalse(audit["scoreable"])
                         self.assertIn("container_after_client_exit", observation)
                         return
-                    result = run_solo_pilot(CONFIG, root, "pilot", runtime_dependencies=dependencies)
+                    result = run_solo_pilot(config_path, root, "pilot", runtime_dependencies=dependencies)
                 audit = json.loads(Path(result["audit_path"]).read_text())
                 self.assertEqual(audit["status"], "complete")
                 self.assertEqual(audit["execution_mode"], "no_spend")
