@@ -12,6 +12,7 @@ from agent_collab_evals.canonical import canonical_json_bytes, digest_bytes, dig
 from agent_collab_evals.pilot_evidence import retain_document
 from agent_collab_evals.modal_pilot_cost import modal_pilot_cost
 from agent_collab_evals.pilot_spend import PilotSpendEnvelope
+from agent_collab_evals.pilot_retry import _validate_feedback_failure_settlement
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -316,6 +317,99 @@ class PilotSpendTests(unittest.TestCase):
         self.assertTrue((settled.root / "retry/approval.json").exists())
         self.assertTrue((settled.root / "retry/settlement-approval.json").exists())
         self.assertTrue((settled.root / "retry/final-settlement-approval.json").exists())
+
+    def test_feedback_settlement_requires_terminal_public_only_evidence(self):
+        previous = {"schema_version": "exploratory-solo-retry/v3", "run_id": "solo-next-0923",
+            "provider_limits_usd_nanos": {"modal": 14_000_000_000, "openrouter": 3_000_000_000},
+            "total_limit_usd_nanos": 17_000_000_000}
+        previous_path = self.root / "third.json"
+        retain_document(previous_path, previous)
+        plan_digest = self.envelope.plan_digest
+        def receipt(key, provider, amount):
+            return {"operation_key": key, "provider": provider, "maximum_usd_nanos": amount}
+        prior = [receipt("qualification:modal-access-v1", "modal", 1_532_160_000)]
+        prefix = "pilot:retry-" + digest_value(previous)[7:]
+        requests = (digest_value("reference"), digest_value("candidate"))
+        current = [receipt(prefix + ":openrouter:base", "openrouter", 2_900_000_000),
+            receipt(prefix + ":modal:base", "modal", 1_000_000_000),
+            *(receipt("pilot:solo-next-0923:compute:" + item[7:], "modal", 766_080_000)
+                for item in requests)]
+        receipts = prior + current
+        config_path = self.root / "run-config.json"
+        retain_document(config_path, {"git_commit": "ad75c700dfbdc0986950cd6c4e43834eb952f705",
+            "git_dirty": False, "config": {"sandbox_profile":
+                "config/enforcement_profiles/oci-opencode-podman-development-v1.json"}})
+        audit_path = self.root / "audit.json"
+        audit = {"run_id": previous["run_id"], "status": "aborted", "scoreable": False,
+            "failure": {"stage": "public_feedback", "type": "RuntimeError"},
+            "cleanup_failure": "ExceptionGroup", "run_config_digest": digest_file(config_path),
+            "budget_reconciliation": {"valid": True},
+            "partial_compute_snapshot": {"hidden_reserved_seconds": 0,
+                "hidden_used_seconds": 0, "reservations": [{"scope": "visible", "status": "complete"}]},
+            "remote_cleanup": [{"terminal_confirmed": True, "request_digest": item} for item in requests],
+            "spend_admission": {"receipts": receipts, "retry_amendment_digest": digest_value(previous)}}
+        retain_document(audit_path, audit)
+        cleanup_path = self.root / "cleanup.json"
+        retain_document(cleanup_path, {"run_id": previous["run_id"],
+            "active_modal_apps": [], "actor_containers": []})
+        billing_path = self.root / "billing.json"
+        rows = [("ap-vWm2nqnesAmOq740ajOMHs", "0.23874382"),
+            ("ap-U1QlcwmrZURytic8pXj78g", "0.21029472"),
+            ("ap-s5Ta3RtUBuCCak6J5Qaqya", "0.00005459"),
+            ("ap-LNPq0tjXccxhwJhmuPCjG2", "0.00004966")]
+        retain_document(billing_path, {"schema_version": "modal-billing-snapshot/v1",
+            "retrieved_at": "2026-09-23T09:00:00+00:00", "start": "2026-09-01", "end": "2026-09-24",
+            "rows": [{"object_id": name, "environment": "dev",
+                "interval_start": "2026-09-23T00:00:00", "cost": cost} for name, cost in rows]})
+        budget_path = self.root / "budget.sqlite3"
+        budget_path.touch()
+        def ref(path):
+            return {"file": str(path), "digest": digest_file(path)}
+        document = {"schema_version": "exploratory-solo-retry/v4",
+            "previous_amendment": ref(previous_path), "prior_plan_digest": plan_digest,
+            "prior_receipts_digest": digest_value(receipts), "prior_audit": ref(audit_path),
+            "prior_run_config": ref(config_path), "prior_budget_plan": ref(config_path),
+            "prior_budget_database": ref(budget_path), "cleanup_observation": ref(cleanup_path),
+            "billing_report": ref(billing_path), "reference_app_id": rows[0][0],
+            "candidate_app_id": rows[1][0], "helper_app_ids": [rows[2][0], rows[3][0]],
+            "run_id": "solo-timeoutfix-0923", "provider_limits_usd_nanos": previous["provider_limits_usd_nanos"],
+            "total_limit_usd_nanos": previous["total_limit_usd_nanos"],
+            "billing_buffer_usd_nanos": 100_000_000, "model_buffer_usd_nanos": 10_000_000,
+            "qualification_release_usd_nanos": 500_000_000}
+        releases = {"modal": 3_879_493_000, "openrouter": 8_688_648_380}
+        with (patch("agent_collab_evals.pilot_retry.validate_retry", return_value=(prior, releases)),
+              patch("agent_collab_evals.pilot_retry._reconcile_prior_model", return_value=3_081_720) as reconcile):
+            self.assertEqual(_validate_feedback_failure_settlement(document, plan_digest),
+                (receipts, {"modal": 6_362_510_210, "openrouter": 11_575_566_660}))
+            reconcile.assert_called_once()
+            with self.assertRaisesRegex(ValueError, "release bounds"):
+                _validate_feedback_failure_settlement({**document, "qualification_release_usd_nanos": 600_000_000}, plan_digest)
+            changed = self.root / "hidden-audit.json"
+            retain_document(changed, {**audit, "partial_compute_snapshot":
+                {**audit["partial_compute_snapshot"], "hidden_reserved_seconds": 1}})
+            with self.assertRaisesRegex(ValueError, "public-only"):
+                _validate_feedback_failure_settlement({**document, "prior_audit": ref(changed)}, plan_digest)
+
+    def test_feedback_settlement_marker_prevents_older_authorities(self):
+        chain = []
+        for index, version in enumerate(("v1", "v2", "v3", "v4"), 1):
+            value = {"schema_version": f"exploratory-solo-retry/{version}", "run_id": f"run-{index}",
+                "provider_limits_usd_nanos": self.plan["provider_limits_usd_nanos"],
+                "total_limit_usd_nanos": self.plan["total_limit_usd_nanos"]}
+            if chain:
+                value["previous_amendment"] = {"file": str(chain[-1][0]), "digest": digest_file(chain[-1][0])}
+            path = self.root / f"amendment-{index}.json"
+            retain_document(path, value)
+            chain.append((path, value))
+        for filename, (_, value) in zip(("approval.json", "settlement-approval.json",
+                                          "final-settlement-approval.json"), chain):
+            retain_document(self.envelope.root / "retry" / filename, value)
+        with patch("agent_collab_evals.pilot_retry.validate_retry", return_value=([], {"modal": 0, "openrouter": 0})):
+            latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertTrue((latest.root / "retry/feedback-settlement-approval.json").exists())
+            self.assertEqual(PilotSpendEnvelope(latest.root, self.plan, retry=chain[-1][1]).snapshot()["receipts"], [])
+            with self.assertRaisesRegex(PermissionError, "feedback settlement"):
+                PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Explicit, one-time continuation after an aborted pilot with no model calls.
+"""Explicit, evidence-bound continuations after aborted exploratory pilots.
 
 This is an operator-reviewed amendment, not automatic refund or billing logic.
 The original qualification and first-attempt Modal allowances remain charged.
@@ -14,6 +14,8 @@ from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_v
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v4":
+        return _validate_feedback_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v3":
         return _validate_public_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v2":
@@ -90,7 +92,7 @@ def _billing_nanos(row):
     return int(amount)
 
 
-def _reconcile_prior_model(document, run_config, audit):
+def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_620):
     """Verify the frozen model plan against raw provider receipts on a copy."""
     from .adapters.provider_receipts import OpenRouterReceiptVerifier
     from .adapters.sqlite_budget import SqliteBudgetAccount
@@ -130,9 +132,115 @@ def _reconcile_prior_model(document, run_config, audit):
     if (not reconciliation.valid or reconciliation.evidence() != audit.get("budget_reconciliation")
         or snapshot.organisation_reserved_usd_nanos != 0
         or len(snapshot.charges) != 3
-        or snapshot.organisation_charged_usd_nanos != 1_351_620):
+        or snapshot.organisation_charged_usd_nanos != expected_cost):
         raise ValueError("prior model receipts do not reconcile")
     return snapshot.organisation_charged_usd_nanos
+
+
+def _validate_feedback_failure_settlement(document, plan_digest):
+    """Release only reviewed unused allowances from the September 23 abort."""
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config", "prior_budget_plan",
+        "prior_budget_database", "cleanup_observation", "billing_report",
+        "reference_app_id", "candidate_app_id", "helper_app_ids", "run_id",
+        "provider_limits_usd_nanos", "total_limit_usd_nanos",
+        "billing_buffer_usd_nanos", "model_buffer_usd_nanos",
+        "qualification_release_usd_nanos"}
+    if not isinstance(document, dict) or set(document) != fields or document["prior_plan_digest"] != plan_digest:
+        raise ValueError("feedback settlement fields differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v3":
+        raise ValueError("feedback settlement requires the reviewed third amendment")
+    previous_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    _, run_config = _resolve(document["prior_run_config"])
+    if (document["provider_limits_usd_nanos"] != previous["provider_limits_usd_nanos"]
+        or document["total_limit_usd_nanos"] != previous["total_limit_usd_nanos"]
+        or not isinstance(document["run_id"], str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", document["run_id"])
+        or document["run_id"] in {previous["run_id"], "first-solo", "solo-retry-0921", "solo-final-0921"}
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "public_feedback", "type": "RuntimeError"}
+        or audit.get("cleanup_failure") != "ExceptionGroup"
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != "ad75c700dfbdc0986950cd6c4e43834eb952f705"
+        or run_config.get("git_dirty") is not False
+        or run_config.get("config", {}).get("sandbox_profile") !=
+            "config/enforcement_profiles/oci-opencode-podman-development-v1.json"
+        or audit.get("budget_reconciliation", {}).get("valid") is not True
+        or audit_path.parent.joinpath("hidden-result.json").exists()):
+        raise ValueError("feedback settlement prior run differs")
+    compute = audit.get("partial_compute_snapshot", {})
+    terminal = audit.get("remote_cleanup", [])
+    if (compute.get("hidden_reserved_seconds") != 0
+        or compute.get("hidden_used_seconds") != 0
+        or len(compute.get("reservations", [])) != 1
+        or compute["reservations"][0].get("status") != "complete"
+        or compute["reservations"][0].get("scope") != "visible"
+        or len(terminal) != 2
+        or any(item.get("terminal_confirmed") is not True for item in terminal)
+        or len({item.get("request_digest") for item in terminal}) != 2):
+        raise ValueError("feedback settlement compute is not terminal and public-only")
+    receipts = audit["spend_admission"]["receipts"]
+    if (digest_value(receipts) != document["prior_receipts_digest"]
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("feedback settlement admissions differ")
+    by_key = {item["operation_key"]: item for item in receipts}
+    prior_keys = {item["operation_key"] for item in previous_receipts}
+    prefix = "pilot:retry-" + digest_value(previous)[7:]
+    model_key, overhead_key = prefix + ":openrouter:base", prefix + ":modal:base"
+    compute_keys = {f"pilot:{previous['run_id']}:compute:" + item["request_digest"][7:] for item in terminal}
+    if (len(receipts) != len(by_key)
+        or any(by_key.get(item["operation_key"]) != item for item in previous_receipts)
+        or set(by_key) - prior_keys != {model_key, overhead_key, *compute_keys}
+        or by_key[model_key]["maximum_usd_nanos"] != 2_900_000_000
+        or by_key[model_key]["provider"] != "openrouter"
+        or by_key[overhead_key]["maximum_usd_nanos"] != 1_000_000_000
+        or by_key[overhead_key]["provider"] != "modal"
+        or any(by_key[key]["maximum_usd_nanos"] != 766_080_000
+               or by_key[key]["provider"] != "modal" for key in compute_keys)):
+        raise ValueError("feedback settlement execution admissions differ")
+    model_cost = _reconcile_prior_model(document, run_config, audit, expected_cost=3_081_720)
+    _, cleanup = _resolve(document["cleanup_observation"])
+    if (cleanup.get("run_id") != previous["run_id"]
+        or cleanup.get("active_modal_apps") != []
+        or cleanup.get("actor_containers") != []):
+        raise ValueError("feedback settlement cleanup differs")
+    _, report = _resolve(document["billing_report"])
+    if (not isinstance(report, dict) or set(report) !=
+        {"schema_version", "retrieved_at", "start", "end", "rows"}
+        or report["schema_version"] != "modal-billing-snapshot/v1"
+        or report["start"] != "2026-09-01" or report["end"] != "2026-09-24"
+        or not isinstance(report["retrieved_at"], str)
+        or not report["retrieved_at"].startswith("2026-09-23T")
+        or not isinstance(report["rows"], list)):
+        raise ValueError("feedback settlement billing snapshot differs")
+    rows = {row["object_id"]: row for row in report["rows"]}
+    current_ids = {document["reference_app_id"], document["candidate_app_id"], *document["helper_app_ids"]}
+    if (document["reference_app_id"] != "ap-vWm2nqnesAmOq740ajOMHs"
+        or document["candidate_app_id"] != "ap-U1QlcwmrZURytic8pXj78g"
+        or set(document["helper_app_ids"]) != {"ap-s5Ta3RtUBuCCak6J5Qaqya", "ap-LNPq0tjXccxhwJhmuPCjG2"}
+        or len(report["rows"]) != len(rows) or len(current_ids) != 4
+        or {row["object_id"] for row in report["rows"]
+            if row["interval_start"] == "2026-09-23T00:00:00"} != current_ids
+        or any(row["interval_start"] == "2026-09-14T00:00:00" for row in report["rows"])):
+        raise ValueError("feedback settlement billing scope differs")
+    current_cost = sum(_billing_nanos(rows[item]) for item in current_ids)
+    qualification = by_key["qualification:modal-access-v1"]
+    if (current_cost != 449_142_790
+        or qualification["maximum_usd_nanos"] != 1_532_160_000
+        or qualification["provider"] != "modal"
+        or document["billing_buffer_usd_nanos"] != 100_000_000
+        or document["model_buffer_usd_nanos"] != 10_000_000
+        or document["qualification_release_usd_nanos"] != 500_000_000
+        or current_cost + document["billing_buffer_usd_nanos"] >= 2_532_160_000
+        or model_cost + document["model_buffer_usd_nanos"] >= 2_900_000_000):
+        raise ValueError("feedback settlement release bounds differ")
+    releases["modal"] += (2_532_160_000 - current_cost - document["billing_buffer_usd_nanos"]
+        + document["qualification_release_usd_nanos"])
+    releases["openrouter"] += (2_900_000_000 - model_cost - document["model_buffer_usd_nanos"])
+    return receipts, releases
 
 
 def _validate_public_failure_settlement(document, plan_digest):
