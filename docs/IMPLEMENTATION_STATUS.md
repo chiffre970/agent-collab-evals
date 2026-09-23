@@ -6,16 +6,40 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest live checkpoint (September 21): the explicitly approved solo retry
-aborted in public reference persistence before the agent started. The reference
-measurement ID reused the prior run's global remote evidence destination.
-All previous evidence remains intact. A durable per-store namespace now separates
-new runs while preserving collection identity across restarts, with no-spend
-regressions for both distinct runs and concurrent collectors. The correction
-still needs live validation. Retained failure and billing evidence are in
-`evidence/solo_pilot/20260921-solo-retry`. No Modal apps or actor containers remain;
-the VM is stopped. Next: review and authorize any further attempt; do not
-automatically rerun the consumed approval or reset its budget journal.
+Latest live checkpoint (run September 21; recovery September 22): the approved
+`solo-final-0921` attempt reached a real agent-produced candidate. The reference
+completed, validating the remote namespace correction. The agent made three
+model calls and submitted explicit vLLM batch limits. Candidate compute also
+completed, but a local collection timeout aborted the controller before feedback
+and hidden evaluation. Read-only recovery verified all nine public points:
+candidate 998,650 ppm versus same-run reference 1,001,223 ppm (about 0.26% lower).
+This single public comparison is diagnostic only; quality preservation and the
+complete experiment remain unproven. The original aborted audit is unchanged.
+
+Public evidence: `evidence/solo_pilot/20260921-solo-final`. Local collection-timeout
+handling now keeps the existing remote execution pending, reloads committed
+evidence, and leaves the evaluator's overall deadline in force. It does not
+redispatch or consume another authorization. Public, quality, and correctness
+regressions pass; the full local suite ran 393 tests: 371 passed, 22 skipped.
+The fix has not been deployed or live-validated. Cleanup also recorded an
+undiagnosed `ExceptionGroup`; subsequent checks found no Modal apps or actor
+containers, and the VM is stopped.
+
+Next: validate the corrected collection path in the deployed no-spend pilot,
+resolve the cleanup diagnostic, then review any further paid attempt against
+the existing $14 Modal/$3 OpenRouter caps. Do not reset the original journal or
+reuse the consumed one-attempt approval. Do not expand to multiple conditions
+until a solo run completes public feedback, selection, and hidden evaluation.
+
+Prompt clarification (September 23): the solo pilot now delivers a standalone,
+method-neutral brief that matches its actual declarative configuration scope.
+It explains the objective, supplied evidence, fixed boundaries, one-candidate
+limit, single-repetition public feedback, and lack of post-feedback revision.
+The current run's public reference score and actor allowances are included in
+digest-bound task material; evaluator-private diagnostics and prior attempts'
+results are excluded. This changes the brief, not the optimization interface or
+evaluation budget. Previous prompts and evidence remain unchanged.
+Validation: 394 local tests ran, 372 passed and 22 skipped; no paid calls ran.
 
 ## Implemented
 

@@ -50,6 +50,14 @@ class SoloPilotCommandTests(unittest.TestCase):
         self.assertTrue(audit["budget_reconciliation"]["valid"])
         self.assertEqual(audit["actual_spend_usd_nanos"], 0)
         self.assertEqual(audit["external_compute_executions"], 0)
+        task = json.loads((audit_path.parent / "task.json").read_bytes())
+        context = json.loads(task["jobs"][0]["public_materials"]["pilot_context"])
+        reference = json.loads((audit_path.parent / "reference-result.json").read_bytes())["result"]
+        self.assertEqual(context["reference_public_result"]["criterion_units"], reference["criterion_units"])
+        budget = json.loads((audit_path.parent / "budget-plan.json").read_bytes())
+        self.assertEqual(context["model_budget_usd_nanos"], budget["organisation_limit_usd_nanos"])
+        compute = json.loads((audit_path.parent / "compute-plan.json").read_bytes())
+        self.assertEqual(context["public_candidate_compute_allowance_seconds"], compute["organisation_limit_seconds"])
         for name, digest in audit["evidence_digests"].items():
             self.assertEqual(digest_bytes((audit_path.parent / name).read_bytes()), digest)
         self.assertEqual(digest_bytes(Path(result["selected_candidate_path"]).read_bytes()), audit["selected_artifact_digest"])

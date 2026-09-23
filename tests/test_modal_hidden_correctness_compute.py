@@ -5,7 +5,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
 from agent_collab_evals.adapters.compute_candidate_evaluator import (
@@ -400,6 +400,14 @@ class ModalHiddenCorrectnessComputeTests(unittest.TestCase):
             dispatch = transport.dispatch(request, candidate)
 
         self.assertEqual(dispatch.external_call_id, "fc-correctness-authorized")
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_correctness_compute.subprocess.run",
+            side_effect=TimeoutExpired("collect-only", 360),
+        ) as collect:
+            pending = transport.poll(request, dispatch.external_call_id, 300)
+        self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
+        self.assertIn("--collect-only", collect.call_args.args[0])
+        self.assertNotIn("--dispatch-only", collect.call_args.args[0])
         self.assertEqual(
             authorizations.status(authorization.authorization_id), "consumed"
         )

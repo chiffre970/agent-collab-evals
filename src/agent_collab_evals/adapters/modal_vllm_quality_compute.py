@@ -39,6 +39,7 @@ from .modal_vllm_compute import (
     _minimal_modal_environment,
     _request,
     _request_document,
+    _run_collection_command,
     _used_seconds,
     _write_once,
 )
@@ -307,7 +308,7 @@ class ModalVllmQualityCliTransport:
             self._profile.attempt,
         )
         if bundle is None:
-            result = subprocess.run(
+            result = _run_collection_command(
                 self._command(
                     candidate_path,
                     measurement_id,
@@ -332,7 +333,7 @@ class ModalVllmQualityCliTransport:
                 self._profile.attempt,
             )
             if bundle is None:
-                if result.returncode == 0:
+                if result is None or result.returncode == 0:
                     return TransportPoll(ComputeExecutionStatus.DISPATCHED)
                 raise RuntimeError(
                     "Modal quality collection failed without terminal evidence: "

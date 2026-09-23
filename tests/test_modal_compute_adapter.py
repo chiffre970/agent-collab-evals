@@ -14,6 +14,7 @@ from agent_collab_evals.adapters.modal_vllm_compute import (
     ModalVllmEvidenceResolver,
     _measurement_id,
     _minimal_modal_environment,
+    _run_collection_command,
     _used_seconds,
 )
 from agent_collab_evals.adapters.sqlite_execution_backend import (
@@ -39,6 +40,21 @@ CAMPAIGN_PATH = REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
 
 
 class ModalComputeAdapterTests(unittest.TestCase):
+    def test_collection_recovery_rejects_dispatch_commands(self) -> None:
+        for command in (
+            ("modal", "--dispatch-only"),
+            ("modal", "--collect-only", "--dispatch-only"),
+        ):
+            with self.subTest(command=command), patch("subprocess.run") as run:
+                with self.assertRaises(ValueError):
+                    _run_collection_command(command)
+                run.assert_not_called()
+
+    def test_collection_recovery_does_not_hide_other_errors(self) -> None:
+        with patch("subprocess.run", side_effect=OSError("unavailable")):
+            with self.assertRaises(OSError):
+                _run_collection_command(("modal", "--collect-only"))
+
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         self.state_root = Path(self._temporary.name)
@@ -225,6 +241,21 @@ class ModalComputeAdapterTests(unittest.TestCase):
             dispatched = self.backend.submit(self.request, self.candidate)
         self.assertEqual(dispatched.status, ComputeExecutionStatus.DISPATCHED)
         self.assertEqual(dispatched.external_call_id, function_call_id)
+
+        # A timed-out collector must not fail the remote job or consume another
+        # dispatch authorization. Later collection uses the same call ID.
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("collect-only", 360),
+        ) as collect:
+            pending = self.backend.collect(self.request, timeout_seconds=300)
+        self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
+        self.assertEqual(pending.external_call_id, function_call_id)
+        self.assertIn("--collect-only", collect.call_args.args[0])
+        self.assertNotIn("--dispatch-only", collect.call_args.args[0])
+        self.assertEqual(
+            self.authorizations.status(self.authorization.authorization_id), "consumed"
+        )
 
         normalized = {
             "campaign_manifest_digest": self.campaign.manifest_digest,

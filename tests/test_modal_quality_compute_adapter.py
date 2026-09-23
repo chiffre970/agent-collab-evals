@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from dataclasses import replace
@@ -492,6 +493,14 @@ class ModalQualityComputeAdapterTests(unittest.TestCase):
             dispatch = transport.dispatch(request, candidate)
 
         self.assertEqual(dispatch.external_call_id, "fc-quality-authorized")
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_quality_compute.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("collect-only", 360),
+        ) as collect:
+            pending = transport.poll(request, dispatch.external_call_id, 300)
+        self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
+        self.assertIn("--collect-only", collect.call_args.args[0])
+        self.assertNotIn("--dispatch-only", collect.call_args.args[0])
         self.assertEqual(
             authorizations.status(authorization.authorization_id), "consumed"
         )

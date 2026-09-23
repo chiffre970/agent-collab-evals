@@ -310,7 +310,7 @@ class ModalVllmCliTransport:
             self._profile.attempt,
         )
         if bundle is None:
-            result = subprocess.run(
+            result = _run_collection_command(
                 self._command(
                     candidate_path,
                     measurement_id,
@@ -333,7 +333,7 @@ class ModalVllmCliTransport:
                 self._profile.attempt,
             )
             if bundle is None:
-                if result.returncode == 0:
+                if result is None or result.returncode == 0:
                     return TransportPoll(ComputeExecutionStatus.DISPATCHED)
                 raise RuntimeError(
                     "Modal collection failed without terminal evidence: "
@@ -713,6 +713,21 @@ def _repository_member(repository_root: Path, value: object) -> Path:
     if not resolved.is_relative_to(repository_root):
         raise ValueError("repository member escapes the repository")
     return resolved
+
+
+def _run_collection_command(command, **options):
+    """A local collection deadline is not a terminal remote execution outcome.
+
+    Callers reload any committed bundle first, then keep the existing call
+    nonterminal if no evidence arrived. The evaluator's overall deadline still
+    bounds collection. Dispatch commands must never use this recovery path.
+    """
+    if "--collect-only" not in command or "--dispatch-only" in command:
+        raise ValueError("collection recovery requires a collect-only command")
+    try:
+        return subprocess.run(command, **options)
+    except subprocess.TimeoutExpired:
+        return None
 
 
 def _minimal_modal_environment() -> dict[str, str]:

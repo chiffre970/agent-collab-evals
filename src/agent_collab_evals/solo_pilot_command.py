@@ -288,7 +288,10 @@ def _execute_solo_pilot(config, state_root, run_id, repository, campaign,
         controller = CampaignController(runtime, LocalEventSink(root / "events"), budget, runner, SqliteDeliveryOutbox(root / "delivery.sqlite3"))
         stage = "agent_job"
         handle = controller.start(OrganisationSpec(run_id, CoordinationCondition.SOLO, 1, root / "workspace", endpoint))
-        material = materialize_solo_pilot(campaign, config["task_seed"])
+        material = materialize_solo_pilot(
+            campaign, config["task_seed"], reference_result=reference_result,
+            model_limit_usd_nanos=limit, public_compute_seconds=public_seconds,
+        )
         retain_document(root / "task.json", material)
         for job in material.jobs:
             controller.deliver(handle, job)
