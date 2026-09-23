@@ -341,6 +341,40 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertEqual(polled.status, ComputeExecutionStatus.COMPLETE)
         resolver.pointer.assert_called_once_with(self.request, "fc-hidden")
 
+    def test_collection_uses_short_lived_app_without_redispatch(self) -> None:
+        transport = ModalVllmCliTransport(
+            self.profile,
+            REPOSITORY_ROOT,
+            self.state_root,
+            REPOSITORY_ROOT / ".venv/bin/modal",
+            self.authorizations,
+        )
+        transport._prepare_request(self.request, self.candidate)
+        for return_code, output in (
+            (0, '{"status":"pending"}'),
+            (1, "ConflictError: function fu-collector is stopped"),
+        ):
+            with self.subTest(output=output), patch(
+                "agent_collab_evals.adapters.modal_vllm_compute._run_collection_command",
+                return_value=subprocess.CompletedProcess((), return_code, output),
+            ) as collect:
+                polled = transport.poll(self.request, "fc-existing", 300)
+                self.assertEqual(polled.status, ComputeExecutionStatus.DISPATCHED)
+                command = collect.call_args.args[0]
+                self.assertIn("--collect-only", command)
+                self.assertNotIn("--dispatch-only", command)
+                self.assertEqual(
+                    command[command.index("--collect-timeout-seconds") + 1],
+                    "60",
+                )
+                self.assertEqual(collect.call_args.kwargs["timeout"], 210)
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_compute._run_collection_command",
+            return_value=subprocess.CompletedProcess((), 1, "unrelated failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unrelated failure"):
+                transport.poll(self.request, "fc-existing", 300)
+
     def test_profile_rejects_changed_script_digest(self) -> None:
         changed = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
         changed["modal_script_digest"] = "sha256:" + "0" * 64

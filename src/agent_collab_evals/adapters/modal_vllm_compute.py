@@ -34,6 +34,7 @@ from .local_measurements import LocalMeasurementBundleStore
 
 
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,191}")
+_COLLECTION_LEASE_SECONDS = 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +220,7 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha4",
+                "adapter": "modal-vllm-cli-transport/v0alpha5",
                 "compute_profile_digest": compute_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
@@ -310,12 +311,16 @@ class ModalVllmCliTransport:
             self._profile.attempt,
         )
         if bundle is None:
+            # Each collect-only command owns a detached, otherwise idle Modal
+            # app. Keep its lease short so the CPU evidence-persistence call
+            # still has a live app when the scored call finishes.
+            collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
             result = _run_collection_command(
                 self._command(
                     candidate_path,
                     measurement_id,
                     collect_only=True,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=collection_lease,
                 ),
                 cwd=self._repository_root,
                 env=_minimal_modal_environment(),
@@ -323,7 +328,9 @@ class ModalVllmCliTransport:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=max(120, timeout_seconds + 60),
+                # Leave room for the pinned 120-second evidence copier once
+                # the scored result becomes available.
+                timeout=max(120, collection_lease + 150),
                 check=False,
             )
             bundle = _load_optional(
@@ -334,6 +341,14 @@ class ModalVllmCliTransport:
             )
             if bundle is None:
                 if result is None or result.returncode == 0:
+                    return TransportPoll(ComputeExecutionStatus.DISPATCHED)
+                if (
+                    "ConflictError: function " in result.stdout
+                    and " is stopped" in result.stdout
+                ):
+                    # A collect-only app may expire at the completion edge.
+                    # A fresh poll reattaches to the same call ID; it must
+                    # never dispatch another scored function.
                     return TransportPoll(ComputeExecutionStatus.DISPATCHED)
                 raise RuntimeError(
                     "Modal collection failed without terminal evidence: "

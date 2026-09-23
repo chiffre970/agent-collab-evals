@@ -6,7 +6,18 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest live checkpoint (September 23): the authorized `solo-next-0923` attempt
+Latest live checkpoint (September 23–24): the single authorized
+`solo-timeoutfix-0923` attempt aborted during reference collection, before
+agent work. The reference Modal function itself completed and staged a receipt
+and all nine benchmark points, but the collector's CPU persistence call
+received `ConflictError: function ... is stopped`. The original audit remains
+aborted and non-scoreable; no candidate or hidden evaluation ran. Modal's
+current billing report attributes $0.20902658 to the reference app; no app or
+container remains active. The short-lease collector change is locally tested,
+not yet live-proven. See
+`evidence/solo_pilot/20260923-solo-timeoutfix/README.md`.
+
+Previous live checkpoint (September 23): the authorized `solo-next-0923` attempt
 reached an agent-submitted candidate and completed both single-run public
 measurements. The candidate scored 993,918 ppm versus the same-run stock
 reference's 999,562 ppm (about 0.56% lower). The controller then aborted at
