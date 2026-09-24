@@ -65,6 +65,7 @@ class PilotSpendEnvelope:
         self._previous_retry = None
         self._settlement_retry = None
         self._feedback_retry = None
+        self._collector_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
             self._prior_receipts, self._releases = validate_retry(retry, self.plan_digest)
@@ -78,13 +79,19 @@ class PilotSpendEnvelope:
                 self._feedback_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
                 self._settlement_retry = parse_json(Path(self._feedback_retry["previous_amendment"]["file"]).read_text())
                 self._previous_retry = parse_json(Path(self._settlement_retry["previous_amendment"]["file"]).read_text())
+            elif retry["schema_version"] == "exploratory-solo-retry/v5":
+                self._collector_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
+                self._feedback_retry = parse_json(Path(self._collector_retry["previous_amendment"]["file"]).read_text())
+                self._settlement_retry = parse_json(Path(self._feedback_retry["previous_amendment"]["file"]).read_text())
+                self._previous_retry = parse_json(Path(self._settlement_retry["previous_amendment"]["file"]).read_text())
             self._limits = dict(retry["provider_limits_usd_nanos"])
             self._total = retry["total_limit_usd_nanos"]
         with self._locked():
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                filename = ("feedback-settlement-approval.json" if self._feedback_retry is not None
+                filename = ("collector-settlement-approval.json" if self._collector_retry is not None
+                    else "feedback-settlement-approval.json" if self._feedback_retry is not None
                     else "final-settlement-approval.json" if self._settlement_retry is not None
                     else "settlement-approval.json" if self._previous_retry is not None
                     else "approval.json")
@@ -149,10 +156,16 @@ class PilotSpendEnvelope:
                 or final_settlement.read_bytes() != canonical_json_bytes(expected_final))):
             raise PermissionError("journal requires its pinned final settlement amendment")
         feedback_settlement = self.root / "retry/feedback-settlement-approval.json"
+        expected_feedback = self._collector_retry if self._collector_retry is not None else self.retry
         if (self._feedback_retry is not None and not final_settlement.exists()
             or feedback_settlement.exists() and (self._feedback_retry is None
-                or feedback_settlement.read_bytes() != canonical_json_bytes(self.retry))):
+                or feedback_settlement.read_bytes() != canonical_json_bytes(expected_feedback))):
             raise PermissionError("journal requires its pinned feedback settlement amendment")
+        collector_settlement = self.root / "retry/collector-settlement-approval.json"
+        if (self._collector_retry is not None and not feedback_settlement.exists()
+            or collector_settlement.exists() and (self._collector_retry is None
+                or collector_settlement.read_bytes() != canonical_json_bytes(self.retry))):
+            raise PermissionError("journal requires its pinned collector settlement amendment")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}

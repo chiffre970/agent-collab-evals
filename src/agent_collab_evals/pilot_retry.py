@@ -14,6 +14,8 @@ from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_v
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v5":
+        return _validate_collector_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v4":
         return _validate_feedback_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v3":
@@ -135,6 +137,191 @@ def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_6
         or snapshot.organisation_charged_usd_nanos != expected_cost):
         raise ValueError("prior model receipts do not reconcile")
     return snapshot.organisation_charged_usd_nanos
+
+
+def _validate_collector_failure_settlement(document, plan_digest):
+    """Settle one aborted reference collection without treating it as a score."""
+    from .adapters.local_measurements import LocalMeasurementBundleStore
+
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config",
+        "prior_compute_database", "prior_dispatch_record", "call_pointer",
+        "staged_manifest", "staged_remote_receipt", "conformance_receipt",
+        "cleanup_observation", "billing_report", "reference_app_id",
+        "conformance_app_id", "run_id", "provider_limits_usd_nanos",
+        "total_limit_usd_nanos", "billing_buffer_usd_nanos",
+        "conformance_buffer_usd_nanos", "model_buffer_usd_nanos",
+        "qualification_release_usd_nanos"}
+    if (not isinstance(document, dict) or set(document) != fields
+        or document["prior_plan_digest"] != plan_digest):
+        raise ValueError("collector settlement fields differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v4":
+        raise ValueError("collector settlement requires the reviewed fourth amendment")
+    prior_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    _, run_config = _resolve(document["prior_run_config"])
+    if (document["provider_limits_usd_nanos"] != previous["provider_limits_usd_nanos"]
+        or document["total_limit_usd_nanos"] != previous["total_limit_usd_nanos"]
+        or not isinstance(document["run_id"], str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", document["run_id"])
+        or document["run_id"] in {previous["run_id"], "solo-next-0923", "solo-final-0921"}
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "reference", "type": "RuntimeError"}
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != "9312b743d256dfbae87fd4e117e68bca31abb75c"
+        or run_config.get("git_dirty") is not False
+        or run_config.get("config", {}).get("sandbox_profile") !=
+            "config/enforcement_profiles/oci-opencode-podman-development-v2.json"
+        or audit_path.parent.joinpath("task.json").exists()
+        or audit_path.parent.joinpath("budget.sqlite3").exists()
+        or audit_path.parent.joinpath("hidden-result.json").exists()):
+        raise ValueError("collector settlement prior run differs")
+    terminal = audit.get("remote_cleanup", [])
+    if (len(terminal) != 1 or terminal[0].get("status") != "cancellation_requested"
+        or terminal[0].get("terminal_confirmed") is not False
+        or terminal[0].get("function_call_id") != "fc-01M36RFHNVSH1NPN1NR2YSMBW4"):
+        raise ValueError("collector settlement prior dispatch differs")
+    receipts = audit["spend_admission"]["receipts"]
+    if (digest_value(receipts) != document["prior_receipts_digest"]
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("collector settlement admissions differ")
+    by_key = {item["operation_key"]: item for item in receipts}
+    prior_keys = {item["operation_key"] for item in prior_receipts}
+    prefix = "pilot:retry-" + digest_value(previous)[7:]
+    model_key, overhead_key = prefix + ":openrouter:base", prefix + ":modal:base"
+    request_digest = terminal[0].get("request_digest")
+    if not isinstance(request_digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", request_digest):
+        raise ValueError("collector settlement request identity differs")
+    compute_key = f"pilot:{previous['run_id']}:compute:{request_digest[7:]}"
+    if (len(receipts) != len(by_key)
+        or any(by_key.get(item["operation_key"]) != item for item in prior_receipts)
+        or set(by_key) - prior_keys != {model_key, overhead_key, compute_key}
+        or by_key[model_key]["provider"] != "openrouter"
+        or by_key[model_key]["maximum_usd_nanos"] != 2_900_000_000
+        or by_key[overhead_key]["provider"] != "modal"
+        or by_key[overhead_key]["maximum_usd_nanos"] != 1_000_000_000
+        or by_key[compute_key]["provider"] != "modal"
+        or by_key[compute_key]["maximum_usd_nanos"] != 766_080_000):
+        raise ValueError("collector settlement execution admissions differ")
+    dispatch_path, dispatch = _resolve(document["prior_dispatch_record"])
+    compute_path = _resolve_path(document["prior_compute_database"])
+    if (not dispatch_path.is_relative_to(audit_path.parent)
+        or not compute_path.is_relative_to(audit_path.parent)
+        or dispatch.get("function_call_id") != terminal[0]["function_call_id"]
+        or dispatch.get("evidence_root") !=
+            "model-serving/d8b2ac9486364026f3975d15598bc86e52e7a1fe784889530275f93e0a00647d/repetition-0001-attempt-01"
+        or digest_value(dispatch) != terminal[0].get("dispatch_digest")):
+        raise ValueError("collector settlement durable dispatch differs")
+    connection = sqlite3.connect(compute_path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        rows = connection.execute("SELECT status, request_digest, external_call_id, "
+            "dispatch_evidence_digest, evidence_locator, evidence_digest "
+            "FROM compute_executions").fetchall()
+    finally:
+        connection.close()
+    if rows != [("dispatched", request_digest, terminal[0]["function_call_id"],
+                terminal[0]["dispatch_digest"], None, None)]:
+        raise ValueError("collector settlement compute ledger differs")
+    _, pointer = _resolve(document["call_pointer"])
+    manifest_path, manifest = _resolve(document["staged_manifest"])
+    receipt_path, remote_receipt = _resolve(document["staged_remote_receipt"])
+    if (pointer.get("function_call_id") != terminal[0]["function_call_id"]
+        or pointer.get("result", {}).get("schema_version") != "modal-evaluator-staging-pointer/v0alpha1"
+        or pointer["result"].get("volume_name") != "agent-collab-evals-evaluator-staging-v2"
+        or pointer["result"].get("root") != dispatch["evidence_root"]
+        or manifest.get("schema_version") != "modal-evaluator-evidence/v0alpha1"
+        or manifest.get("volume_name") != "agent-collab-evals-evaluator-staging-v2"
+        or manifest.get("root") != dispatch["evidence_root"]
+        or manifest.get("remote_receipt_digest") != pointer["result"].get("remote_receipt_digest")
+        or manifest["remote_receipt_digest"] != digest_file(receipt_path)
+        or receipt_path.parent != manifest_path.parent
+        or remote_receipt.get("ok") is not True
+        or remote_receipt.get("candidate_id") != "stock-vllm-0.21.0"
+        or remote_receipt.get("campaign_manifest_digest") !=
+            dispatch.get("campaign_manifest_digest")
+        or not isinstance(manifest.get("raw_digests"), dict)
+        or len(manifest["raw_digests"]) != 9):
+        raise ValueError("collector settlement remote evidence differs")
+    for name, expected in manifest["raw_digests"].items():
+        if (not isinstance(name, str) or Path(name).name != name
+            or not name.endswith(".json") or not isinstance(expected, str)
+            or digest_file(manifest_path.parent / "raw" / name) != expected):
+            raise ValueError("collector settlement raw evidence differs")
+    conformance_path = _resolve_path(document["conformance_receipt"])
+    measurement_id = dispatch["measurement_id"]
+    bundle = LocalMeasurementBundleStore(conformance_path.parents[2]).load(
+        measurement_id, 1, attempt=1)
+    normalized = bundle.receipt["normalized"]
+    if (conformance_path.name != "receipt.json"
+        or conformance_path.parent.name != "repetition-0001-attempt-01"
+        or conformance_path.parent.parent.name != measurement_id
+        or bundle.receipt["raw_digests"] != manifest["raw_digests"]
+        or normalized.get("valid") is not True
+        or normalized.get("modal_function_call_id") != terminal[0]["function_call_id"]
+        or normalized.get("remote_receipt") != remote_receipt
+        or normalized.get("performance_score", {}).get("eligible") is not True
+        or normalized.get("durable_evidence", {}).get("volume_name") !=
+            "agent-collab-evals-evaluator-evidence-v2"
+        or normalized["durable_evidence"].get("remote_receipt_digest") !=
+            manifest["remote_receipt_digest"]
+        or normalized.get("platform_build", {}).get("git_commit") !=
+            run_config["git_commit"]
+        or normalized["platform_build"].get("collector_git_commit") !=
+            "bfca53e06cdb5f787c076cda2b5242326ee8a328"):
+        raise ValueError("collector settlement conformance evidence differs")
+    _, cleanup = _resolve(document["cleanup_observation"])
+    if (cleanup.get("run_id") != previous["run_id"]
+        or cleanup.get("active_modal_apps") != []
+        or cleanup.get("actor_containers") != []):
+        raise ValueError("collector settlement cleanup differs")
+    _, report = _resolve(document["billing_report"])
+    _, prior_report = _resolve(previous["billing_report"])
+    if (not isinstance(report, dict) or set(report) !=
+        {"schema_version", "retrieved_at", "start", "end", "rows"}
+        or report["schema_version"] != "modal-billing-snapshot/v1"
+        or report["start"] != "2026-09-01" or report["end"] != "2026-09-25"
+        or not isinstance(report["retrieved_at"], str)
+        or not report["retrieved_at"].startswith("2026-09-24T")
+        or not isinstance(report["rows"], list)):
+        raise ValueError("collector settlement billing snapshot differs")
+    rows = {row["object_id"]: row for row in report["rows"]}
+    old_rows = {row["object_id"]: row for row in prior_report["rows"]}
+    current_ids = {row["object_id"] for row in report["rows"]
+        if row["interval_start"] == "2026-09-23T00:00:00"}
+    allowed = {*old_rows, document["reference_app_id"], document["conformance_app_id"]}
+    if (document["reference_app_id"] != "ap-1Wao2Jn6Msdl2fGA3XyMJ4"
+        or document["conformance_app_id"] != "ap-WVjBgH1M2Js1XxxAtHTuB7"
+        or len(rows) != len(report["rows"])
+        or any(rows.get(key) != value for key, value in old_rows.items())
+        or not set(rows).issubset(allowed)
+        or current_ids != {"ap-vWm2nqnesAmOq740ajOMHs",
+            "ap-U1QlcwmrZURytic8pXj78g", "ap-s5Ta3RtUBuCCak6J5Qaqya",
+            "ap-LNPq0tjXccxhwJhmuPCjG2", document["reference_app_id"]}
+        or rows[document["reference_app_id"]]["interval_start"] !=
+            "2026-09-23T00:00:00"
+        or any(row["interval_start"] == "2026-09-14T00:00:00" for row in report["rows"])
+        or document["billing_buffer_usd_nanos"] != 100_000_000
+        or document["conformance_buffer_usd_nanos"] != 10_000_000
+        or document["model_buffer_usd_nanos"] != 10_000_000
+        or document["qualification_release_usd_nanos"] != 500_000_000):
+        raise ValueError("collector settlement billing scope differs")
+    reference_cost = _billing_nanos(rows[document["reference_app_id"]])
+    conformance_row = rows.get(document["conformance_app_id"])
+    if (reference_cost != 209_026_580
+        or conformance_row is not None and (
+            conformance_row["interval_start"] != "2026-09-24T00:00:00"
+            or _billing_nanos(conformance_row) > document["conformance_buffer_usd_nanos"])
+        or reference_cost + document["billing_buffer_usd_nanos"]
+            + document["conformance_buffer_usd_nanos"] >= 1_766_080_000):
+        raise ValueError("collector settlement release bounds differ")
+    releases["modal"] += (1_766_080_000 - reference_cost
+        - document["billing_buffer_usd_nanos"]
+        - document["conformance_buffer_usd_nanos"]
+        + document["qualification_release_usd_nanos"])
+    releases["openrouter"] += 2_900_000_000 - document["model_buffer_usd_nanos"]
+    return receipts, releases
 
 
 def _validate_feedback_failure_settlement(document, plan_digest):
