@@ -6,7 +6,22 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest live checkpoint (September 23–24): the single authorized
+Latest live checkpoint (September 24): `solo-collectorfix-0924` completed its
+public reference, agent candidate, public selection, hidden correctness, and
+one paired hidden quality repetition. It aborted before dispatching quality
+repetition two because the CLI searched for the previous repetition under a
+new request-bound measurement ID. The audit is aborted and non-scoreable, and
+no collaboration comparison follows from it. The model ledger reconciled seven
+calls at $0.00510996. Modal's later same-day billing snapshot attributes
+$0.88708654 to this attempt, subject to further settlement; no app or
+container remained active. Evidence is retained privately and summarized in
+`evidence/solo_pilot/20260924-solo-collectorfix/README.md`. The mismatch is
+fixed locally for both quality and performance repetitions; standalone series
+retain their predecessor checks. No-GPU regression tests cover repetition two,
+and the full local suite ran 406 tests with 23 skips. This fix has not yet been
+validated by another paid run.
+
+Previous live checkpoint (September 23–24): the single authorized
 `solo-timeoutfix-0923` attempt aborted during reference collection, before
 agent work. The reference Modal function itself completed and staged a receipt
 and all nine benchmark points, but the collector's CPU persistence call
@@ -48,11 +63,11 @@ See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
 and public evidence. Neither public-only attempt establishes model-quality
 preservation or a complete experiment.
 
-Next: review the public-only evidence, finalize provider billing, and decide
-whether a new, separately authorized paid attempt is worthwhile. Do not reset
-either aborted journal or reuse their one-attempt approvals. Do not expand to
-multiple conditions until a solo run completes feedback, selection, and hidden
-evaluation.
+Next: finish the no-GPU quality/performance series preflight and check any late
+provider billing. A further paid attempt needs a new, evidence-bound one-use
+authorization within the existing cumulative caps. Do not reset an aborted
+journal or reuse an approval. Do not expand to multiple conditions until a solo
+run completes feedback, selection, and all hidden evaluation phases.
 
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
 method-neutral brief that matches its actual declarative configuration scope.

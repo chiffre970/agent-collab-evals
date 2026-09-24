@@ -2069,7 +2069,11 @@ def _run_baseline_repetition(
     reference_environment: dict[str, Any] | None = None
     reference_gpu_identity: dict[str, Any] | None = None
     identity_keys = ("name", "memory_mib", "driver_version", "power_limit_watts")
-    for previous_repetition in range(1, repetition):
+    # The controller gives each hidden compute execution its own measurement
+    # ID and enforces series order. A standalone CLI series reuses one ID, so
+    # only that path can inspect preceding repetitions in this local store.
+    prior_repetitions = range(1, repetition) if not measurement_id_override else ()
+    for previous_repetition in prior_repetitions:
         previous = None
         for previous_attempt in range(1, profile.max_attempts + 1):
             try:
@@ -2601,7 +2605,11 @@ def _run_quality_repetition(
             ) from error
         if previous_attempt.receipt["normalized"].get("valid") is True:
             raise RuntimeError("a valid quality repetition cannot be retried")
-    for previous_repetition in range(1, repetition):
+    # Controller-managed quality executions use distinct, request-bound IDs;
+    # their preceding repetitions live in other bundle directories. The
+    # paired-series evaluator owns their ordering and validates all receipts.
+    prior_repetitions = range(1, repetition) if not measurement_id_override else ()
+    for previous_repetition in prior_repetitions:
         if not any(
             _stored_attempt_is_valid(store, measurement_id, previous_repetition, value)
             for value in range(1, environment_profile.max_attempts + 1)

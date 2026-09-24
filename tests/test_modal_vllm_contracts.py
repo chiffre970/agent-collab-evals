@@ -104,6 +104,93 @@ class _EventuallyVisibleVolume:
 
 
 class ModalVllmContractTests(unittest.TestCase):
+    def test_controller_quality_repetition_uses_request_bound_measurement_id(self) -> None:
+        from agent_collab_evals.canonical import parse_json
+        from tests.quality_fixture import real_hidden_quality_bundle
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            campaign, bundle, _ = real_hidden_quality_bundle(root / "fixture")
+            candidate_path = campaign.reference_candidate_path
+            candidate = parse_json(candidate_path.read_text(encoding="utf-8"))
+            arguments = dict(
+                candidate_path=candidate_path,
+                profile_path=campaign.quality_profile_path,
+                workload_path=bundle.resource_paths["quality_workload"],
+                repetition=2,
+                attempt=1,
+                output_root=root / "measurements",
+                role_override="reference",
+                dispatch_only=True,
+                collect_only=False,
+                collect_timeout_seconds=0,
+            )
+            git_output = lambda command, **_: (
+                "" if command[1] == "status" else "f" * 40
+            )
+            with (
+                patch.object(MODAL_VLLM.subprocess, "check_output", side_effect=git_output),
+                patch.object(MODAL_VLLM.importlib.metadata, "version", return_value="1.5.4"),
+                patch(
+                    "agent_collab_evals.campaigns.serving_quality.build_quality_requests",
+                    side_effect=RuntimeError("quality preflight passed"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "no valid committed attempt"):
+                    MODAL_VLLM._run_quality_repetition(
+                        candidate, measurement_id_override="", **arguments
+                    )
+                with self.assertRaisesRegex(RuntimeError, "quality preflight passed"):
+                    MODAL_VLLM._run_quality_repetition(
+                        candidate,
+                        measurement_id_override="exec-" + "a" * 64,
+                        **arguments,
+                    )
+
+    def test_controller_performance_repetition_uses_request_bound_measurement_id(self) -> None:
+        from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+        from agent_collab_evals.canonical import parse_json
+
+        campaign = ModelServingCampaign.load(
+            SCRIPT_PATH.parents[1] / "campaign.toml"
+        )
+        candidate_path = campaign.reference_candidate_path
+        candidate = parse_json(candidate_path.read_text(encoding="utf-8"))
+        public_profile = campaign.root / campaign.raw["workload"]["public_profile"]
+        with tempfile.TemporaryDirectory() as temporary:
+            arguments = dict(
+                candidate_path=candidate_path,
+                repetition=2,
+                attempt=1,
+                output_root=Path(temporary),
+                performance_profile_path=public_profile,
+                scoring_profile_path=campaign.scoring_profile_path,
+                dispatch_only=True,
+                collect_only=False,
+                collect_timeout_seconds=0,
+            )
+            git_output = lambda command, **_: (
+                "" if command[1] == "status" else "f" * 40
+            )
+            with (
+                patch.object(MODAL_VLLM.subprocess, "check_output", side_effect=git_output),
+                patch.object(MODAL_VLLM.importlib.metadata, "version", return_value="1.5.4"),
+                patch(
+                    "agent_collab_evals.campaigns.serving_benchmark.build_vllm_benchmark_invocations",
+                    side_effect=RuntimeError("performance preflight passed"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "no valid committed attempt"):
+                    MODAL_VLLM._run_baseline_repetition(
+                        candidate, measurement_id_override="", **arguments
+                    )
+                with self.assertRaisesRegex(RuntimeError, "performance preflight passed"):
+                    MODAL_VLLM._run_baseline_repetition(
+                        candidate,
+                        measurement_id_override="exec-" + "b" * 64,
+                        **arguments,
+                    )
+
     def test_collect_only_recovers_completed_staging_without_call_result(self) -> None:
         root = "model-serving/finished/repetition-0001-attempt-01"
         digest = "sha256:" + "a" * 64
