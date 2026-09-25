@@ -575,6 +575,34 @@ class PilotSpendTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "collector settlement"):
                 PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
 
+    def test_series_settlement_marker_preserves_chain_and_rejects_older_authority(self):
+        chain = []
+        for index in range(1, 7):
+            value = {"schema_version": f"exploratory-solo-retry/v{index}",
+                "run_id": f"run-{index}",
+                "provider_limits_usd_nanos": {"modal": 16_000_000_000,
+                    "openrouter": 3_000_000_000},
+                "total_limit_usd_nanos": 19_000_000_000}
+            if chain:
+                value["previous_amendment"] = {"file": str(chain[-1][0]),
+                    "digest": digest_file(chain[-1][0])}
+            path = self.root / f"series-amendment-{index}.json"
+            retain_document(path, value)
+            chain.append((path, value))
+        names = ("approval.json", "settlement-approval.json",
+            "final-settlement-approval.json", "feedback-settlement-approval.json",
+            "collector-settlement-approval.json")
+        for name, (_, value) in zip(names, chain):
+            retain_document(self.envelope.root / "retry" / name, value)
+        with patch("agent_collab_evals.pilot_retry.validate_retry",
+                return_value=([], {"modal": 0, "openrouter": 0})):
+            latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertTrue((latest.root / "retry/series-settlement-approval.json").exists())
+            reopened = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertEqual(reopened.snapshot()["provider_limits_usd_nanos"]["modal"], 16_000_000_000)
+            with self.assertRaisesRegex(PermissionError, "series settlement"):
+                PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
+
 
 if __name__ == "__main__":
     unittest.main()

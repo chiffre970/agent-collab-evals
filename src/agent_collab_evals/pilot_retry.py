@@ -14,6 +14,8 @@ from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_v
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v6":
+        return _validate_series_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v5":
         return _validate_collector_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v4":
@@ -94,7 +96,8 @@ def _billing_nanos(row):
     return int(amount)
 
 
-def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_620):
+def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_620,
+                           expected_calls=3):
     """Verify the frozen model plan against raw provider receipts on a copy."""
     from .adapters.provider_receipts import OpenRouterReceiptVerifier
     from .adapters.sqlite_budget import SqliteBudgetAccount
@@ -133,10 +136,132 @@ def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_6
         snapshot = account.snapshot(run_id)
     if (not reconciliation.valid or reconciliation.evidence() != audit.get("budget_reconciliation")
         or snapshot.organisation_reserved_usd_nanos != 0
-        or len(snapshot.charges) != 3
+        or len(snapshot.charges) != expected_calls
         or snapshot.organisation_charged_usd_nanos != expected_cost):
         raise ValueError("prior model receipts do not reconcile")
     return snapshot.organisation_charged_usd_nanos
+
+
+def _validate_series_failure_settlement(document, plan_digest):
+    """Review the September 24 abort; retain its ambiguous dispatch in full."""
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config", "prior_budget_plan",
+        "prior_budget_database", "prior_compute_inventory", "prior_ambiguous_execution_database",
+        "cleanup_observation", "billing_report", "run_id", "provider_limits_usd_nanos",
+        "total_limit_usd_nanos", "billing_buffer_usd_nanos", "model_buffer_usd_nanos",
+        "unresolved_reserve_usd_nanos"}
+    if not isinstance(document, dict) or set(document) != fields or document["prior_plan_digest"] != plan_digest:
+        raise ValueError("series settlement fields differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v5":
+        raise ValueError("series settlement requires the reviewed fifth amendment")
+    previous_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    _, run_config = _resolve(document["prior_run_config"])
+    if (document["provider_limits_usd_nanos"] != {"modal": 16_000_000_000, "openrouter": 3_000_000_000}
+        or document["total_limit_usd_nanos"] != 19_000_000_000
+        or document["run_id"] != "solo-seriesfix-0925"
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "hidden_evaluation", "type": "RuntimeError"}
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != "d3fe34504dd805cd87e669dcad86ef1f8f3e6988"
+        or run_config.get("git_dirty") is not False
+        or audit_path.parent.joinpath("hidden-result.json").exists()
+        or document["billing_buffer_usd_nanos"] != 100_000_000
+        or document["model_buffer_usd_nanos"] != 10_000_000
+        or document["unresolved_reserve_usd_nanos"] != 766_080_000):
+        raise ValueError("series settlement prior run or limits differ")
+    receipts = audit["spend_admission"]["receipts"]
+    if (digest_value(receipts) != document["prior_receipts_digest"]
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("series settlement admissions differ")
+    by_key = {item["operation_key"]: item for item in receipts}
+    prior_keys = {item["operation_key"] for item in previous_receipts}
+    prefix = "pilot:retry-" + digest_value(previous)[7:]
+    model_key, overhead_key = prefix + ":openrouter:base", prefix + ":modal:base"
+    cleanup = audit.get("remote_cleanup", [])
+    if (len(cleanup) != 12 or len(by_key) != len(receipts)
+        or len({item.get("request_digest") for item in cleanup}) != 12
+        or any(by_key.get(item["operation_key"]) != item for item in previous_receipts)):
+        raise ValueError("series settlement prior receipts or request inventory differ")
+    compute_keys = {f"pilot:{previous['run_id']}:compute:{item['request_digest'][7:]}" for item in cleanup}
+    if (set(by_key) - prior_keys != {model_key, overhead_key, *compute_keys}
+        or by_key[model_key]["provider"] != "openrouter"
+        or by_key[model_key]["maximum_usd_nanos"] != 2_900_000_000
+        or by_key[overhead_key]["provider"] != "modal"
+        or by_key[overhead_key]["maximum_usd_nanos"] != 1_000_000_000
+        or any(by_key[key]["provider"] != "modal"
+            or by_key[key]["maximum_usd_nanos"] != 766_080_000 for key in compute_keys)):
+        raise ValueError("series settlement execution allowances differ")
+    ambiguous = [item for item in cleanup if item.get("status") == "unresolved_dispatch"]
+    if (len(ambiguous) != 1 or ambiguous[0].get("terminal_confirmed") is not False
+        or ambiguous[0].get("request_digest") !=
+            "sha256:514f79cf23eba7f06ffcff0e61fb8a555ff692f986b2ce7673c9439a991afc85"
+        or sum(item.get("status") == "terminal_evidence_verified" and
+            item.get("terminal_confirmed") is True for item in cleanup) != 5
+        or sum(item.get("status") == "not_dispatched" for item in cleanup) != 6):
+        raise ValueError("series settlement cleanup is not the reviewed partial run")
+    inventory_path = _resolve_path(document["prior_compute_inventory"])
+    ambiguous_path = _resolve_path(document["prior_ambiguous_execution_database"])
+    if (not inventory_path.is_relative_to(audit_path.parent)
+        or not ambiguous_path.is_relative_to(inventory_path.parent)
+        or ambiguous_path.parent.name != "8920b1289957a5c233c8a50ec4af61e43e2b094abcd041bd4dad42d98fcdc427"):
+        raise ValueError("series settlement compute evidence path differs")
+    with sqlite3.connect(inventory_path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        inventory = connection.execute("SELECT campaign_run_id, seal_digest FROM route_inventory").fetchall()
+        requests = {row[0] for row in connection.execute("SELECT request_digest FROM route_requests")}
+    with sqlite3.connect(ambiguous_path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        execution = connection.execute(
+            "SELECT status, request_digest, external_call_id, evidence_locator, evidence_digest "
+            "FROM compute_executions WHERE request_digest = ?",
+            (ambiguous[0]["request_digest"],)).fetchall()
+    if (inventory != [(previous["run_id"],
+            "sha256:25b2f26a25b359ee91257423bad232e979dcf3f5181106ddac0390da1b720e74")]
+        or requests != {item["request_digest"] for item in cleanup}
+        or execution != [("ambiguous", ambiguous[0]["request_digest"], None, None, None)]):
+        raise ValueError("series settlement ambiguous dispatch is not retained")
+    model_cost = _reconcile_prior_model(document, run_config, audit,
+        expected_cost=5_109_960, expected_calls=7)
+    _, observed = _resolve(document["cleanup_observation"])
+    if (observed.get("run_id") != previous["run_id"]
+        or observed.get("active_modal_apps") != []
+        or observed.get("actor_containers") != []):
+        raise ValueError("series settlement cleanup differs")
+    _, report = _resolve(document["billing_report"])
+    _, prior_report = _resolve(previous["billing_report"])
+    if (not isinstance(report, dict) or set(report) !=
+        {"schema_version", "retrieved_at", "start", "end", "rows"}
+        or report["schema_version"] != "modal-billing-snapshot/v1"
+        or report["start"] != "2026-09-01" or report["end"] != "2026-09-26"
+        or not report["retrieved_at"].startswith("2026-09-25T")
+        or not isinstance(report["rows"], list)):
+        raise ValueError("series settlement billing snapshot differs")
+    rows = {row["object_id"]: row for row in report["rows"]}
+    prior_rows = {row["object_id"]: row for row in prior_report["rows"]}
+    current_ids = {"ap-KyfqkzSe1eSDQGx2j2ICWY", "ap-OOlvLSiTlPEMd21mH9niVN",
+        "ap-OwZzXZg94XUClFKzbyUZaa", "ap-Qzb74IEDSntm5VmFoWBywa",
+        "ap-XrxaJ5u98D8TnDJllXjbxc", "ap-aFfl1ReHPiLMFm6Rywlrq8",
+        "ap-aUEWUwkbQV6CPxxTQf9P2v", "ap-aoTiuhsgJmUoS6ZIKK48FJ",
+        "ap-daothuvl1Znn0JeeRffjga", "ap-tgiJJqWknZlIGmadWnkj65",
+        "ap-wxUsqWw4yzVpj4E89bEfNW"}
+    if (len(rows) != len(report["rows"])
+        or any(rows.get(key) != value for key, value in prior_rows.items())
+        or set(rows) != set(prior_rows) | current_ids
+        or {key for key, row in rows.items() if row["interval_start"] == "2026-09-24T00:00:00"}
+            != current_ids | {"ap-WVjBgH1M2Js1XxxAtHTuB7"}
+        or any(row["interval_start"] == "2026-09-25T00:00:00" for row in rows.values())):
+        raise ValueError("series settlement billing scope differs")
+    current_cost = sum(_billing_nanos(rows[key]) for key in current_ids)
+    if (current_cost != 887_086_540
+        or current_cost + document["billing_buffer_usd_nanos"]
+            + document["unresolved_reserve_usd_nanos"] >= 10_192_960_000
+        or model_cost + document["model_buffer_usd_nanos"] >= 2_900_000_000):
+        raise ValueError("series settlement release bounds differ")
+    releases["modal"] += (10_192_960_000 - current_cost
+        - document["billing_buffer_usd_nanos"] - document["unresolved_reserve_usd_nanos"])
+    releases["openrouter"] += 2_900_000_000 - model_cost - document["model_buffer_usd_nanos"]
+    return receipts, releases
 
 
 def _validate_collector_failure_settlement(document, plan_digest):
