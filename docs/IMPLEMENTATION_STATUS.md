@@ -6,7 +6,26 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest live checkpoint (September 24): `solo-collectorfix-0924` completed its
+Latest live checkpoint (September 25; reviewed September 29):
+`solo-seriesfix-0925` completed the public reference, agent candidate, public
+feedback, selection, hidden correctness, and three quality calls. It crossed
+the prior repetition-two predecessor-check failure. The next quality call
+finished GPU work but failed while copying staged output into durable evaluator
+storage: its detached CPU persistence helper was stopped. The audit remains
+aborted and non-scoreable. Read-only recovery verified the original call's
+terminal staging pointer and all 64 raw-file digests without starting compute.
+The model ledger reconciled five calls at $0.00480084. Modal's September 29
+usage snapshot attributes $1.16617552 to the attempt; no app or actor container
+remains active. The dedicated VM is stopped, and the evidence is retained. See
+`evidence/solo_pilot/20260925-solo-seriesfix/README.md`.
+
+The local follow-up makes only scored dispatch detach; collection stays
+connected until evidence persistence finishes. All three transports share
+bounded collection and stopped-helper recovery that never redispatches the
+scored call. Other errors remain fatal. The full suite ran 408 tests: 385 passed
+and 23 skipped. This collector lifecycle change is not yet live-proven.
+
+Previous live checkpoint (September 24): `solo-collectorfix-0924` completed its
 public reference, agent candidate, public selection, hidden correctness, and
 one paired hidden quality repetition. It aborted before dispatching quality
 repetition two because the CLI searched for the previous repetition under a
@@ -18,8 +37,8 @@ container remained active. Evidence is retained privately and summarized in
 `evidence/solo_pilot/20260924-solo-collectorfix/README.md`. The mismatch is
 fixed locally for both quality and performance repetitions; standalone series
 retain their predecessor checks. No-GPU regression tests cover repetition two,
-and the full local suite ran 406 tests with 23 skips. This fix has not yet been
-validated by another paid run.
+and the full local suite ran 406 tests with 23 skips. The September 25 run
+subsequently passed that predecessor-check failure point.
 
 Previous live checkpoint (September 23–24): the single authorized
 `solo-timeoutfix-0923` attempt aborted during reference collection, before
@@ -63,11 +82,13 @@ See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
 and public evidence. Neither public-only attempt establishes model-quality
 preservation or a complete experiment.
 
-Next: finish the no-GPU quality/performance series preflight and check any late
-provider billing. A further paid attempt needs a new, evidence-bound one-use
-authorization within the existing cumulative caps. Do not reset an aborted
-journal or reuse an approval. Do not expand to multiple conditions until a solo
-run completes feedback, selection, and all hidden evaluation phases.
+Next: qualify the connected evidence collector without a GPU, then reconcile
+unused allowances and reassess full-run admission before requesting a new
+one-use authorization. The current cumulative ceilings are $16 Modal and $3
+OpenRouter, not permission for another run. Keep unresolved allowances until
+their evidence-bound settlement is approved; do not reset a journal or reuse
+an approval. Do not expand to multiple conditions until a solo run completes
+feedback, selection, all hidden evaluation phases, and close-time reconciliation.
 
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
 method-neutral brief that matches its actual declarative configuration scope.
@@ -616,7 +637,7 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated September 14, 2026. This sequencing update supersedes earlier "next"
+Updated September 29, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
@@ -625,8 +646,11 @@ and cleanup are committed in `050b382`; initial OCI wiring/setup in `d13e96f`.
 The no-spend Podman pilot and dependency follow-up are committed in `fd0a7f8`.
 The current recommendation is a local
 Linux VM with the existing rootless OCI adapter. The user approved setup and
-a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter); paid execution
-still requires verified deployment and enforceable controls.
+a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter), subsequently
+amended to cumulative $16 Modal and $3 OpenRouter ceilings for one September 25
+attempt. That attempt is consumed and aborted; another execution requires a new
+evidence-bound approval. Paid execution still requires verified deployment and
+enforceable controls.
 Lima is provisioned without host mounts or credential forwarding. Rootless
 Podman `keep-id` resolves private workspace/state/socket ownership while
 preserving UID 1000 and resource limits. The three advisory-affected transitive

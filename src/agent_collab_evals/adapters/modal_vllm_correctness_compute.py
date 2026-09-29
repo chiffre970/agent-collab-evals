@@ -34,6 +34,7 @@ from ..evaluation import EvaluationScope
 from ..ports import ComputeSpendAuthorizationService
 from .local_measurements import LocalMeasurementBundleStore
 from .modal_vllm_compute import (
+    _COLLECTION_LEASE_SECONDS,
     _failure,
     _load_object,
     _load_optional,
@@ -200,14 +201,14 @@ class ModalVllmCorrectnessCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-correctness-cli-transport/v0alpha2",
+                "adapter": "modal-vllm-correctness-cli-transport/v0alpha3",
                 "correctness_profile_digest": correctness_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_until_function_call_terminal",
+                "app_lifecycle": "detached_dispatch_connected_collection",
             }
         )
 
@@ -269,13 +270,14 @@ class ModalVllmCorrectnessCliTransport:
             self._measurements, measurement_id, 1, self._profile.attempt
         )
         if bundle is None:
+            collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
             result = _run_collection_command(
                 self._command(
                     candidate_path,
                     measurement_id,
                     role,
                     collect_only=True,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=collection_lease,
                 ),
                 cwd=self._repository_root,
                 env=_minimal_modal_environment(),
@@ -283,7 +285,7 @@ class ModalVllmCorrectnessCliTransport:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=max(120, timeout_seconds + 60),
+                timeout=max(120, collection_lease + 150),
                 check=False,
             )
             bundle = _load_optional(
@@ -389,7 +391,7 @@ class ModalVllmCorrectnessCliTransport:
         command = [
             str(self._modal_cli),
             "run",
-            "--detach",
+            *(["--detach"] if dispatch_only else []),
             "-e",
             self._profile.modal_environment,
             str(self._profile.modal_script),

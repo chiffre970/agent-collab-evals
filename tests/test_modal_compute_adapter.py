@@ -44,6 +44,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
         for command in (
             ("modal", "--dispatch-only"),
             ("modal", "--collect-only", "--dispatch-only"),
+            ("modal", "--collect-only", "--detach"),
         ):
             with self.subTest(command=command), patch("subprocess.run") as run:
                 with self.assertRaises(ValueError):
@@ -54,6 +55,20 @@ class ModalComputeAdapterTests(unittest.TestCase):
         with patch("subprocess.run", side_effect=OSError("unavailable")):
             with self.assertRaises(OSError):
                 _run_collection_command(("modal", "--collect-only"))
+
+    def test_collection_recovery_only_normalizes_stopped_helper(self) -> None:
+        for output, pending in (
+            ("ConflictError: function fu-collector is stopped", True),
+            ("ConflictError: app is stopped", False),
+            ("unrelated evaluator failure", False),
+        ):
+            result = subprocess.CompletedProcess((), 1, output)
+            with self.subTest(output=output), patch("subprocess.run", return_value=result):
+                actual = _run_collection_command(("modal", "--collect-only"))
+                if pending:
+                    self.assertIsNone(actual)
+                else:
+                    self.assertIs(actual, result)
 
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
@@ -341,7 +356,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertEqual(polled.status, ComputeExecutionStatus.COMPLETE)
         resolver.pointer.assert_called_once_with(self.request, "fc-hidden")
 
-    def test_collection_uses_short_lived_app_without_redispatch(self) -> None:
+    def test_collection_uses_connected_short_lease_without_redispatch(self) -> None:
         transport = ModalVllmCliTransport(
             self.profile,
             REPOSITORY_ROOT,
@@ -355,7 +370,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
             (1, "ConflictError: function fu-collector is stopped"),
         ):
             with self.subTest(output=output), patch(
-                "agent_collab_evals.adapters.modal_vllm_compute._run_collection_command",
+                "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run",
                 return_value=subprocess.CompletedProcess((), return_code, output),
             ) as collect:
                 polled = transport.poll(self.request, "fc-existing", 300)
@@ -363,13 +378,14 @@ class ModalComputeAdapterTests(unittest.TestCase):
                 command = collect.call_args.args[0]
                 self.assertIn("--collect-only", command)
                 self.assertNotIn("--dispatch-only", command)
+                self.assertNotIn("--detach", command)
                 self.assertEqual(
                     command[command.index("--collect-timeout-seconds") + 1],
                     "60",
                 )
                 self.assertEqual(collect.call_args.kwargs["timeout"], 210)
         with patch(
-            "agent_collab_evals.adapters.modal_vllm_compute._run_collection_command",
+            "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run",
             return_value=subprocess.CompletedProcess((), 1, "unrelated failure"),
         ):
             with self.assertRaisesRegex(RuntimeError, "unrelated failure"):

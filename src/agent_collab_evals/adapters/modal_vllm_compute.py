@@ -220,14 +220,14 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha5",
+                "adapter": "modal-vllm-cli-transport/v0alpha6",
                 "compute_profile_digest": compute_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_until_function_call_terminal",
+                "app_lifecycle": "detached_dispatch_connected_collection",
             }
         )
 
@@ -311,9 +311,8 @@ class ModalVllmCliTransport:
             self._profile.attempt,
         )
         if bundle is None:
-            # Each collect-only command owns a detached, otherwise idle Modal
-            # app. Keep its lease short so the CPU evidence-persistence call
-            # still has a live app when the scored call finishes.
+            # Only dispatch detaches. Collection owns a connected app until
+            # its CPU evidence copier finishes, with a short local wait lease.
             collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
             result = _run_collection_command(
                 self._command(
@@ -341,14 +340,6 @@ class ModalVllmCliTransport:
             )
             if bundle is None:
                 if result is None or result.returncode == 0:
-                    return TransportPoll(ComputeExecutionStatus.DISPATCHED)
-                if (
-                    "ConflictError: function " in result.stdout
-                    and " is stopped" in result.stdout
-                ):
-                    # A collect-only app may expire at the completion edge.
-                    # A fresh poll reattaches to the same call ID; it must
-                    # never dispatch another scored function.
                     return TransportPoll(ComputeExecutionStatus.DISPATCHED)
                 raise RuntimeError(
                     "Modal collection failed without terminal evidence: "
@@ -426,7 +417,7 @@ class ModalVllmCliTransport:
         command = [
             str(self._modal_cli),
             "run",
-            "--detach",
+            *(["--detach"] if dispatch_only else []),
             "-e",
             self._profile.modal_environment,
             str(self._profile.modal_script),
@@ -737,12 +728,29 @@ def _run_collection_command(command, **options):
     nonterminal if no evidence arrived. The evaluator's overall deadline still
     bounds collection. Dispatch commands must never use this recovery path.
     """
-    if "--collect-only" not in command or "--dispatch-only" in command:
-        raise ValueError("collection recovery requires a collect-only command")
+    if (
+        "--collect-only" not in command
+        or "--dispatch-only" in command
+        or "--detach" in command
+    ):
+        raise ValueError(
+            "collection recovery requires a connected collect-only command"
+        )
     try:
-        return subprocess.run(command, **options)
+        result = subprocess.run(command, **options)
     except subprocess.TimeoutExpired:
         return None
+    if (
+        result.returncode != 0
+        and isinstance(result.stdout, str)
+        and re.search(
+            r"ConflictError: function fu-[A-Za-z0-9_-]+ is stopped", result.stdout
+        )
+    ):
+        # The helper's lifetime says nothing about the original scored call.
+        # The next bounded poll collects that same call; it never redispatches.
+        return None
+    return result
 
 
 def _minimal_modal_environment() -> dict[str, str]:

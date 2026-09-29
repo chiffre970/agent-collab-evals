@@ -465,6 +465,7 @@ class ModalQualityComputeAdapterTests(unittest.TestCase):
         )
 
         def fake_dispatch(command, **kwargs):
+            self.assertIn("--detach", command)
             measurement_id = _measurement_id(request)
             dispatch = {
                 "measurement_id": measurement_id,
@@ -501,6 +502,24 @@ class ModalQualityComputeAdapterTests(unittest.TestCase):
         self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
         self.assertIn("--collect-only", collect.call_args.args[0])
         self.assertNotIn("--dispatch-only", collect.call_args.args[0])
+        self.assertNotIn("--detach", collect.call_args.args[0])
+        command = collect.call_args.args[0]
+        self.assertEqual(command[command.index("--collect-timeout-seconds") + 1], "60")
+        self.assertEqual(collect.call_args.kwargs["timeout"], 210)
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_quality_compute.subprocess.run",
+            return_value=subprocess.CompletedProcess((), 1,
+                "ConflictError: function fu-collector is stopped"),
+        ) as collect:
+            pending = transport.poll(request, dispatch.external_call_id, 300)
+        self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
+        collect.assert_called_once()
+        self.assertNotIn("--dispatch-only", collect.call_args.args[0])
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_quality_compute.subprocess.run",
+            return_value=subprocess.CompletedProcess((), 1, "unrelated failure"),
+        ), self.assertRaisesRegex(RuntimeError, "unrelated failure"):
+            transport.poll(request, dispatch.external_call_id, 300)
         self.assertEqual(
             authorizations.status(authorization.authorization_id), "consumed"
         )
