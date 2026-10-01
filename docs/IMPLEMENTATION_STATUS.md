@@ -6,6 +6,15 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest collector qualification (October 1): one authorized CPU-only Modal check
+used the connected `--collect-only` path to reattach to the terminal quality
+call from `solo-seriesfix-0925`. A separate diagnostic bundle validated 64 raw
+documents; the original audit is still aborted and non-scoreable. The app
+stopped, and Modal's current snapshot lists about $0.000048 for CPU and memory
+only, below the $0.10 sub-cap. This live-proves the quality collector path for
+an already-terminal call, not the public and correctness paths or the complete
+solo pilot. See `evidence/solo_pilot/20261001-collector-conformance/README.md`.
+
 Latest live checkpoint (September 25; reviewed September 29):
 `solo-seriesfix-0925` completed the public reference, agent candidate, public
 feedback, selection, hidden correctness, and three quality calls. It crossed
@@ -23,7 +32,8 @@ The local follow-up makes only scored dispatch detach; collection stays
 connected until evidence persistence finishes. All three transports share
 bounded collection and stopped-helper recovery that never redispatches the
 scored call. Other errors remain fatal. The full suite ran 408 tests: 385 passed
-and 23 skipped. This collector lifecycle change is not yet live-proven.
+and 23 skipped. The October 1 check subsequently passed the quality collection
+path; the other transport paths remain locally tested only.
 
 Previous live checkpoint (September 24): `solo-collectorfix-0924` completed its
 public reference, agent candidate, public selection, hidden correctness, and
@@ -82,8 +92,8 @@ See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
 and public evidence. Neither public-only attempt establishes model-quality
 preservation or a complete experiment.
 
-Next: qualify the connected evidence collector without a GPU, then reconcile
-unused allowances and reassess full-run admission before requesting a new
+Next: include the October 1 CPU usage in cumulative accounting, reconcile
+unused allowances, and reassess full-run admission before requesting a new
 one-use authorization. The current cumulative ceilings are $16 Modal and $3
 OpenRouter, not permission for another run. Keep unresolved allowances until
 their evidence-bound settlement is approved; do not reset a journal or reuse

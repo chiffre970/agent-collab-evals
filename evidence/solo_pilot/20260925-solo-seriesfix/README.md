@@ -43,3 +43,7 @@ helpers, unrelated failures, and durable single-use spend authorization.
 The full local suite ran 408 tests: 385 passed and 23 skipped. The lifecycle
 change is locally tested, not live-proven. Another paid attempt needs a fresh
 evidence-bound authorization; the September 25 one-use approval is consumed.
+
+On October 1, a separate [CPU-only collector conformance](../20261001-collector-conformance/README.md)
+successfully reattached to the terminal quality call. The original audit remains
+aborted and non-scoreable.
