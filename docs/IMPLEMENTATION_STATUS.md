@@ -100,6 +100,11 @@ their evidence-bound settlement is approved; do not reset a journal or reuse
 an approval. Do not expand to multiple conditions until a solo run completes
 feedback, selection, all hidden evaluation phases, and close-time reconciliation.
 
+An October 2 [read-only allowance preview](../evidence/solo_pilot/20261002-settlement-preview/README.md)
+uses current provider billing and the frozen V6 journal. After a proposed
+evidence-bound release, the unchanged full-run allowance still exceeds the
+existing caps. No release or new authorization has been applied.
+
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
 method-neutral brief that matches its actual declarative configuration scope.
 It explains the objective, supplied evidence, fixed boundaries, one-candidate
