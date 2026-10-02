@@ -20,3 +20,7 @@ admission. These are reservation ceilings, not expected invoices.
 The billing rows, original audit, model reconciliation, collector receipt, and
 calculation are retained privately with digest references. No allowance has
 been released, no ceiling has changed, and no new paid run has started.
+
+This paragraph describes the preview at the time it was written. The V7
+amendment and one-use October 2 attempt followed; see
+[the attempt record](../20261002-solo-connected/README.md).

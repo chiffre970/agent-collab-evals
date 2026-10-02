@@ -750,6 +750,16 @@ def _run_collection_command(command, **options):
         # The helper's lifetime says nothing about the original scored call.
         # The next bounded poll collects that same call; it never redispatches.
         return None
+    if (
+        result.returncode != 0
+        and isinstance(result.stdout, str)
+        and '"status": "collection_interrupted"' in result.stdout
+        and "AttributeError: 'Connection' object has no attribute '_transport'"
+            in result.stdout
+    ):
+        # A failed collector RPC does not establish the scored call's outcome.
+        # Let the bounded evaluator poll the existing call ID again.
+        return None
     return result
 
 

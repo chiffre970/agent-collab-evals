@@ -6,6 +6,26 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest live checkpoint (October 2): the approved V7 evidence-bound settlement
+raised cumulative admission ceilings to $17 Modal and $3.10 OpenRouter for
+one new solo attempt, retaining the older ambiguous dispatch reserve. A
+kernel-only sandbox identity change passed three real no-spend OCI lifecycle
+tests and was repinned. `solo-connected-1002` then aborted during public
+reference collection: the collect-only Modal client lost its connection before
+terminal evidence was confirmed. The audit is non-scoreable, no agent candidate
+ran, the dispatched call's full allowance remains held, and all Modal apps,
+actor containers, and the dedicated VM are stopped. The same-day billing
+snapshot is incomplete. See
+`evidence/solo_pilot/20261002-solo-connected/README.md`.
+
+A narrow local regression now keeps that exact collector interruption
+nonterminal so a bounded poll can revisit the existing call ID without a
+second scored dispatch. The full suite ran 409 tests: 386 passed and 23
+skipped. This correction has not had a live conformance run. The one-use
+authorization is consumed; the next paid attempt requires settlement of the
+October 2 billing and unresolved call plus a new operator decision. Do not
+expand to multiple conditions before a complete, reconciled solo run.
+
 Latest collector qualification (October 1): one authorized CPU-only Modal check
 used the connected `--collect-only` path to reattach to the terminal quality
 call from `solo-seriesfix-0925`. A separate diagnostic bundle validated 64 raw
@@ -92,18 +112,17 @@ See `evidence/solo_pilot/20260921-solo-final` for the unchanged aborted audit
 and public evidence. Neither public-only attempt establishes model-quality
 preservation or a complete experiment.
 
-Next: include the October 1 CPU usage in cumulative accounting, reconcile
-unused allowances, and reassess full-run admission before requesting a new
-one-use authorization. The current cumulative ceilings are $16 Modal and $3
-OpenRouter, not permission for another run. Keep unresolved allowances until
-their evidence-bound settlement is approved; do not reset a journal or reuse
-an approval. Do not expand to multiple conditions until a solo run completes
-feedback, selection, all hidden evaluation phases, and close-time reconciliation.
+The October 1 CPU usage was included in the approved V7 settlement. The
+cumulative ceilings became $17 Modal and $3.10 OpenRouter for the October 2
+attempt; they do not authorize a further run. The October 2 failure now needs
+its own reconciliation. Keep unresolved allowances until their evidence-bound
+settlement is approved; do not reset a journal or reuse an approval. Do not
+expand to multiple conditions until a solo run completes feedback, selection,
+all hidden evaluation phases, and close-time reconciliation.
 
-An October 2 [read-only allowance preview](../evidence/solo_pilot/20261002-settlement-preview/README.md)
-uses current provider billing and the frozen V6 journal. After a proposed
-evidence-bound release, the unchanged full-run allowance still exceeds the
-existing caps. No release or new authorization has been applied.
+The earlier October 2 [read-only allowance preview](../evidence/solo_pilot/20261002-settlement-preview/README.md)
+records the pre-amendment calculation; the V7 amendment and one-use
+authorization were subsequently applied as described above.
 
 Prompt clarification (September 23): the solo pilot now delivers a standalone,
 method-neutral brief that matches its actual declarative configuration scope.

@@ -56,10 +56,13 @@ class ModalComputeAdapterTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 _run_collection_command(("modal", "--collect-only"))
 
-    def test_collection_recovery_only_normalizes_stopped_helper(self) -> None:
+    def test_collection_recovery_only_normalizes_known_nonterminal_interruptions(self) -> None:
         for output, pending in (
             ("ConflictError: function fu-collector is stopped", True),
             ("ConflictError: app is stopped", False),
+            ('{"status": "collection_interrupted", "function_call_id": "fc-known"}\n'
+                "AttributeError: 'Connection' object has no attribute '_transport'", True),
+            ("AttributeError: 'Connection' object has no attribute '_transport'", False),
             ("unrelated evaluator failure", False),
         ):
             result = subprocess.CompletedProcess((), 1, output)
@@ -368,6 +371,8 @@ class ModalComputeAdapterTests(unittest.TestCase):
         for return_code, output in (
             (0, '{"status":"pending"}'),
             (1, "ConflictError: function fu-collector is stopped"),
+            (1, '{"status": "collection_interrupted", "function_call_id": "fc-existing"}\n'
+                "AttributeError: 'Connection' object has no attribute '_transport'"),
         ):
             with self.subTest(output=output), patch(
                 "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run",
