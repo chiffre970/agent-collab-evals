@@ -14,6 +14,8 @@ from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_v
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v7":
+        return _validate_connected_quality_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v6":
         return _validate_series_failure_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v5":
@@ -140,6 +142,147 @@ def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_6
         or snapshot.organisation_charged_usd_nanos != expected_cost):
         raise ValueError("prior model receipts do not reconcile")
     return snapshot.organisation_charged_usd_nanos
+
+
+def _validate_connected_quality_settlement(document, plan_digest):
+    """Settle one aborted quality series while retaining earlier ambiguity."""
+    from .adapters.local_measurements import LocalMeasurementBundleStore
+
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config", "prior_budget_plan",
+        "prior_budget_database", "prior_compute_inventory", "model_reconciliation",
+        "billing_report", "conformance_receipt", "conformance_bundle_receipt",
+        "cleanup_observation", "run_id", "provider_limits_usd_nanos",
+        "total_limit_usd_nanos", "billing_buffer_usd_nanos",
+        "model_buffer_usd_nanos", "older_unresolved_reserve_usd_nanos"}
+    if (not isinstance(document, dict) or set(document) != fields
+        or document["prior_plan_digest"] != plan_digest):
+        raise ValueError("connected settlement fields differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v6":
+        raise ValueError("connected settlement requires the reviewed sixth amendment")
+    previous_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    _, run_config = _resolve(document["prior_run_config"])
+    if (document["provider_limits_usd_nanos"] != {"modal": 17_000_000_000,
+            "openrouter": 3_100_000_000}
+        or document["total_limit_usd_nanos"] != 20_100_000_000
+        or document["run_id"] != "solo-connected-1002"
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "hidden_evaluation", "type": "RuntimeError"}
+        or document["prior_audit"]["digest"] !=
+            "sha256:a0f7dbdcd1b7d55c2a215e32ed91fadc4f04e1a012812d0a650928553cc820a1"
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != "9711db8e6532a645063ff2dcf55189a0dcb1f3e8"
+        or run_config.get("git_dirty") is not False
+        or audit_path.parent.joinpath("hidden-result.json").exists()
+        or document["billing_buffer_usd_nanos"] != 100_000_000
+        or document["model_buffer_usd_nanos"] != 10_000_000
+        or document["older_unresolved_reserve_usd_nanos"] != 766_080_000):
+        raise ValueError("connected settlement prior run or limits differ")
+    receipts = audit["spend_admission"]["receipts"]
+    if (len(receipts) != 47 or receipts != previous_receipts
+        or digest_value(receipts) != document["prior_receipts_digest"]
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("connected settlement admissions differ")
+    cleanup = audit.get("remote_cleanup", [])
+    if (len(cleanup) != 12
+        or sum(item.get("status") == "terminal_evidence_verified" and
+            item.get("terminal_confirmed") is True for item in cleanup) != 6
+        or sum(item.get("status") == "cancellation_requested" and
+            item.get("terminal_confirmed") is False for item in cleanup) != 1
+        or sum(item.get("status") == "not_dispatched" for item in cleanup) != 5):
+        raise ValueError("connected settlement cleanup differs")
+    inventory_path = _resolve_path(document["prior_compute_inventory"])
+    if not inventory_path.is_relative_to(audit_path.parent):
+        raise ValueError("connected settlement compute inventory path differs")
+    with sqlite3.connect(inventory_path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        inventory = connection.execute("SELECT campaign_run_id FROM route_inventory").fetchall()
+        requests = {row[0] for row in connection.execute("SELECT request_digest FROM route_requests")}
+    if inventory != [(previous["run_id"],)] or requests != {item["request_digest"] for item in cleanup}:
+        raise ValueError("connected settlement compute inventory differs")
+    model_cost = _reconcile_prior_model(document, run_config, audit,
+        expected_cost=4_800_840, expected_calls=5)
+    _, model = _resolve(document["model_reconciliation"])
+    if (model.get("run_id") != previous["run_id"]
+        or model.get("audit_digest") != document["prior_audit"]["digest"]
+        or model.get("plan_and_raw_provider_receipts_verified") is not True
+        or model.get("new_provider_calls") is not False
+        or model.get("settled_calls") != 5 or model.get("charged_usd_nanos") != model_cost
+        or model.get("reserved_usd_nanos") != 0
+        or model.get("reconciliation") != audit["budget_reconciliation"]):
+        raise ValueError("connected settlement model evidence differs")
+    _, observed = _resolve(document["cleanup_observation"])
+    if (observed.get("run_name") != previous["run_id"]
+        or observed.get("audit_status") != "aborted"
+        or observed.get("modal_apps_active") is not False
+        or observed.get("actor_containers_active") is not False
+        or observed.get("original_audit_or_ledgers_modified") is not False):
+        raise ValueError("connected settlement cleanup observation differs")
+    _, report = _resolve(document["billing_report"])
+    if (not isinstance(report, dict) or set(report) !=
+        {"schema_version", "retrieved_at", "periods"}
+        or report["schema_version"] != "modal-billing-settlement-snapshot/v1"
+        or not report["retrieved_at"].startswith("2026-10-01T")
+        or not isinstance(report["periods"], list) or len(report["periods"]) != 2):
+        raise ValueError("connected settlement billing snapshot differs")
+    periods = report["periods"]
+    if ([(item.get("start"), item.get("end")) for item in periods] !=
+            [("2026-09-25", "2026-10-01"), ("2026-10-01", "2026-10-03")]
+        or any(set(item) != {"start", "end", "rows"} for item in periods)):
+        raise ValueError("connected settlement billing periods differ")
+    september, october = periods[0]["rows"], periods[1]["rows"]
+    september_ids = {"ap-0LmHGBgSLm5C4gzwgtbawu", "ap-8U5frjmeCOkwiNfucoDOI2",
+        "ap-DSVT8kRSzdSVkPrG3fv7Fw", "ap-TS6o0DLpAMZIvodOA45Jzd",
+        "ap-VsRxyNZt1YQLsrj3Ilf6Zi", "ap-ZAWd23iRXKmAexFALOCI0X",
+        "ap-a5aMzFWP7ojx7JMRQMP3xE", "ap-jeXSlFSqJa5JYKdtBie1it",
+        "ap-mIOYDgatrRcNchhaj6jFDF", "ap-moyJxR7ZdYzDYN3JBCYBoQ",
+        "ap-rLyfcaHTKjOEB9EA6pPtkF", "ap-tJVLvSIdhT4DWSvOL1GFcS"}
+    if (len(september) != 12 or len(october) != 1
+        or {row.get("object_id") for row in september} != september_ids
+        or october[0].get("object_id") != "ap-qUzNZ83MHjgkuoN0mDgXlq"
+        or any(row.get("interval_start") != "2026-09-25T00:00:00" for row in september)
+        or october[0].get("interval_start") != "2026-10-01T00:00:00"):
+        raise ValueError("connected settlement billed application set differs")
+    source_modal = sum(_billing_nanos(row) for row in september)
+    conformance_modal = _billing_nanos(october[0])
+    if source_modal != 1_166_175_520 or conformance_modal != 47_600:
+        raise ValueError("connected settlement billing amount differs")
+    _, conformance = _resolve(document["conformance_receipt"])
+    bundle_path, bundle_receipt = _resolve(document["conformance_bundle_receipt"])
+    if (conformance.get("schema_version") != "cpu-collector-conformance/v1"
+        or conformance.get("source_run") != previous["run_id"]
+        or conformance.get("source_audit_sha256") != document["prior_audit"]["digest"]
+        or conformance.get("source_audit_status") != "aborted"
+        or conformance.get("source_scoreable") is not False
+        or conformance.get("diagnostic_only") is not True
+        or conformance.get("collection_mode") != "connected_collect_only"
+        or conformance.get("new_scored_dispatches") != 0
+        or conformance.get("openrouter_calls") != 0
+        or conformance.get("validated") is not True
+        or conformance.get("raw_documents_verified") != 64
+        or conformance.get("private_measurement_receipt_sha256") != document["conformance_bundle_receipt"]["digest"]
+        or conformance.get("modal_app_id") != october[0]["object_id"]
+        or conformance.get("modal_app_status") != "stopped"
+        or conformance.get("modal_billing_snapshot_usd") != october[0]["cost"]
+        or conformance.get("modal_billing_snapshot_resources") != ["CPU", "Memory"]
+        or bundle_receipt.get("measurement_id") !=
+            "exec-306042480f794b37c4a132e98b18c98a2798133385fb737999624393c139b701"
+        or bundle_receipt.get("repetition") != 2 or bundle_receipt.get("attempt") != 1
+        or len(bundle_receipt.get("raw_digests", {})) != 64):
+        raise ValueError("connected settlement conformance evidence differs")
+    store = LocalMeasurementBundleStore(bundle_path.parents[2])
+    store.load(bundle_receipt["measurement_id"], 2, attempt=1)
+    source_allowance = 10_192_960_000
+    if (source_modal + conformance_modal + document["billing_buffer_usd_nanos"] >= source_allowance
+        or model_cost + document["model_buffer_usd_nanos"] >= 2_900_000_000):
+        raise ValueError("connected settlement release bounds differ")
+    # The earlier ambiguous dispatch remains held by the validated V6 chain.
+    releases["modal"] += (source_allowance - source_modal - conformance_modal
+        - document["billing_buffer_usd_nanos"])
+    releases["openrouter"] += 2_900_000_000 - model_cost - document["model_buffer_usd_nanos"]
+    return receipts, releases
 
 
 def _validate_series_failure_settlement(document, plan_digest):
