@@ -16,6 +16,7 @@ from agent_collab_evals.pilot_spend import PilotSpendEnvelope
 from agent_collab_evals.pilot_retry import (
     _validate_collector_failure_settlement,
     _validate_feedback_failure_settlement,
+    _validate_reference_probe_settlement,
 )
 
 
@@ -629,6 +630,101 @@ class PilotSpendTests(unittest.TestCase):
             self.assertEqual(latest.snapshot()["provider_limits_usd_nanos"],
                 {"modal": 17_000_000_000, "openrouter": 3_100_000_000})
             with self.assertRaisesRegex(PermissionError, "connected settlement"):
+                PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
+
+    def test_reference_probe_settlement_releases_only_pre_model_allowance(self):
+        def ref(path):
+            return {"file": str(path), "digest": digest_file(path)}
+
+        previous = {"schema_version": "exploratory-solo-retry/v7",
+            "run_id": "solo-connected-1002"}
+        previous_path = self.root / "previous.json"
+        retain_document(previous_path, previous)
+        prefix = f"pilot:retry-{digest_value(previous)[7:]}:"
+        admitted = [
+            {"operation_key": key, "provider": provider, "purpose": purpose,
+                "maximum_usd_nanos": amount, "request_digest": digest_value(key),
+                "plan_digest": self.envelope.plan_digest}
+            for key, provider, purpose, amount in (
+                (prefix + "openrouter:base", "openrouter", "pilot", 2_900_000_000),
+                (prefix + "modal:base", "modal", "overhead", 1_000_000_000),
+                ("pilot:solo-connected-1002:compute:d0b948032089035fcab6d071c3205c593186c7d407aecc81757750a8a70c4316",
+                    "modal", "pilot", 766_080_000),
+            )
+        ]
+        config_path = self.root / "run-config.json"
+        retain_document(config_path, {"git_commit": "f5ea74212535a29dce73c412b7d807d834219d80",
+            "git_dirty": False})
+        audit_path = self.root / "audit.json"
+        retain_document(audit_path, {"run_id": "solo-connected-1002", "status": "aborted",
+            "scoreable": False, "failure": {"stage": "reference", "type": "RuntimeError"},
+            "budget_reconciliation": None, "run_config_digest": digest_file(config_path),
+            "remote_cleanup": [{"function_call_id": "fc-01M3XVBN06YC79HA1EACHJJTVA",
+                "status": "cancellation_requested", "terminal_confirmed": False}],
+            "spend_admission": {"receipts": admitted,
+                "retry_amendment_digest": digest_value(previous)}})
+        probe_key = prefix + "modal:cpu-pending-probe-v1"
+        probe_receipt = {"operation_key": probe_key, "provider": "modal",
+            "purpose": "qualification", "maximum_usd_nanos": 100_000_000,
+            "request_digest": digest_value("probe"), "plan_digest": self.envelope.plan_digest}
+        probe_path = self.root / "probe.json"
+        retain_document(probe_path, {"schema_version": "modal-pending-probe-result/v1",
+            "operation_key": probe_key, "admission": probe_receipt,
+            "pending_before_completion": True, "terminal_after_completion": False,
+            "sentinel_verified": True, "error_type": None})
+        complete = sorted((*admitted, probe_receipt),
+            key=lambda item: digest_value(item["operation_key"])[7:])
+        document = {"schema_version": "exploratory-solo-retry/v8",
+            "previous_amendment": ref(previous_path),
+            "prior_plan_digest": self.envelope.plan_digest,
+            "prior_receipts_digest": digest_value(complete),
+            "prior_audit": ref(audit_path), "prior_run_config": ref(config_path),
+            "diagnostic_result": ref(probe_path), "run_id": "solo-statusprobe-1003",
+            "provider_limits_usd_nanos": {"modal": 20_000_000_000,
+                "openrouter": 3_100_000_000},
+            "total_limit_usd_nanos": 23_100_000_000,
+            "retained_modal_release_usd_nanos": 0}
+        with (patch("agent_collab_evals.pilot_retry.validate_retry",
+                    return_value=([], {"modal": 123, "openrouter": 456})),
+              patch("agent_collab_evals.pilot_retry._REFERENCE_ABORT_AUDIT_DIGEST",
+                    digest_file(audit_path))):
+            receipts, releases = _validate_reference_probe_settlement(
+                document, self.envelope.plan_digest)
+            self.assertEqual(receipts, complete)
+            self.assertEqual(releases, {"modal": 123, "openrouter": 2_900_000_456})
+            with self.assertRaisesRegex(ValueError, "prior receipts"):
+                _validate_reference_probe_settlement(
+                    {**document, "prior_receipts_digest": digest_value("tampered")},
+                    self.envelope.plan_digest)
+            (self.root / "budget.sqlite3").write_bytes(b"unexpected")
+            with self.assertRaisesRegex(ValueError, "pre-model reference abort"):
+                _validate_reference_probe_settlement(document, self.envelope.plan_digest)
+
+    def test_reference_probe_marker_blocks_older_authority(self):
+        chain = []
+        for index in range(1, 9):
+            value = {"schema_version": f"exploratory-solo-retry/v{index}",
+                "run_id": f"run-{index}",
+                "provider_limits_usd_nanos": {"modal": 20_000_000_000,
+                    "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000}
+            if chain:
+                value["previous_amendment"] = {"file": str(chain[-1][0]),
+                    "digest": digest_file(chain[-1][0])}
+            path = self.root / f"amendment-{index}.json"
+            retain_document(path, value)
+            chain.append((path, value))
+        names = ("approval.json", "settlement-approval.json",
+            "final-settlement-approval.json", "feedback-settlement-approval.json",
+            "collector-settlement-approval.json", "series-settlement-approval.json",
+            "connected-settlement-approval.json")
+        for name, (_, value) in zip(names, chain):
+            retain_document(self.envelope.root / "retry" / name, value)
+        with patch("agent_collab_evals.pilot_retry.validate_retry",
+                return_value=([], {"modal": 0, "openrouter": 0})):
+            latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertTrue((latest.root / "retry/reference-probe-approval.json").exists())
+            with self.assertRaisesRegex(PermissionError, "reference-probe"):
                 PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
 
 

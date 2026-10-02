@@ -13,7 +13,13 @@ from decimal import Decimal
 from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_value, parse_json
 
 
+_REFERENCE_ABORT_AUDIT_DIGEST = "sha256:1b055e27b062de5a6f07b90a5f62dc13e365864fb7748398e79532037188c109"
+_REFERENCE_ABORT_SOURCE_COMMIT = "f5ea74212535a29dce73c412b7d807d834219d80"
+
+
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v8":
+        return _validate_reference_probe_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v7":
         return _validate_connected_quality_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v6":
@@ -96,6 +102,94 @@ def _billing_nanos(row):
     if not amount.is_finite() or amount <= 0 or amount != amount.to_integral_value():
         raise ValueError("settlement billing amount is invalid")
     return int(amount)
+
+
+def _validate_reference_probe_settlement(document, plan_digest):
+    """Release only unused model allowance after the October 2 reference abort.
+
+    Both unresolved GPU allowances and all Modal overhead remain reserved.
+    The approved cap increase is an admission ceiling, not a billing claim.
+    """
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config",
+        "diagnostic_result", "run_id", "provider_limits_usd_nanos",
+        "total_limit_usd_nanos", "retained_modal_release_usd_nanos"}
+    if (not isinstance(document, dict) or set(document) != fields
+        or document["prior_plan_digest"] != plan_digest
+        or document["schema_version"] != "exploratory-solo-retry/v8"
+        or document["run_id"] != "solo-statusprobe-1003"
+        or document["provider_limits_usd_nanos"] !=
+            {"modal": 20_000_000_000, "openrouter": 3_100_000_000}
+        or document["total_limit_usd_nanos"] != 23_100_000_000
+        or document["retained_modal_release_usd_nanos"] != 0):
+        raise ValueError("reference-probe settlement fields or limits differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v7":
+        raise ValueError("reference-probe settlement requires the reviewed V7 amendment")
+    older_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    config_path, run_config = _resolve(document["prior_run_config"])
+    if (audit_path.parent != config_path.parent
+        or document["prior_audit"]["digest"] != _REFERENCE_ABORT_AUDIT_DIGEST
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "reference", "type": "RuntimeError"}
+        or audit.get("budget_reconciliation") is not None
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != _REFERENCE_ABORT_SOURCE_COMMIT
+        or run_config.get("git_dirty") is not False
+        or audit_path.parent.joinpath("reference-result.json").exists()
+        or audit_path.parent.joinpath("budget.sqlite3").exists()
+        or audit_path.parent.joinpath("budget-plan.json").exists()
+        or audit_path.parent.joinpath("candidate-services").exists()):
+        raise ValueError("prior attempt does not prove a pre-model reference abort")
+    cleanup = audit.get("remote_cleanup")
+    if (not isinstance(cleanup, list) or len(cleanup) != 1
+        or cleanup[0].get("function_call_id") != "fc-01M3XVBN06YC79HA1EACHJJTVA"
+        or cleanup[0].get("terminal_confirmed") is not False
+        or cleanup[0].get("status") != "cancellation_requested"):
+        raise ValueError("the unresolved Modal call must remain fully reserved")
+    receipts = audit["spend_admission"]["receipts"]
+    old_by_key = {item["operation_key"]: item for item in older_receipts}
+    by_key = {item["operation_key"]: item for item in receipts}
+    prefix = f"pilot:retry-{digest_value(previous)[7:]}:"
+    expected_new = {
+        prefix + "openrouter:base": ("openrouter", "pilot", 2_900_000_000),
+        prefix + "modal:base": ("modal", "overhead", 1_000_000_000),
+        "pilot:solo-connected-1002:compute:d0b948032089035fcab6d071c3205c593186c7d407aecc81757750a8a70c4316":
+            ("modal", "pilot", 766_080_000),
+    }
+    if (len(receipts) != len(older_receipts) + len(expected_new)
+        or len(by_key) != len(receipts)
+        or any(by_key.get(key) != value for key, value in old_by_key.items())
+        or set(by_key) - set(old_by_key) != set(expected_new)
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("prior reference-run admissions differ")
+    for key, (provider, purpose, amount) in expected_new.items():
+        item = by_key[key]
+        if (item["provider"], item["purpose"], item["maximum_usd_nanos"]) != (provider, purpose, amount):
+            raise ValueError("prior reference-run allowance differs")
+    _, diagnostic = _resolve(document["diagnostic_result"])
+    diagnostic_receipt = diagnostic.get("admission")
+    diagnostic_key = prefix + "modal:cpu-pending-probe-v1"
+    if (diagnostic.get("schema_version") != "modal-pending-probe-result/v1"
+        or diagnostic.get("operation_key") != diagnostic_key
+        or diagnostic.get("pending_before_completion") is not True
+        or diagnostic.get("terminal_after_completion") is not False
+        or diagnostic.get("sentinel_verified") is not True
+        or diagnostic.get("error_type") is not None
+        or not isinstance(diagnostic_receipt, dict)
+        or diagnostic_receipt.get("operation_key") != diagnostic_key
+        or diagnostic_receipt.get("provider") != "modal"
+        or diagnostic_receipt.get("purpose") != "qualification"
+        or diagnostic_receipt.get("maximum_usd_nanos") != 100_000_000):
+        raise ValueError("CPU-only status-probe admission differs")
+    complete_receipts = sorted((*receipts, diagnostic_receipt),
+        key=lambda item: digest_value(item["operation_key"])[7:])
+    if digest_value(complete_receipts) != document["prior_receipts_digest"]:
+        raise ValueError("reference-probe prior receipts differ")
+    releases["openrouter"] += 2_900_000_000
+    return complete_receipts, releases
 
 
 def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_620,
