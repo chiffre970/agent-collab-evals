@@ -34,9 +34,12 @@ and verified a previously staged manifest without creating an app. The
 development transports now poll the existing call directly while it is
 pending and create a connected collector only when an outcome is available.
 No-spend regressions cover this path across public performance, hidden
-correctness, and hidden quality. The change still needs live validation; it
-does not change the aborted audit or authorize another paid attempt. The
-full local suite ran 412 tests: 389 passed and 23 skipped.
+correctness, and hidden quality. A separate live CPU-only call verified that
+the SDK status probe sees pending and then terminal without starting a
+collector. It consumed one $0.10 allowance in the existing V7 journal;
+Modal's current billing snapshot shows $0.00015361 for the stopped diagnostic
+app. This does not prove the complete scored collection path or change the
+aborted audit. The full local suite ran 412 tests: 389 passed and 23 skipped.
 
 Latest collector qualification (October 1): one authorized CPU-only Modal check
 used the connected `--collect-only` path to reattach to the terminal quality

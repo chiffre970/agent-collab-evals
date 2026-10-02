@@ -63,5 +63,15 @@ additional compute authorization, or replace digest-checked evidence
 collection. Public performance, hidden correctness, and hidden quality
 transport profile versions changed. Unit tests cover pending, terminal,
 expired, and transient client states, plus the no-collector path in all three
-transports. This is a locally tested diagnosis-driven change, not yet a live
-proof that the full solo pilot completes.
+transports.
+
+On October 2, a separate CPU-only Modal probe tested the new SDK status path
+against a live 40-second call. The probe reported pending before completion,
+verified the returned sentinel, and reported terminal afterward. Its one-use
+$0.10 Modal allowance was added to the existing V7 journal, which now has 51
+receipts and $8.52937397 Modal allowance remaining. It made no GPU or model
+provider call. App `ap-i5Kqkpfdi0MiHOVeYltlI9` stopped with zero tasks;
+Modal's current billing snapshot attributes $0.00015361 to it, subject to
+later billing updates. This validates the status probe, not the complete
+scored collection path or solo pilot. The prior aborted run remains
+non-scoreable, and its unresolved reserve has not been released.
