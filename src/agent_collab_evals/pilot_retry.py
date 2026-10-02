@@ -182,7 +182,9 @@ def _validate_connected_quality_settlement(document, plan_digest):
         or document["older_unresolved_reserve_usd_nanos"] != 766_080_000):
         raise ValueError("connected settlement prior run or limits differ")
     receipts = audit["spend_admission"]["receipts"]
-    if (len(receipts) != 47 or receipts != previous_receipts
+    by_key = {item["operation_key"]: item for item in receipts}
+    if (len(receipts) != 47 or len(by_key) != len(receipts)
+        or any(by_key.get(item["operation_key"]) != item for item in previous_receipts)
         or digest_value(receipts) != document["prior_receipts_digest"]
         or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
         raise ValueError("connected settlement admissions differ")
