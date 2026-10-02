@@ -39,6 +39,7 @@ from .modal_vllm_compute import (
     _load_object,
     _load_optional,
     _minimal_modal_environment,
+    _remote_call_pending,
     _request,
     _request_document,
     _run_collection_command,
@@ -201,14 +202,14 @@ class ModalVllmCorrectnessCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-correctness-cli-transport/v0alpha3",
+                "adapter": "modal-vllm-correctness-cli-transport/v0alpha4",
                 "correctness_profile_digest": correctness_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_dispatch_connected_collection",
+                "app_lifecycle": "detached_dispatch_status_probe_then_connected_collection",
             }
         )
 
@@ -270,6 +271,8 @@ class ModalVllmCorrectnessCliTransport:
             self._measurements, measurement_id, 1, self._profile.attempt
         )
         if bundle is None:
+            if _remote_call_pending(external_call_id):
+                return TransportPoll(ComputeExecutionStatus.DISPATCHED)
             collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
             result = _run_collection_command(
                 self._command(

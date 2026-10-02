@@ -174,6 +174,12 @@ class _RetainedCorrectnessTransport:
 
 class ModalHiddenCorrectnessComputeTests(unittest.TestCase):
     def setUp(self) -> None:
+        pending = patch(
+            "agent_collab_evals.adapters.modal_vllm_correctness_compute._remote_call_pending",
+            return_value=False,
+        )
+        pending.start()
+        self.addCleanup(pending.stop)
         self._temporary = tempfile.TemporaryDirectory()
         self.root = Path(self._temporary.name)
         self.campaign, self.bundle, _ = real_hidden_quality_bundle(
@@ -401,6 +407,16 @@ class ModalHiddenCorrectnessComputeTests(unittest.TestCase):
             dispatch = transport.dispatch(request, candidate)
 
         self.assertEqual(dispatch.external_call_id, "fc-correctness-authorized")
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_correctness_compute._remote_call_pending",
+            return_value=True,
+        ) as probe, patch(
+            "agent_collab_evals.adapters.modal_vllm_correctness_compute.subprocess.run"
+        ) as collect:
+            pending = transport.poll(request, dispatch.external_call_id, 300)
+            self.assertEqual(pending.status, ComputeExecutionStatus.DISPATCHED)
+            probe.assert_called_once_with(dispatch.external_call_id)
+            collect.assert_not_called()
         with patch(
             "agent_collab_evals.adapters.modal_vllm_correctness_compute.subprocess.run",
             side_effect=TimeoutExpired("collect-only", 360),

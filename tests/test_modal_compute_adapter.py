@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import modal
+
 from agent_collab_evals.adapters.local_measurements import LocalMeasurementBundleStore
 from agent_collab_evals.adapters.modal_vllm_compute import (
     ModalVllmCliTransport,
@@ -14,6 +16,7 @@ from agent_collab_evals.adapters.modal_vllm_compute import (
     ModalVllmEvidenceResolver,
     _measurement_id,
     _minimal_modal_environment,
+    _remote_call_pending,
     _run_collection_command,
     _used_seconds,
 )
@@ -37,6 +40,37 @@ from agent_collab_evals.evaluation import EvaluationScope
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PROFILE_PATH = REPOSITORY_ROOT / "config/compute/modal-vllm-development.json"
 CAMPAIGN_PATH = REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
+
+
+class ModalCallProbeTests(unittest.TestCase):
+    def test_pending_poll_creates_no_app_or_new_call(self) -> None:
+        with patch("modal.FunctionCall.from_id") as from_id:
+            from_id.return_value.get.side_effect = modal.exception.TimeoutError("pending")
+            self.assertTrue(_remote_call_pending("fc-existing"))
+            from_id.assert_called_once_with("fc-existing")
+            from_id.return_value.get.assert_called_once_with(timeout=0)
+
+    def test_terminal_and_expired_results_require_collection(self) -> None:
+        for outcome in (None, modal.exception.RemoteError("failed"),
+                modal.exception.FunctionTimeoutError("timed out"),
+                modal.exception.OutputExpiredError("expired")):
+            with self.subTest(outcome=type(outcome).__name__), patch(
+                "modal.FunctionCall.from_id"
+            ) as from_id:
+                from_id.return_value.get.side_effect = outcome if isinstance(outcome, Exception) else None
+                from_id.return_value.get.return_value = {"schema_version": "pointer/v1"}
+                self.assertFalse(_remote_call_pending("fc-existing"))
+
+    def test_transient_client_errors_remain_nonterminal(self) -> None:
+        for error in (modal.exception.ConnectionError("disconnected"),
+                AttributeError("'Connection' object has no attribute '_transport'")):
+            with self.subTest(error=type(error).__name__), patch(
+                "modal.FunctionCall.from_id"
+            ) as from_id:
+                from_id.return_value.get.side_effect = error
+                self.assertTrue(_remote_call_pending("fc-existing"))
+        with self.assertRaisesRegex(ValueError, "call ID"):
+            _remote_call_pending("not-a-call")
 
 
 class ModalComputeAdapterTests(unittest.TestCase):
@@ -74,6 +108,12 @@ class ModalComputeAdapterTests(unittest.TestCase):
                     self.assertIs(actual, result)
 
     def setUp(self) -> None:
+        pending = patch(
+            "agent_collab_evals.adapters.modal_vllm_compute._remote_call_pending",
+            return_value=False,
+        )
+        pending.start()
+        self.addCleanup(pending.stop)
         self._temporary = tempfile.TemporaryDirectory()
         self.state_root = Path(self._temporary.name)
         self.profile = ModalVllmComputeProfile.load(
@@ -368,6 +408,16 @@ class ModalComputeAdapterTests(unittest.TestCase):
             self.authorizations,
         )
         transport._prepare_request(self.request, self.candidate)
+        with patch(
+            "agent_collab_evals.adapters.modal_vllm_compute._remote_call_pending",
+            return_value=True,
+        ) as pending, patch(
+            "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run"
+        ) as collect:
+            polled = transport.poll(self.request, "fc-existing", 300)
+            self.assertEqual(polled.status, ComputeExecutionStatus.DISPATCHED)
+            pending.assert_called_once_with("fc-existing")
+            collect.assert_not_called()
         for return_code, output in (
             (0, '{"status":"pending"}'),
             (1, "ConflictError: function fu-collector is stopped"),

@@ -220,14 +220,14 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha6",
+                "adapter": "modal-vllm-cli-transport/v0alpha7",
                 "compute_profile_digest": compute_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_dispatch_connected_collection",
+                "app_lifecycle": "detached_dispatch_status_probe_then_connected_collection",
             }
         )
 
@@ -311,6 +311,8 @@ class ModalVllmCliTransport:
             self._profile.attempt,
         )
         if bundle is None:
+            if _remote_call_pending(external_call_id):
+                return TransportPoll(ComputeExecutionStatus.DISPATCHED)
             # Only dispatch detaches. Collection owns a connected app until
             # its CPU evidence copier finishes, with a short local wait lease.
             collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
@@ -761,6 +763,32 @@ def _run_collection_command(command, **options):
         # Let the bounded evaluator poll the existing call ID again.
         return None
     return result
+
+
+def _remote_call_pending(external_call_id: str) -> bool:
+    """Poll an existing call without creating a short-lived collector App."""
+    import modal
+
+    if not isinstance(external_call_id, str) or not re.fullmatch(
+        r"fc-[A-Za-z0-9_-]+", external_call_id
+    ):
+        raise ValueError("Modal call ID is invalid")
+    try:
+        modal.FunctionCall.from_id(external_call_id).get(timeout=0)
+    except (modal.exception.FunctionTimeoutError, modal.exception.OutputExpiredError):
+        # A terminal failure or expired result still needs the collector's
+        # staged-evidence and failure handling.
+        return False
+    except (TimeoutError, modal.exception.TimeoutError, modal.exception.ConnectionError):
+        return True
+    except AttributeError as error:
+        if str(error) == "'Connection' object has no attribute '_transport'":
+            return True
+        raise
+    except Exception:
+        # Let the connected collector classify remote errors and expired calls.
+        return False
+    return False
 
 
 def _minimal_modal_environment() -> dict[str, str]:

@@ -36,3 +36,32 @@ specific collect-only connection interruption as nonterminal and polls the
 same call ID again, without redispatching GPU work. This fix is locally
 tested, not live-proven. The one-use approval is consumed; another attempt
 requires complete billing/dispatch reconciliation and fresh authorization.
+
+## Collector diagnosis
+
+The retained dispatch identifies one scored reference call. Modal reported it
+as canceled after abort cleanup. The call has no staged or durable result.
+While that call was pending, the controller opened connected collector apps
+about once per minute. The final collector's client connection failed, and
+the controller aborted after about 291 seconds, well before the registered
+30-minute reference execution allowance. This sequence identifies the
+collector RPC as the immediate abort cause; it does not establish why the
+underlying connection closed.
+
+Read-only checks from the dedicated VM retrieved the canceled call's status
+and a previously retained 7,356-byte staging manifest through Modal's SDK,
+without creating an app or function. The manifest digest matched the
+retained copy:
+`sha256:1b5b6ffb7aef26a504cb7a06d00e4f32e65bfa05b0eaa2297f3975b5f4de576e`.
+Modal documents [zero-timeout polling of an existing call](https://modal.com/docs/sdk/py/latest/FunctionCall)
+and [client-side Volume reads](https://modal.com/docs/sdk/py/latest/Volume).
+
+The development transports now use that call-status probe while a scored call
+is pending. They start a connected collector only after the call returns or
+reports a terminal error. The probe does not dispatch compute, consume an
+additional compute authorization, or replace digest-checked evidence
+collection. Public performance, hidden correctness, and hidden quality
+transport profile versions changed. Unit tests cover pending, terminal,
+expired, and transient client states, plus the no-collector path in all three
+transports. This is a locally tested diagnosis-driven change, not yet a live
+proof that the full solo pilot completes.

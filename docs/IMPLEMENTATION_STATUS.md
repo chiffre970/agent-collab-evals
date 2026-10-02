@@ -26,6 +26,18 @@ authorization is consumed; the next paid attempt requires settlement of the
 October 2 billing and unresolved call plus a new operator decision. Do not
 expand to multiple conditions before a complete, reconciled solo run.
 
+Read-only follow-up isolated the immediate abort to the connected collector:
+the scored reference call was still pending, while the controller opened
+collector apps about once per minute. The final collector lost its Modal
+client connection. Direct SDK access from the VM queried the existing call
+and verified a previously staged manifest without creating an app. The
+development transports now poll the existing call directly while it is
+pending and create a connected collector only when an outcome is available.
+No-spend regressions cover this path across public performance, hidden
+correctness, and hidden quality. The change still needs live validation; it
+does not change the aborted audit or authorize another paid attempt. The
+full local suite ran 412 tests: 389 passed and 23 skipped.
+
 Latest collector qualification (October 1): one authorized CPU-only Modal check
 used the connected `--collect-only` path to reattach to the terminal quality
 call from `solo-seriesfix-0925`. A separate diagnostic bundle validated 64 raw
