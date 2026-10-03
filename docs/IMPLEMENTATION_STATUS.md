@@ -6,6 +6,34 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest live checkpoint (October 3): the authorized V8 ceiling of $20 Modal
+and $3.10 OpenRouter admitted one exploratory solo attempt,
+`solo-statusprobe-1003`. Public reference and candidate evaluation and hidden
+correctness completed. Hidden quality repetition three finished its scored GPU
+call and staged a complete 64-document result, but repeated connected
+collection apps failed with a stopped-app/Modal-client connection error. The
+run is aborted and non-scoreable; the ambiguous call's full reservation stays
+held. Admitted or reserved amounts after the abort are $18.66358603 Modal and
+$3.01434414 OpenRouter, not settled bills. No subsequent paid run has been
+launched.
+
+The unqualified local remediation replaces connected collect-only apps with a
+restartable trusted-client collector. New scored calls stage one compressed,
+digest-checked bundle instead of 64 separately fetched files; the collector
+also retains read support for old staging. It polls the original call ID,
+checks the staged bytes, uploads only missing files to the private evidence
+Volume with write-once semantics, and publishes the manifest last. It never
+redispatches the scored function. The public, quality, and correctness
+transport digests changed, so this cannot be applied retroactively to the
+aborted run. A client-only Modal check uploaded and read back 64 synthetic
+documents from a separate `preflight-direct` evidence root with no Modal App
+or scored call. This validates the Volume API path but not end-to-end scoring.
+Before another GPU attempt, pass no-spend integration checks for all three
+transports, qualify collection against an already completed call, reconcile
+current billing and reservations, and obtain a new one-use authorization. Do
+not advance to multi-condition runs yet. The local suite passes 418 tests with
+23 expected live-integration skips.
+
 Latest live checkpoint (October 2): the approved V7 evidence-bound settlement
 raised cumulative admission ceilings to $17 Modal and $3.10 OpenRouter for
 one new solo attempt, retaining the older ambiguous dispatch reserve. A

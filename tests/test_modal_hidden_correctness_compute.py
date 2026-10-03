@@ -428,7 +428,9 @@ class ModalHiddenCorrectnessComputeTests(unittest.TestCase):
         self.assertNotIn("--detach", collect.call_args.args[0])
         command = collect.call_args.args[0]
         self.assertEqual(command[command.index("--collect-timeout-seconds") + 1], "60")
-        self.assertEqual(collect.call_args.kwargs["timeout"], 210)
+        self.assertEqual(collect.call_args.kwargs["timeout"], 600)
+        self.assertNotIn("run", command[:2])
+        self.assertTrue(command[0].endswith("/python"))
         with patch(
             "agent_collab_evals.adapters.modal_vllm_correctness_compute.subprocess.run",
             return_value=CompletedProcess((), 1,

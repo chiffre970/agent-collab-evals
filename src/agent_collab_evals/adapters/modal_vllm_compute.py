@@ -35,6 +35,19 @@ from .local_measurements import LocalMeasurementBundleStore
 
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,191}")
 _COLLECTION_LEASE_SECONDS = 60
+_DIRECT_COLLECTOR_SCRIPT = (
+    Path(__file__).resolve().parents[3] / "scripts/runtime/modal_collect.py"
+)
+
+
+def _direct_collector_prefix(modal_cli: Path, modal_script: Path) -> tuple[str, ...]:
+    interpreter = modal_cli.parent / "python"
+    if not interpreter.is_file() or not _DIRECT_COLLECTOR_SCRIPT.is_file():
+        raise ValueError("direct Modal collector runtime is missing")
+    return (
+        str(interpreter), str(_DIRECT_COLLECTOR_SCRIPT),
+        "--modal-script", str(modal_script),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +215,9 @@ class ModalVllmCliTransport:
             raise ValueError("Modal evaluator profile digest is invalid")
         if not self._modal_cli.is_file():
             raise ValueError("Modal CLI path does not exist")
+        self._collector_prefix = _direct_collector_prefix(
+            self._modal_cli, profile.modal_script
+        )
         self._campaign = ModelServingCampaign.load(profile.campaign_manifest)
         self._measurements = LocalMeasurementBundleStore(
             self._state_root / "measurements"
@@ -220,14 +236,15 @@ class ModalVllmCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-cli-transport/v0alpha7",
+                "adapter": "modal-vllm-cli-transport/v0alpha8",
                 "compute_profile_digest": compute_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_dispatch_status_probe_then_connected_collection",
+                "app_lifecycle": "detached_dispatch_then_direct_client_collection",
+                "direct_collector_digest": digest_file(_DIRECT_COLLECTOR_SCRIPT),
             }
         )
 
@@ -313,8 +330,6 @@ class ModalVllmCliTransport:
         if bundle is None:
             if _remote_call_pending(external_call_id):
                 return TransportPoll(ComputeExecutionStatus.DISPATCHED)
-            # Only dispatch detaches. Collection owns a connected app until
-            # its CPU evidence copier finishes, with a short local wait lease.
             collection_lease = min(timeout_seconds, _COLLECTION_LEASE_SECONDS)
             result = _run_collection_command(
                 self._command(
@@ -329,9 +344,8 @@ class ModalVllmCliTransport:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                # Leave room for the pinned 120-second evidence copier once
-                # the scored result becomes available.
-                timeout=max(120, collection_lease + 150),
+                # Collection is a restartable local client, not a Modal App.
+                timeout=600,
                 check=False,
             )
             bundle = _load_optional(
@@ -416,13 +430,20 @@ class ModalVllmCliTransport:
         collect_only: bool = False,
         timeout_seconds: int = 0,
     ) -> tuple[str, ...]:
+        prefix = (
+            list(self._collector_prefix)
+            if collect_only
+            else [
+                str(self._modal_cli),
+                "run",
+                *(["--detach"] if dispatch_only else []),
+                "-e",
+                self._profile.modal_environment,
+                str(self._profile.modal_script),
+            ]
+        )
         command = [
-            str(self._modal_cli),
-            "run",
-            *(["--detach"] if dispatch_only else []),
-            "-e",
-            self._profile.modal_environment,
-            str(self._profile.modal_script),
+            *prefix,
             "--baseline",
             "--candidate-path",
             str(candidate_path),
@@ -736,7 +757,7 @@ def _run_collection_command(command, **options):
         or "--detach" in command
     ):
         raise ValueError(
-            "collection recovery requires a connected collect-only command"
+            "collection recovery requires a collect-only command"
         )
     try:
         result = subprocess.run(command, **options)
@@ -786,7 +807,7 @@ def _remote_call_pending(external_call_id: str) -> bool:
             return True
         raise
     except Exception:
-        # Let the connected collector classify remote errors and expired calls.
+        # Let the direct collector classify remote errors and expired calls.
         return False
     return False
 

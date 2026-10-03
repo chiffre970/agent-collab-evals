@@ -1125,20 +1125,42 @@ def _stage_evaluator_evidence(
     remote_receipt: dict[str, Any],
     raw_results: dict[str, bytes],
 ) -> dict[str, Any]:
-    """Write scored output after server exit to its isolated staging subpath."""
+    """Stage one bounded bundle after server exit in the isolated subpath."""
 
-    manifest = _persist_evidence_at(
-        STAGING_MOUNT_PATH / "evidence",
-        sync_root=STAGING_MOUNT_PATH,
-        volume_name=STAGING_VOLUME_NAME,
-        evidence_root=evidence_root,
-        remote_receipt=remote_receipt,
-        raw_results=raw_results,
-    )
-    return {
-        "schema_version": "modal-evaluator-staging-pointer/v0alpha1",
+    _validate_evidence_root(evidence_root)
+    bundle = _encode_evidence_bundle(remote_receipt, raw_results)
+    manifest = {
+        "schema_version": "modal-evaluator-staging-bundle/v0alpha1",
         "volume_name": STAGING_VOLUME_NAME,
         "root": evidence_root,
+        "compressed_digest": bundle["compressed_digest"],
+        "uncompressed_digest": bundle["uncompressed_digest"],
+        "remote_receipt_digest": (
+            f"sha256:{hashlib.sha256(_stable_json_bytes(remote_receipt)).hexdigest()}"
+        ),
+        "raw_digests": {
+            name: f"sha256:{hashlib.sha256(content).hexdigest()}"
+            for name, content in sorted(raw_results.items())
+        },
+    }
+    _write_remote_file(STAGING_MOUNT_PATH / "bundle.zlib", bundle["compressed"])
+    _write_remote_file(
+        STAGING_MOUNT_PATH / "bundle-manifest.json", _stable_json_bytes(manifest)
+    )
+    subprocess.run(
+        ["sync", str(STAGING_MOUNT_PATH)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    return {
+        "schema_version": "modal-evaluator-staging-bundle-pointer/v0alpha1",
+        "volume_name": STAGING_VOLUME_NAME,
+        "root": evidence_root,
+        "compressed_digest": manifest["compressed_digest"],
         "remote_receipt_digest": manifest["remote_receipt_digest"],
     }
 
@@ -1386,13 +1408,184 @@ def _ensure_durable_evidence(
             path_prefix=f"{evidence_root}/evidence",
             visibility_timeout_seconds=30,
         )
-        result = _encode_evidence_bundle(remote_receipt, raw_results)
-    return persist_evaluator_evidence.remote(evidence_root, result)
+    elif result.get("schema_version") == (
+        "modal-evaluator-staging-bundle-pointer/v0alpha1"
+    ):
+        remote_receipt, raw_results = _collect_staged_bundle(
+            result, expected_root=evidence_root
+        )
+    else:
+        remote_receipt, raw_results = _decode_evidence_bundle(result)
+    return _persist_evidence_from_client(evidence_root, remote_receipt, raw_results)
+
+
+def _collect_staged_bundle(
+    pointer: dict[str, Any], *, expected_root: str
+) -> tuple[dict[str, Any], dict[str, bytes]]:
+    _validate_evidence_root(expected_root)
+    if (
+        set(pointer) != {
+            "schema_version", "volume_name", "root", "compressed_digest",
+            "remote_receipt_digest",
+        }
+        or pointer["schema_version"]
+        != "modal-evaluator-staging-bundle-pointer/v0alpha1"
+        or pointer["volume_name"] != STAGING_VOLUME_NAME
+        or pointer["root"] != expected_root
+    ):
+        raise RuntimeError("staged bundle pointer identity differs")
+    manifest_bytes = _read_volume_file(
+        staging_volume, f"{expected_root}/bundle-manifest.json", wait_seconds=30
+    )
+    try:
+        manifest = json.loads(manifest_bytes)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("staged bundle manifest is invalid") from error
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != {
+            "schema_version", "volume_name", "root", "compressed_digest",
+            "uncompressed_digest", "remote_receipt_digest", "raw_digests",
+        }
+        or manifest["schema_version"] != "modal-evaluator-staging-bundle/v0alpha1"
+        or manifest["volume_name"] != STAGING_VOLUME_NAME
+        or manifest["root"] != expected_root
+        or manifest["compressed_digest"] != pointer["compressed_digest"]
+        or manifest["remote_receipt_digest"] != pointer["remote_receipt_digest"]
+        or not isinstance(manifest["raw_digests"], dict)
+        or not all(
+            isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+            for value in (
+                manifest["compressed_digest"], manifest["uncompressed_digest"],
+                manifest["remote_receipt_digest"], *manifest["raw_digests"].values(),
+            )
+        )
+    ):
+        raise RuntimeError("staged bundle manifest identity differs")
+    compressed = _read_volume_file(
+        staging_volume, f"{expected_root}/bundle.zlib",
+        wait_seconds=30, expected_digest=manifest["compressed_digest"],
+    )
+    remote_receipt, raw_results = _decode_evidence_bundle({
+        "schema_version": "modal-evaluator-inline-bundle/v0alpha1",
+        "compression": "zlib",
+        "compressed": compressed,
+        "compressed_digest": manifest["compressed_digest"],
+        "uncompressed_digest": manifest["uncompressed_digest"],
+    })
+    if (
+        f"sha256:{hashlib.sha256(_stable_json_bytes(remote_receipt)).hexdigest()}"
+        != manifest["remote_receipt_digest"]
+        or {
+            name: f"sha256:{hashlib.sha256(content).hexdigest()}"
+            for name, content in raw_results.items()
+        } != manifest["raw_digests"]
+    ):
+        raise RuntimeError("staged bundle contents differ from manifest")
+    return remote_receipt, raw_results
+
+
+def _persist_evidence_from_client(
+    evidence_root: str,
+    remote_receipt: dict[str, Any],
+    raw_results: dict[str, bytes],
+) -> dict[str, str]:
+    """Copy verified staged bytes without starting another Modal App.
+
+    Each destination is write-once. A retry after partial upload checks every
+    existing byte and uploads only missing paths; the manifest is published
+    last so it cannot advertise an incomplete evidence directory.
+    """
+    _validate_evidence_root(evidence_root)
+    receipt_bytes = _stable_json_bytes(remote_receipt)
+    files: dict[str, bytes] = {"remote-receipt.json": receipt_bytes}
+    raw_digests: dict[str, str] = {}
+    for name, content in sorted(raw_results.items()):
+        if Path(name).name != name or not name.endswith(".json"):
+            raise RuntimeError("invalid raw evidence filename")
+        if not isinstance(content, bytes):
+            raise RuntimeError("raw evidence must be bytes")
+        files[f"raw/{name}"] = content
+        raw_digests[name] = f"sha256:{hashlib.sha256(content).hexdigest()}"
+    if sum(map(len, files.values())) > MAX_UNCOMPRESSED_EVIDENCE_BYTES:
+        raise RuntimeError("evaluator evidence exceeds the uncompressed limit")
+    manifest = {
+        "schema_version": "modal-evaluator-evidence/v0alpha1",
+        "volume_name": EVIDENCE_VOLUME_NAME,
+        "root": evidence_root,
+        "remote_receipt_digest": f"sha256:{hashlib.sha256(receipt_bytes).hexdigest()}",
+        "raw_digests": raw_digests,
+    }
+    missing: list[tuple[str, bytes]] = []
+    for name, content in sorted(files.items()):
+        destination = f"{evidence_root}/{name}"
+        try:
+            existing = _read_evidence_file(destination)
+        except FileNotFoundError:
+            missing.append((destination, content))
+        else:
+            if existing != content:
+                raise RuntimeError("durable evaluator evidence already differs")
+    if missing:
+        with evidence_volume.batch_upload(force=False) as batch:
+            for destination, content in missing:
+                batch.put_file(io.BytesIO(content), destination)
+        for destination, content in missing:
+            if _read_evidence_file(destination) != content:
+                raise RuntimeError("uploaded evaluator evidence differs")
+    manifest_destination = f"{evidence_root}/manifest.json"
+    manifest_bytes = _stable_json_bytes(manifest)
+    try:
+        existing_manifest = _read_evidence_file(manifest_destination)
+    except FileNotFoundError:
+        with evidence_volume.batch_upload(force=False) as batch:
+            batch.put_file(io.BytesIO(manifest_bytes), manifest_destination)
+        if _read_evidence_file(manifest_destination) != manifest_bytes:
+            raise RuntimeError("uploaded evaluator manifest differs")
+    else:
+        if existing_manifest != manifest_bytes:
+            raise RuntimeError("durable evaluator manifest already differs")
+    return _evidence_pointer(manifest)
 
 
 def _staged_pointer_if_available(evidence_root: str) -> dict[str, str] | None:
     """Recover an already staged result if the call-result API is unavailable."""
     _validate_evidence_root(evidence_root)
+    try:
+        bundle_manifest_bytes = _read_volume_file(
+            staging_volume, f"{evidence_root}/bundle-manifest.json"
+        )
+    except FileNotFoundError:
+        pass
+    else:
+        try:
+            bundle_manifest = json.loads(bundle_manifest_bytes)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("staged bundle manifest is invalid") from error
+        if (
+            not isinstance(bundle_manifest, dict)
+            or bundle_manifest.get("schema_version")
+            != "modal-evaluator-staging-bundle/v0alpha1"
+            or bundle_manifest.get("volume_name") != STAGING_VOLUME_NAME
+            or bundle_manifest.get("root") != evidence_root
+            or not isinstance(bundle_manifest.get("compressed_digest"), str)
+            or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}", bundle_manifest["compressed_digest"]
+            )
+            or not isinstance(bundle_manifest.get("remote_receipt_digest"), str)
+            or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                bundle_manifest["remote_receipt_digest"],
+            )
+        ):
+            raise RuntimeError("staged bundle manifest identity differs")
+        return {
+            "schema_version": "modal-evaluator-staging-bundle-pointer/v0alpha1",
+            "volume_name": STAGING_VOLUME_NAME,
+            "root": evidence_root,
+            "compressed_digest": bundle_manifest["compressed_digest"],
+            "remote_receipt_digest": bundle_manifest["remote_receipt_digest"],
+        }
     try:
         content = _read_volume_file(
             staging_volume, f"{evidence_root}/evidence/manifest.json"

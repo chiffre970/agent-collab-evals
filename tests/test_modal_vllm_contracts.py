@@ -5,6 +5,8 @@ import hashlib
 import importlib.util
 import json
 import math
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,7 +105,146 @@ class _EventuallyVisibleVolume:
         yield b"" if reads == 0 else self.files[path]
 
 
+class _WritableVolume(_ReadOnlyVolume):
+    def __init__(self, files: dict[str, bytes] | None = None) -> None:
+        super().__init__(files or {})
+        self.uploads: list[list[str]] = []
+        self.fail_next_upload = False
+
+    def batch_upload(self, *, force: bool):
+        assert force is False
+        volume = self
+
+        class Batch:
+            def __init__(self) -> None:
+                self.pending: dict[str, bytes] = {}
+
+            def __enter__(self):
+                return self
+
+            def put_file(self, source, destination):
+                self.pending[destination] = source.read()
+
+            def __exit__(self, error_type, _error, _traceback):
+                if error_type is not None:
+                    return False
+                volume.uploads.append(list(self.pending))
+                if volume.fail_next_upload:
+                    volume.fail_next_upload = False
+                    destination, content = next(iter(self.pending.items()))
+                    volume.files[destination] = content
+                    raise ConnectionError("upload interrupted after one file")
+                for destination, content in self.pending.items():
+                    if destination in volume.files:
+                        raise RuntimeError("write-once destination already exists")
+                    volume.files[destination] = content
+                return False
+
+        return Batch()
+
+
 class ModalVllmContractTests(unittest.TestCase):
+    def test_new_staging_is_one_verified_bundle_and_old_format_remains_readable(self) -> None:
+        root = "model-serving-quality/bundle-test/repetition-0001-attempt-01"
+        receipt = {"ok": True, "function_call_id": "fc-existing"}
+        raw = {f"case-{index:04d}.json": b'{"ok":true}\n' for index in range(64)}
+        with tempfile.TemporaryDirectory() as temporary:
+            staging_root = Path(temporary)
+            with (
+                patch.object(MODAL_VLLM, "STAGING_MOUNT_PATH", staging_root),
+                patch.object(MODAL_VLLM.subprocess, "run") as sync,
+            ):
+                pointer = MODAL_VLLM._stage_evaluator_evidence(root, receipt, raw)
+            sync.assert_called_once()
+            self.assertEqual(
+                sorted(path.name for path in staging_root.iterdir()),
+                ["bundle-manifest.json", "bundle.zlib"],
+            )
+            volume = _ReadOnlyVolume({
+                f"{root}/{path.name}": path.read_bytes()
+                for path in staging_root.iterdir()
+            })
+            with patch.object(MODAL_VLLM, "staging_volume", volume):
+                self.assertEqual(MODAL_VLLM._staged_pointer_if_available(root), pointer)
+                call = Mock()
+                self.assertEqual(
+                    MODAL_VLLM._get_scored_call_result(
+                        call, root, 60, collect_only=True
+                    ),
+                    pointer,
+                )
+                call.get.assert_not_called()
+                self.assertEqual(
+                    MODAL_VLLM._collect_staged_bundle(pointer, expected_root=root),
+                    (receipt, raw),
+                )
+                with self.assertRaisesRegex(RuntimeError, "identity differs"):
+                    MODAL_VLLM._collect_staged_bundle(
+                        dict(pointer, compressed_digest="sha256:" + "0" * 64),
+                        expected_root=root,
+                    )
+
+    def test_direct_collector_accepts_only_collection_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fake_script = Path(temporary) / "fake_modal_script.py"
+            fake_script.write_text(
+                "class Entry:\n"
+                "    class info:\n"
+                "        @staticmethod\n"
+                "        def raw_f(**arguments):\n"
+                "            assert arguments['collect_only'] is True\n"
+                "            assert arguments['quality'] is True\n"
+                "            print('collected')\n"
+                "main = Entry()\n",
+                encoding="utf-8",
+            )
+            command = [
+                sys.executable,
+                "scripts/runtime/modal_collect.py",
+                "--modal-script", str(fake_script),
+                "--quality", "--candidate-path", "candidate.json",
+                "--measurement-id", "exec-test", "--repetition", "1",
+                "--attempt", "1", "--collect-only",
+                "--collect-timeout-seconds", "60",
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("collected", result.stdout)
+            rejected = subprocess.run(
+                command[:-3] + ["--dispatch-only"],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+
+    def test_direct_client_persistence_resumes_partial_upload_without_app(self) -> None:
+        root = "model-serving-quality/direct-test/repetition-0001-attempt-01"
+        volume = _WritableVolume()
+        volume.fail_next_upload = True
+        receipt = {"ok": True, "function_call_id": "fc-existing"}
+        raw = {"one.json": b'{"one":1}\n', "two.json": b'{"two":2}\n'}
+        with patch.object(MODAL_VLLM, "evidence_volume", volume):
+            with self.assertRaisesRegex(ConnectionError, "upload interrupted"):
+                MODAL_VLLM._persist_evidence_from_client(root, receipt, raw)
+            self.assertNotIn(f"{root}/manifest.json", volume.files)
+            pointer = MODAL_VLLM._persist_evidence_from_client(root, receipt, raw)
+            self.assertEqual(
+                pointer["remote_receipt_digest"],
+                "sha256:" + hashlib.sha256(MODAL_VLLM._stable_json_bytes(receipt)).hexdigest(),
+            )
+            self.assertEqual(volume.uploads[-1], [f"{root}/manifest.json"])
+            self.assertEqual(
+                MODAL_VLLM._persist_evidence_from_client(root, receipt, raw), pointer
+            )
+            _, recovered, manifest = MODAL_VLLM._collect_remote_evidence(
+                pointer, expected_root=root
+            )
+            self.assertEqual(recovered, raw)
+            self.assertEqual(len(manifest["raw_digests"]), 2)
+            with self.assertRaisesRegex(RuntimeError, "already differs"):
+                MODAL_VLLM._persist_evidence_from_client(
+                    root, receipt, {"one.json": b"changed", "two.json": raw["two.json"]}
+                )
+
     def test_controller_quality_repetition_uses_request_bound_measurement_id(self) -> None:
         from agent_collab_evals.canonical import parse_json
         from tests.quality_fixture import real_hidden_quality_bundle

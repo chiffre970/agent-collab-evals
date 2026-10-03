@@ -14,6 +14,7 @@ from agent_collab_evals.adapters.modal_vllm_compute import (
     ModalVllmCliTransport,
     ModalVllmComputeProfile,
     ModalVllmEvidenceResolver,
+    _direct_collector_prefix,
     _measurement_id,
     _minimal_modal_environment,
     _remote_call_pending,
@@ -43,6 +44,13 @@ CAMPAIGN_PATH = REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
 
 
 class ModalCallProbeTests(unittest.TestCase):
+    def test_collector_interpreter_must_exist_before_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            modal_cli = Path(temporary) / "modal"
+            modal_cli.touch()
+            with self.assertRaisesRegex(ValueError, "runtime is missing"):
+                _direct_collector_prefix(modal_cli, Path("modal_vllm.py"))
+
     def test_pending_poll_creates_no_app_or_new_call(self) -> None:
         with patch("modal.FunctionCall.from_id") as from_id:
             from_id.return_value.get.side_effect = modal.exception.TimeoutError("pending")
@@ -399,7 +407,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertEqual(polled.status, ComputeExecutionStatus.COMPLETE)
         resolver.pointer.assert_called_once_with(self.request, "fc-hidden")
 
-    def test_collection_uses_connected_short_lease_without_redispatch(self) -> None:
+    def test_collection_uses_direct_client_without_redispatch(self) -> None:
         transport = ModalVllmCliTransport(
             self.profile,
             REPOSITORY_ROOT,
@@ -438,7 +446,9 @@ class ModalComputeAdapterTests(unittest.TestCase):
                     command[command.index("--collect-timeout-seconds") + 1],
                     "60",
                 )
-                self.assertEqual(collect.call_args.kwargs["timeout"], 210)
+                self.assertEqual(collect.call_args.kwargs["timeout"], 600)
+                self.assertTrue(command[0].endswith("/python"))
+                self.assertNotIn("run", command[:2])
         with patch(
             "agent_collab_evals.adapters.modal_vllm_compute.subprocess.run",
             return_value=subprocess.CompletedProcess((), 1, "unrelated failure"),

@@ -34,6 +34,8 @@ from ..ports import ComputeSpendAuthorizationService
 from .local_measurements import LocalMeasurementBundleStore
 from .modal_vllm_compute import (
     _COLLECTION_LEASE_SECONDS,
+    _DIRECT_COLLECTOR_SCRIPT,
+    _direct_collector_prefix,
     _failure,
     _load_object,
     _load_optional,
@@ -215,6 +217,9 @@ class ModalVllmQualityCliTransport:
         self._spend_authorization = spend_authorization
         if not self._modal_cli.is_file():
             raise ValueError("Modal CLI path does not exist")
+        self._collector_prefix = _direct_collector_prefix(
+            self._modal_cli, profile.modal_script
+        )
         self._campaign = ModelServingCampaign.load(profile.campaign_manifest)
         profile.validate_inputs(self._campaign)
         self._measurements = LocalMeasurementBundleStore(
@@ -232,14 +237,15 @@ class ModalVllmQualityCliTransport:
     ) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-quality-cli-transport/v0alpha4",
+                "adapter": "modal-vllm-quality-cli-transport/v0alpha5",
                 "quality_profile_digest": quality_profile_digest,
                 "modal_cli_authority": "profile_pinned_modal_client_version",
                 "spend_authorization_profile_digest": (
                     spend_authorization_profile_digest
                 ),
                 "dispatch_policy": "one_remote_call_then_fail_closed",
-                "app_lifecycle": "detached_dispatch_status_probe_then_connected_collection",
+                "app_lifecycle": "detached_dispatch_then_direct_client_collection",
+                "direct_collector_digest": digest_file(_DIRECT_COLLECTOR_SCRIPT),
             }
         )
 
@@ -328,7 +334,7 @@ class ModalVllmQualityCliTransport:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=max(120, collection_lease + 150),
+                timeout=600,
                 check=False,
             )
             bundle = _load_optional(
@@ -433,13 +439,20 @@ class ModalVllmQualityCliTransport:
         collect_only: bool = False,
         timeout_seconds: int = 0,
     ) -> tuple[str, ...]:
+        prefix = (
+            list(self._collector_prefix)
+            if collect_only
+            else [
+                str(self._modal_cli),
+                "run",
+                *(["--detach"] if dispatch_only else []),
+                "-e",
+                self._profile.modal_environment,
+                str(self._profile.modal_script),
+            ]
+        )
         command = [
-            str(self._modal_cli),
-            "run",
-            *(["--detach"] if dispatch_only else []),
-            "-e",
-            self._profile.modal_environment,
-            str(self._profile.modal_script),
+            *prefix,
             "--quality",
             "--candidate-path",
             str(candidate_path),
