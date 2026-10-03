@@ -34,6 +34,7 @@ from .local_measurements import LocalMeasurementBundleStore
 
 
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,191}")
+_PILOT_MODAL_ENVIRONMENT = "dev"
 _COLLECTION_LEASE_SECONDS = 60
 _DIRECT_COLLECTOR_SCRIPT = (
     Path(__file__).resolve().parents[3] / "scripts/runtime/modal_collect.py"
@@ -124,6 +125,8 @@ class ModalVllmComputeProfile:
         for key in ("profile_id", "modal_environment", "evidence_volume"):
             if not isinstance(document[key], str) or not document[key]:
                 raise ValueError(f"Modal compute profile {key} is invalid")
+        if document["modal_environment"] != _PILOT_MODAL_ENVIRONMENT:
+            raise ValueError("the development Modal profile requires the dev environment")
         if type(document["repetition"]) is not int or document["repetition"] < 1:
             raise ValueError("Modal compute repetition is invalid")
         if type(document["attempt"]) is not int or document["attempt"] < 1:
@@ -813,7 +816,7 @@ def _remote_call_pending(external_call_id: str) -> bool:
 
 
 def _minimal_modal_environment(modal_environment: str) -> dict[str, str]:
-    if modal_environment != "dev":
+    if modal_environment != _PILOT_MODAL_ENVIRONMENT:
         raise ValueError("the development Modal transport requires the dev environment")
     allowed = (
         "HOME",

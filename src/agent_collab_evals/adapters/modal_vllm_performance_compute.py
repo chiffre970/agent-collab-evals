@@ -23,7 +23,7 @@ from ..compute_backend import (
     ComputeExecutionRequest,
     ComputeExecutionStatus,
 )
-from .modal_vllm_compute import ModalVllmEvidenceResolver
+from .modal_vllm_compute import ModalVllmEvidenceResolver, _PILOT_MODAL_ENVIRONMENT
 
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -71,6 +71,8 @@ class ModalVllmHiddenPerformanceProfile:
     ) -> "ModalVllmHiddenPerformanceProfile":
         if not profile_id or not modal_environment or not evidence_volume:
             raise ValueError("Modal hidden performance strings must be nonempty")
+        if modal_environment != _PILOT_MODAL_ENVIRONMENT:
+            raise ValueError("the development Modal profile requires the dev environment")
         if type(repetition) is not int or repetition < 1:
             raise ValueError("Modal hidden performance repetition is invalid")
         if type(attempt) is not int or attempt < 1:

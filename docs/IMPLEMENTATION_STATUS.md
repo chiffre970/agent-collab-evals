@@ -6,6 +6,37 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest live checkpoint (October 3, later): the approved CPU-only staging-bundle
+diagnostic passed. An evidence-bound V9 settlement reconciled the preceding
+aborted attempt without changing its audit and admitted one more solo attempt
+under the existing $20 Modal / $3.10 OpenRouter cumulative ceilings.
+`solo-stagingfix-1003` aborted at public reference collection and is
+non-scoreable; no agent or hidden evaluation ran. Its audit is retained at
+`/home/rmh.guest/ace-runs/solo-stagingfix-1003/audit.json`, digest
+`sha256:2b6502eca0e1d1b6b975cc2dc86724f49357c314e0a5eb10dbec32ae4a0bc79f`.
+The controller requested cancellation of the exact call, but its original
+audit does not claim terminal cleanup or settled billing. The V9 journal has
+$8.56942692 Modal and $0.07254114 OpenRouter of unadmitted capacity after
+that run; these are admission balances, not provider charges. They cannot
+admit another complete solo attempt.
+
+The immediate failure was a Modal environment mismatch: the scored call
+wrote to the `dev` staging Volume, but the trusted collector's minimal child
+environment omitted `MODAL_ENVIRONMENT`. It therefore read the default
+`main` environment, where an empty same-named staging Volume was created.
+Read-only retrieval of the already-terminal call and its nine raw reference
+documents succeeds when `dev` is explicitly selected. The local fix pins all
+evaluator Volumes and the Hugging Face secret to `dev`, disables implicit
+Volume creation, and passes the profile's environment to dispatch and
+collection children. The full suite passes 420 tests with 23 expected skips.
+A read-only dedicated-VM child using the patched environment successfully
+verified the exact prior terminal bundle and nine raw documents without a new
+scored dispatch or model call. This closes the specific cross-environment
+read failure, but not an end-to-end scored-run or full persistence test.
+Stop paid retries until terminal/billing reconciliation, a separately scoped
+no-spend collection-persistence check, and a new one-use operator decision. See
+`evidence/solo_pilot/20261003-environment-binding/README.md`.
+
 Latest live checkpoint (October 3): the authorized V8 ceiling of $20 Modal
 and $3.10 OpenRouter admitted one exploratory solo attempt,
 `solo-statusprobe-1003`. Public reference and candidate evaluation and hidden
@@ -14,8 +45,8 @@ call and staged a complete 64-document result, but repeated connected
 collection apps failed with a stopped-app/Modal-client connection error. The
 run is aborted and non-scoreable; the ambiguous call's full reservation stays
 held. Admitted or reserved amounts after the abort are $18.66358603 Modal and
-$3.01434414 OpenRouter, not settled bills. No subsequent paid run has been
-launched.
+$3.01434414 OpenRouter, not settled bills. This describes the earlier V8
+checkpoint; the subsequent V9 attempt is recorded above.
 
 The unqualified local remediation replaces connected collect-only apps with a
 restartable trusted-client collector. New scored calls stage one compressed,

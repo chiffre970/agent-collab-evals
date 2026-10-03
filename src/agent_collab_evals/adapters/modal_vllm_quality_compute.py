@@ -35,6 +35,7 @@ from .local_measurements import LocalMeasurementBundleStore
 from .modal_vllm_compute import (
     _COLLECTION_LEASE_SECONDS,
     _DIRECT_COLLECTOR_SCRIPT,
+    _PILOT_MODAL_ENVIRONMENT,
     _direct_collector_prefix,
     _failure,
     _load_object,
@@ -93,6 +94,8 @@ class ModalVllmQualityProfile:
     ) -> "ModalVllmQualityProfile":
         if not profile_id or not modal_environment or not evidence_volume:
             raise ValueError("Modal quality profile strings must be nonempty")
+        if modal_environment != _PILOT_MODAL_ENVIRONMENT:
+            raise ValueError("the development Modal profile requires the dev environment")
         if type(attempt) is not int or attempt < 1:
             raise ValueError("Modal quality attempt is invalid")
         if (

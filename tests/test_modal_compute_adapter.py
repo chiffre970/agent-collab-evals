@@ -231,6 +231,12 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertNotIn("HF_TOKEN", environment)
         with self.assertRaisesRegex(ValueError, "requires the dev environment"):
             _minimal_modal_environment("main")
+        alternate = json.loads(PROFILE_PATH.read_text())
+        alternate["modal_environment"] = "main"
+        alternate_path = self.state_root / "wrong-environment.json"
+        alternate_path.write_text(json.dumps(alternate))
+        with self.assertRaisesRegex(ValueError, "requires the dev environment"):
+            ModalVllmComputeProfile.load(alternate_path, repository_root=REPOSITORY_ROOT)
 
     def test_transport_detaches_the_app_around_the_spawned_function(self) -> None:
         command = self.transport._command(
