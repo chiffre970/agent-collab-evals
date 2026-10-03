@@ -9,7 +9,7 @@ choosing work; later sections retain the implementation history.
 Latest live checkpoint (October 3): the authorized V8 ceiling of $20 Modal
 and $3.10 OpenRouter admitted one exploratory solo attempt,
 `solo-statusprobe-1003`. Public reference and candidate evaluation and hidden
-correctness completed. Hidden quality repetition three finished its scored GPU
+correctness completed. The third hidden-quality invocation finished its scored GPU
 call and staged a complete 64-document result, but repeated connected
 collection apps failed with a stopped-app/Modal-client connection error. The
 run is aborted and non-scoreable; the ambiguous call's full reservation stays
@@ -27,12 +27,15 @@ redispatches the scored function. The public, quality, and correctness
 transport digests changed, so this cannot be applied retroactively to the
 aborted run. A client-only Modal check uploaded and read back 64 synthetic
 documents from a separate `preflight-direct` evidence root with no Modal App
-or scored call. This validates the Volume API path but not end-to-end scoring.
-Before another GPU attempt, pass no-spend integration checks for all three
-transports, qualify collection against an already completed call, reconcile
-current billing and reservations, and obtain a new one-use authorization. Do
-not advance to multi-condition runs yet. The local suite passes 418 tests with
-23 expected live-integration skips.
+or scored call. A second client-only check read all 64 staged documents from
+the completed third quality invocation and copied them to another separate
+root with matching digests. This validates old-format recovery and direct
+Volume copying, but not the new single-bundle staging path or end-to-end
+scoring. The dedicated VM passed 46 targeted no-spend tests at the new pinned
+commit. Before another GPU attempt, qualify new-format staging with a bounded
+CPU-only check, reconcile current billing and reservations, and obtain a new
+one-use authorization. Do not advance to multi-condition runs yet. The local
+suite passes 418 tests with 23 expected live-integration skips.
 
 Latest live checkpoint (October 2): the approved V7 evidence-bound settlement
 raised cumulative admission ceilings to $17 Modal and $3.10 OpenRouter for
