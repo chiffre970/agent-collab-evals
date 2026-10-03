@@ -210,7 +210,7 @@ def _validate_staging_bundle_settlement(document, plan_digest):
         or pointer.get("schema_version") != "modal-evaluator-staging-pointer/v0alpha1"
         or pointer.get("volume_name") != "agent-collab-evals-evaluator-staging-v2"
         or not isinstance(pointer.get("root"), str)
-        or not pointer["root"].startswith("model-serving/")
+        or not pointer["root"].startswith("model-serving-quality/")
         or not isinstance(pointer.get("remote_receipt_digest"), str)
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", pointer["remote_receipt_digest"])):
         raise ValueError("later terminal Modal observation differs")
