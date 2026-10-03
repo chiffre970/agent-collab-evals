@@ -70,6 +70,7 @@ class PilotSpendEnvelope:
         self._connected_retry = None
         self._reference_retry = None
         self._staging_retry = None
+        self._environment_retry = None
         self._initial_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
@@ -92,8 +93,15 @@ class PilotSpendEnvelope:
             elif retry["schema_version"] in {"exploratory-solo-retry/v6",
                                              "exploratory-solo-retry/v7",
                                              "exploratory-solo-retry/v8",
-                                             "exploratory-solo-retry/v9"}:
-                if retry["schema_version"] == "exploratory-solo-retry/v9":
+                                             "exploratory-solo-retry/v9",
+                                             "exploratory-solo-retry/v10"}:
+                if retry["schema_version"] == "exploratory-solo-retry/v10":
+                    self._environment_retry = retry
+                    self._staging_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
+                    self._reference_retry = parse_json(Path(self._staging_retry["previous_amendment"]["file"]).read_text())
+                    self._connected_retry = parse_json(Path(self._reference_retry["previous_amendment"]["file"]).read_text())
+                    self._series_retry = parse_json(Path(self._connected_retry["previous_amendment"]["file"]).read_text())
+                elif retry["schema_version"] == "exploratory-solo-retry/v9":
                     self._staging_retry = retry
                     self._reference_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
                     self._connected_retry = parse_json(Path(self._reference_retry["previous_amendment"]["file"]).read_text())
@@ -118,7 +126,8 @@ class PilotSpendEnvelope:
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                filename = ("staging-settlement-approval.json" if self._staging_retry is not None
+                filename = ("environment-settlement-approval.json" if self._environment_retry is not None
+                    else "staging-settlement-approval.json" if self._staging_retry is not None
                     else "reference-probe-approval.json" if self._reference_retry is not None
                     else "connected-settlement-approval.json" if self._connected_retry is not None
                     else "series-settlement-approval.json" if self._series_retry is not None
@@ -224,6 +233,11 @@ class PilotSpendEnvelope:
             or staging_settlement.exists() and (self._staging_retry is None
                 or staging_settlement.read_bytes() != canonical_json_bytes(self._staging_retry))):
             raise PermissionError("journal requires its pinned staging settlement amendment")
+        environment_settlement = self.root / "retry/environment-settlement-approval.json"
+        if (self._environment_retry is not None and not staging_settlement.exists()
+            or environment_settlement.exists() and (self._environment_retry is None
+                or environment_settlement.read_bytes() != canonical_json_bytes(self._environment_retry))):
+            raise PermissionError("journal requires its pinned environment settlement amendment")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}

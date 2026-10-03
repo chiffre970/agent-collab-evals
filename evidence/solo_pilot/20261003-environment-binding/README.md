@@ -23,18 +23,31 @@ Read-only collection of the retained call also succeeds with the patched
 evaluator when the host environment variable is absent. A child process on
 the dedicated VM, launched through the patched minimal environment, verified
 the same terminal pointer and nine raw documents. These checks made no new
-scored dispatch, GPU call, or model call. The full local suite passes 420
-tests, with 23 live-integration tests skipped. They do not prove the full
-evidence-copy and score closure path.
+scored dispatch, GPU call, or model call. The local suite at that checkpoint
+ran 420 tests: 397 passed and 23 live-integration tests were skipped.
+
+The actual trusted-client collector subsequently completed the full persistence
+and normalization path against that retained call. All nine raw documents were
+verified and the normalized reference was valid. The conformance receipt is at
+`/home/rmh.guest/agent-collab-evals/.private/dev-persistence-1003-v2/conformance.json`,
+digest `sha256:87bdc44322730de5590d158b8fbee68f8868ece774b7d2dae7e645081d1a6d90`.
+It created no scored dispatch or model call and did not alter the original audit
+or ledgers. This proves evidence-copy and normalization, not end-to-end score
+closure.
 
 The original audit remains at
 `/home/rmh.guest/ace-runs/solo-stagingfix-1003/audit.json` with digest
 `sha256:2b6502eca0e1d1b6b975cc2dc86724f49357c314e0a5eb10dbec32ae4a0bc79f`.
-Its cancellation request is not terminal cleanup or settled billing proof.
-The unused allowances must be reconciled from provider evidence before
-another complete run can be admitted. Do not attempt another paid run until
-terminal/billing reconciliation, a separately scoped no-spend
-collection-persistence check, and a new one-use decision are recorded.
+Its original cancellation request is not terminal cleanup or settled billing
+proof. Subsequent retained observations confirm this call returned its terminal
+bundle and the older reserved call `fc-01M3XVBN06YC79HA1EACHJJTVA` was cancelled.
+Hourly bills for their stopped apps total $0.22915129 and $0.08628110,
+respectively. The V10 evidence-bound settlement keeps a $0.10 buffer per app,
+releases only the terminal attempts' unused Modal allowances and the latest
+entirely unused model allowance, and preserves all earlier evidence.
+The new one-use decision permits `solo-devbound-1003` under the unchanged
+$20 Modal / $3.10 OpenRouter cumulative ceilings. Preparation must verify the
+settlement and complete-run capacity before issuing execution authority.
 
 Modal documents that Volumes are environment-scoped and that changes must
 be committed or reloaded for cross-container visibility. See its

@@ -15,9 +15,12 @@ from .canonical import canonical_json_bytes, digest_bytes, digest_file, digest_v
 
 _REFERENCE_ABORT_AUDIT_DIGEST = "sha256:1b055e27b062de5a6f07b90a5f62dc13e365864fb7748398e79532037188c109"
 _REFERENCE_ABORT_SOURCE_COMMIT = "f5ea74212535a29dce73c412b7d807d834219d80"
+_ENVIRONMENT_ABORT_AUDIT_DIGEST = "sha256:2b6502eca0e1d1b6b975cc2dc86724f49357c314e0a5eb10dbec32ae4a0bc79f"
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v10":
+        return _validate_environment_recovery(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v9":
         return _validate_staging_bundle_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v8":
@@ -104,6 +107,148 @@ def _billing_nanos(row):
     if not amount.is_finite() or amount <= 0 or amount != amount.to_integral_value():
         raise ValueError("settlement billing amount is invalid")
     return int(amount)
+
+
+def _validate_environment_recovery(document, plan_digest):
+    """Settle two terminal reference aborts after full collector conformance."""
+    from .adapters.local_measurements import LocalMeasurementBundleStore
+
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config", "prior_inventory",
+        "prior_dispatch", "conformance", "terminal_observation", "billing_report",
+        "run_id", "provider_limits_usd_nanos", "total_limit_usd_nanos",
+        "billing_buffer_per_run_usd_nanos"}
+    if (not isinstance(document, dict) or set(document) != fields
+        or document["schema_version"] != "exploratory-solo-retry/v10"
+        or document["prior_plan_digest"] != plan_digest
+        or document["run_id"] != "solo-devbound-1003"
+        or document["provider_limits_usd_nanos"] !=
+            {"modal": 20_000_000_000, "openrouter": 3_100_000_000}
+        or document["total_limit_usd_nanos"] != 23_100_000_000
+        or document["billing_buffer_per_run_usd_nanos"] != 100_000_000):
+        raise ValueError("environment recovery fields or limits differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v9":
+        raise ValueError("environment recovery requires the reviewed V9 amendment")
+    older_receipts, releases = validate_retry(previous, plan_digest)
+    _, reference_amendment = _resolve(previous["previous_amendment"])
+    _, older_audit = _resolve(reference_amendment["prior_audit"])
+    audit_path, audit = _resolve(document["prior_audit"])
+    config_path, config = _resolve(document["prior_run_config"])
+    if (audit_path.parent != config_path.parent
+        or document["prior_audit"]["digest"] != _ENVIRONMENT_ABORT_AUDIT_DIGEST
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "reference", "type": "RuntimeError"}
+        or audit.get("budget_reconciliation") is not None
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or config.get("git_commit") != "316c19bf1334310daf43a6d9c825b2b00b2ec2f2"
+        or config.get("git_dirty") is not False
+        or any((audit_path.parent / name).exists() for name in
+            ("budget.sqlite3", "budget-plan.json", "candidate-services", "reference-result.json"))):
+        raise ValueError("environment recovery does not prove a pre-model abort")
+    cleanup = audit.get("remote_cleanup", [])
+    if (len(cleanup) != 1 or cleanup[0].get("status") != "cancellation_requested"
+        or cleanup[0].get("terminal_confirmed") is not False
+        or cleanup[0].get("function_call_id") != "fc-01M40PAXQ6E8RD3GEYG3TQYTSG"):
+        raise ValueError("environment recovery prior cleanup differs")
+    receipts = audit["spend_admission"]["receipts"]
+    by_key = {item["operation_key"]: item for item in receipts}
+    old_keys = {item["operation_key"] for item in older_receipts}
+    prefix = f"pilot:retry-{digest_value(previous)[7:]}:"
+    expected = {prefix + "openrouter:base": ("openrouter", "pilot", 2_900_000_000),
+        prefix + "modal:base": ("modal", "overhead", 1_000_000_000),
+        f"pilot:{previous['run_id']}:compute:{cleanup[0]['request_digest'][7:]}":
+            ("modal", "pilot", 766_080_000)}
+    if (len(receipts) != len(older_receipts) + 3 or len(by_key) != len(receipts)
+        or set(by_key) - old_keys != set(expected)
+        or any(by_key.get(item["operation_key"]) != item for item in older_receipts)
+        or digest_value(receipts) != document["prior_receipts_digest"]
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("environment recovery admissions differ")
+    for key, values in expected.items():
+        item = by_key[key]
+        if (item["provider"], item["purpose"], item["maximum_usd_nanos"]) != values:
+            raise ValueError("environment recovery allowance differs")
+    inventory = _resolve_path(document["prior_inventory"])
+    dispatch_path, dispatch = _resolve(document["prior_dispatch"])
+    if (inventory != audit_path.parent / "evaluation/compute/inventory.sqlite3"
+        or not dispatch_path.is_relative_to(inventory.parent / "routes")
+        or dispatch.get("function_call_id") != cleanup[0]["function_call_id"]
+        or dispatch.get("measurement_id") != "exec-" + cleanup[0]["request_digest"][7:]):
+        raise ValueError("environment recovery dispatch identity differs")
+    connection = sqlite3.connect(inventory.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        requests = connection.execute("SELECT request_digest FROM route_requests").fetchall()
+    finally:
+        connection.close()
+    if requests != [(cleanup[0]["request_digest"],)]:
+        raise ValueError("environment recovery inventory differs")
+    _, terminal = _resolve(document["terminal_observation"])
+    old_terminal = terminal.get("older_reference", {})
+    latest = terminal.get("latest_reference", {})
+    pointer = latest.get("pointer", {})
+    if (terminal.get("schema_version") != "dev-environment-terminal-observation/v1"
+        or terminal.get("new_scored_dispatches") != 0
+        or terminal.get("actor_containers_active") is not False
+        or not isinstance(terminal.get("apps"), list)
+        or any(app.get("state") != "stopped" for app in terminal["apps"])
+        or old_terminal != {"function_call_id": "fc-01M3XVBN06YC79HA1EACHJJTVA",
+            "status": "terminal_cancelled", "error_type": "RemoteError",
+            "message": "Function call was cancelled by user or a failure."}
+        or older_audit["remote_cleanup"][0]["function_call_id"] != old_terminal["function_call_id"]
+        or latest.get("function_call_id") != dispatch["function_call_id"]
+        or latest.get("status") != "terminal_result"
+        or pointer.get("schema_version") != "modal-evaluator-staging-bundle-pointer/v0alpha1"
+        or pointer.get("root") != dispatch.get("evidence_root")
+        or pointer.get("volume_name") != "agent-collab-evals-evaluator-staging-v2"):
+        raise ValueError("environment recovery terminal evidence differs")
+    _, conformance = _resolve(document["conformance"])
+    receipt_path, receipt = _resolve(conformance.get("measurement_receipt"))
+    store = LocalMeasurementBundleStore(receipt_path.parents[2])
+    bundle = store.load(dispatch["measurement_id"], 1, attempt=1)
+    normalized = bundle.receipt["normalized"]
+    if (conformance.get("schema_version") != "dev-collector-persistence-conformance/v1"
+        or conformance.get("controller_commit") != "396c98473ec53d52c3f08b52b0f5102b75e4fee2"
+        or conformance.get("source_run") != audit["run_id"]
+        or conformance.get("source_audit_digest") != document["prior_audit"]["digest"]
+        or conformance.get("source_dispatch_digest") != document["prior_dispatch"]["digest"]
+        or conformance.get("function_call_id") != dispatch["function_call_id"]
+        or conformance.get("modal_environment") != "dev"
+        or conformance.get("normalized_valid") is not True
+        or conformance.get("raw_documents_verified") != 9
+        or conformance.get("new_scored_dispatches") != 0
+        or conformance.get("new_model_calls") != 0
+        or conformance.get("original_audit_or_ledgers_modified") is not False
+        or normalized.get("valid") is not True
+        or normalized.get("modal_function_call_id") != dispatch["function_call_id"]
+        or len(receipt.get("raw_digests", {})) != 9):
+        raise ValueError("environment recovery full persistence evidence differs")
+    _, billing = _resolve(document["billing_report"])
+    if (billing.get("schema_version") != "dev-environment-billing-snapshot/v1"
+        or billing.get("command") != ["billing", "report", "--start", "2026-10-02",
+            "--end", "2026-10-04", "-r", "h", "--json", "--show-resources"]
+        or not isinstance(billing.get("rows"), list)):
+        raise ValueError("environment recovery billing snapshot differs")
+    total_billed = 0
+    for app, hours, count, expected_cost in (
+        ("ap-81EHOHnmxdm2Z2FCD4JE7J", {"2026-10-02T08:00:00"}, 3, 86_281_100),
+        ("ap-eqjg9YDDJ21f7rvfDlxNs7", {"2026-10-03T10:00:00", "2026-10-03T11:00:00"},
+            6, 229_151_290),
+    ):
+        rows = [row for row in billing["rows"] if row.get("object_id") == app]
+        if (len(rows) != count or {row.get("interval_start") for row in rows} != hours
+            or len({(row.get("interval_start"), row.get("resource")) for row in rows}) != count
+            or any(row.get("resource") not in {"CPU", "Memory", "L4"} for row in rows)
+            or sum(_billing_nanos(row) for row in rows) != expected_cost):
+            raise ValueError("environment recovery complete billed intervals differ")
+        total_billed += expected_cost
+    # V8 deliberately retained the earlier $1 overhead and $0.76608 dispatch.
+    # Release each terminal attempt once, retaining a separate $0.10 buffer.
+    releases["modal"] += (2 * 1_766_080_000 - total_billed
+        - 2 * document["billing_buffer_per_run_usd_nanos"])
+    releases["openrouter"] += 2_900_000_000
+    return receipts, releases
 
 
 def _validate_staging_bundle_settlement(document, plan_digest):

@@ -17,6 +17,7 @@ from agent_collab_evals.pilot_retry import (
     _validate_collector_failure_settlement,
     _validate_feedback_failure_settlement,
     _validate_reference_probe_settlement,
+    _validate_environment_recovery,
 )
 
 
@@ -752,6 +753,140 @@ class PilotSpendTests(unittest.TestCase):
             latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
             self.assertTrue((latest.root / "retry/staging-settlement-approval.json").exists())
             with self.assertRaisesRegex(PermissionError, "staging settlement"):
+                PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
+
+    def test_environment_recovery_requires_terminal_billing_and_full_persistence(self):
+        def ref(path):
+            return {"file": str(path), "digest": digest_file(path)}
+
+        def retain(name, document):
+            path = self.root / name
+            retain_document(path, document)
+            return ref(path)
+
+        old_call = "fc-01M3XVBN06YC79HA1EACHJJTVA"
+        call = "fc-01M40PAXQ6E8RD3GEYG3TQYTSG"
+        older_audit = retain("older-audit.json", {"remote_cleanup": [{"function_call_id": old_call}]})
+        reference = retain("reference-amendment.json", {"prior_audit": older_audit})
+        previous = {"schema_version": "exploratory-solo-retry/v9",
+            "run_id": "solo-stagingfix-1003", "previous_amendment": reference}
+        previous_ref = retain("previous.json", previous)
+        request = digest_value("reference")
+        measurement = "exec-" + request[7:]
+        prefix = f"pilot:retry-{digest_value(previous)[7:]}:"
+        receipts = [{"operation_key": key, "provider": provider, "purpose": purpose,
+            "maximum_usd_nanos": amount, "plan_digest": self.envelope.plan_digest,
+            "request_digest": digest_value(key)} for key, provider, purpose, amount in (
+                (prefix + "openrouter:base", "openrouter", "pilot", 2_900_000_000),
+                (prefix + "modal:base", "modal", "overhead", 1_000_000_000),
+                (f"pilot:{previous['run_id']}:compute:{request[7:]}", "modal", "pilot", 766_080_000))]
+        config = retain("run-config.json", {
+            "git_commit": "316c19bf1334310daf43a6d9c825b2b00b2ec2f2", "git_dirty": False})
+        audit = retain("audit.json", {"run_id": previous["run_id"], "status": "aborted",
+            "scoreable": False, "failure": {"stage": "reference", "type": "RuntimeError"},
+            "budget_reconciliation": None, "run_config_digest": config["digest"],
+            "remote_cleanup": [{"status": "cancellation_requested", "terminal_confirmed": False,
+                "function_call_id": call, "request_digest": request}],
+            "spend_admission": {"receipts": receipts, "retry_amendment_digest": digest_value(previous)}})
+        inventory_path = self.root / "evaluation/compute/inventory.sqlite3"
+        inventory_path.parent.mkdir(parents=True)
+        connection = sqlite3.connect(inventory_path)
+        try:
+            connection.execute("CREATE TABLE route_requests (request_digest TEXT)")
+            connection.execute("INSERT INTO route_requests VALUES (?)", (request,))
+            connection.commit()
+        finally:
+            connection.close()
+        dispatch = retain("evaluation/compute/routes/route/dispatch.json", {
+            "function_call_id": call, "measurement_id": measurement, "evidence_root": "staged/reference"})
+        terminal = {"schema_version": "dev-environment-terminal-observation/v1",
+            "new_scored_dispatches": 0, "actor_containers_active": False,
+            "apps": [{"state": "stopped"}], "older_reference": {
+                "function_call_id": old_call, "status": "terminal_cancelled", "error_type": "RemoteError",
+                "message": "Function call was cancelled by user or a failure."},
+            "latest_reference": {"function_call_id": call, "status": "terminal_result", "pointer": {
+                "schema_version": "modal-evaluator-staging-bundle-pointer/v0alpha1",
+                "root": "staged/reference", "volume_name": "agent-collab-evals-evaluator-staging-v2"}}}
+        store = LocalMeasurementBundleStore(self.root / "diagnostic/measurements")
+        saved = store.save(measurement, 1, {"valid": True, "modal_function_call_id": call},
+            {f"point-{index}.json": canonical_json_bytes({"index": index}) for index in range(9)})
+        conformance = {"schema_version": "dev-collector-persistence-conformance/v1",
+            "controller_commit": "396c98473ec53d52c3f08b52b0f5102b75e4fee2",
+            "source_run": previous["run_id"], "source_audit_digest": audit["digest"],
+            "source_dispatch_digest": dispatch["digest"], "function_call_id": call,
+            "modal_environment": "dev", "normalized_valid": True, "raw_documents_verified": 9,
+            "new_scored_dispatches": 0, "new_model_calls": 0, "original_audit_or_ledgers_modified": False,
+            "measurement_receipt": ref(saved / "receipt.json")}
+        rows = []
+        for app, hours, amounts in (
+            ("ap-81EHOHnmxdm2Z2FCD4JE7J", ("2026-10-02T08:00:00",), (86_281_098, 1, 1)),
+            ("ap-eqjg9YDDJ21f7rvfDlxNs7", ("2026-10-03T10:00:00", "2026-10-03T11:00:00"),
+                (229_151_285, 1, 1, 1, 1, 1)),
+        ):
+            for index, amount in enumerate(amounts):
+                rows.append({"object_id": app, "environment": "dev", "interval_start": hours[index // 3],
+                    "resource": ("CPU", "Memory", "L4")[index % 3],
+                    "cost": f"{amount // 1_000_000_000}.{amount % 1_000_000_000:09d}"})
+        billing = {"schema_version": "dev-environment-billing-snapshot/v1",
+            "command": ["billing", "report", "--start", "2026-10-02", "--end", "2026-10-04",
+                "-r", "h", "--json", "--show-resources"], "rows": rows}
+        document = {"schema_version": "exploratory-solo-retry/v10", "previous_amendment": previous_ref,
+            "prior_plan_digest": self.envelope.plan_digest, "prior_receipts_digest": digest_value(receipts),
+            "prior_audit": audit, "prior_run_config": config, "prior_inventory": ref(inventory_path),
+            "prior_dispatch": dispatch, "conformance": retain("conformance.json", conformance),
+            "terminal_observation": retain("terminal.json", terminal), "billing_report": retain("billing.json", billing),
+            "run_id": "solo-devbound-1003", "provider_limits_usd_nanos": {
+                "modal": 20_000_000_000, "openrouter": 3_100_000_000},
+            "total_limit_usd_nanos": 23_100_000_000, "billing_buffer_per_run_usd_nanos": 100_000_000}
+        with (patch("agent_collab_evals.pilot_retry.validate_retry",
+                side_effect=lambda *_: ([], {"modal": 123, "openrouter": 456})),
+              patch("agent_collab_evals.pilot_retry._ENVIRONMENT_ABORT_AUDIT_DIGEST", audit["digest"])):
+            retained, releases = _validate_environment_recovery(document, self.envelope.plan_digest)
+            self.assertEqual(retained, receipts)
+            self.assertEqual(releases, {"modal": 3_016_727_733, "openrouter": 2_900_000_456})
+            for field, mutated, message in (
+                ("conformance", {**conformance, "normalized_valid": False}, "persistence"),
+                ("terminal_observation", {**terminal, "actor_containers_active": True}, "terminal"),
+                ("billing_report", {**billing, "rows": rows[:-1]}, "billed intervals"),
+            ):
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, message):
+                    _validate_environment_recovery({**document, field: retain(f"bad-{field}.json", mutated)},
+                        self.envelope.plan_digest)
+            with self.assertRaisesRegex(ValueError, "limits"):
+                _validate_environment_recovery({**document, "total_limit_usd_nanos": 24_000_000_000},
+                    self.envelope.plan_digest)
+            with self.assertRaisesRegex(ValueError, "digest"):
+                _validate_environment_recovery({**document, "conformance": {
+                    **document["conformance"], "digest": digest_value("tampered")}}, self.envelope.plan_digest)
+
+    def test_environment_settlement_marker_blocks_older_authority(self):
+        chain = []
+        for index in range(1, 11):
+            value = {"schema_version": f"exploratory-solo-retry/v{index}",
+                "run_id": f"run-{index}",
+                "provider_limits_usd_nanos": {"modal": 20_000_000_000,
+                    "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000}
+            if chain:
+                value["previous_amendment"] = {"file": str(chain[-1][0]),
+                    "digest": digest_file(chain[-1][0])}
+            path = self.root / f"amendment-{index}.json"
+            retain_document(path, value)
+            chain.append((path, value))
+        names = ("approval.json", "settlement-approval.json",
+            "final-settlement-approval.json", "feedback-settlement-approval.json",
+            "collector-settlement-approval.json", "series-settlement-approval.json",
+            "connected-settlement-approval.json", "reference-probe-approval.json",
+            "staging-settlement-approval.json")
+        for name, (_, value) in zip(names, chain):
+            retain_document(self.envelope.root / "retry" / name, value)
+        with patch("agent_collab_evals.pilot_retry.validate_retry",
+                return_value=([], {"modal": 0, "openrouter": 0})):
+            latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertTrue((latest.root / "retry/environment-settlement-approval.json").exists())
+            self.assertEqual(PilotSpendEnvelope(latest.root, self.plan,
+                retry=chain[-1][1]).snapshot(), latest.snapshot())
+            with self.assertRaisesRegex(PermissionError, "environment settlement"):
                 PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
 
 

@@ -28,13 +28,23 @@ Read-only retrieval of the already-terminal call and its nine raw reference
 documents succeeds when `dev` is explicitly selected. The local fix pins all
 evaluator Volumes and the Hugging Face secret to `dev`, disables implicit
 Volume creation, and passes the profile's environment to dispatch and
-collection children. The full suite passes 420 tests with 23 expected skips.
+collection children. That full suite ran 420 tests: 397 passed and 23 were skipped.
 A read-only dedicated-VM child using the patched environment successfully
 verified the exact prior terminal bundle and nine raw documents without a new
 scored dispatch or model call. This closes the specific cross-environment
-read failure, but not an end-to-end scored-run or full persistence test.
-Stop paid retries until terminal/billing reconciliation, a separately scoped
-no-spend collection-persistence check, and a new one-use operator decision. See
+read failure. The subsequent actual collector-persistence check also passed:
+all nine raw documents were persisted, digest-verified, and normalized as valid,
+without a new scored dispatch or model call. Its retained conformance digest is
+`sha256:87bdc44322730de5590d158b8fbee68f8868ece774b7d2dae7e645081d1a6d90`.
+The original audit remains unchanged. Later provider observations confirm the
+older reserved reference call was cancelled and the latest reference returned
+its terminal bundle. Retained hourly billing totals are $0.08628110 and
+$0.22915129 for those stopped apps. An evidence-bound V10 amendment validates
+those observations, the full collector receipt, and both billing snapshots,
+retaining a $0.10 buffer per stopped attempt. It restores sufficient admission
+capacity for the newly authorized `solo-devbound-1003` attempt under the same
+$20 Modal / $3.10 OpenRouter ceilings. End-to-end score closure is not yet proven.
+Do not launch without the matching durable one-use authority. See
 `evidence/solo_pilot/20261003-environment-binding/README.md`.
 
 Latest live checkpoint (October 3): the authorized V8 ceiling of $20 Modal
