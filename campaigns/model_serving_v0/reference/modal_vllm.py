@@ -27,6 +27,7 @@ import modal
 
 
 APP_NAME = "agent-collab-evals-model-serving-reference"
+PILOT_MODAL_ENVIRONMENT = "dev"
 IMAGE_REF = "nvidia/cuda:12.9.0-devel-ubuntu22.04"
 IMAGE_DIGEST = "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092"
 PINNED_IMAGE_REF = f"nvidia/cuda@{IMAGE_DIGEST}"
@@ -69,19 +70,24 @@ reference_image = (
     )
 )
 model_cache = modal.Volume.from_name(
-    "agent-collab-evals-huggingface-cache", create_if_missing=True
+    "agent-collab-evals-huggingface-cache",
+    environment_name=PILOT_MODAL_ENVIRONMENT, create_if_missing=False,
 )
 vllm_cache = modal.Volume.from_name(
-    "agent-collab-evals-vllm-cache", create_if_missing=True
+    "agent-collab-evals-vllm-cache",
+    environment_name=PILOT_MODAL_ENVIRONMENT, create_if_missing=False,
 )
 evidence_volume = modal.Volume.from_name(
-    EVIDENCE_VOLUME_NAME, create_if_missing=True, version=2
+    EVIDENCE_VOLUME_NAME, environment_name=PILOT_MODAL_ENVIRONMENT,
+    create_if_missing=False, version=2,
 )
 staging_volume = modal.Volume.from_name(
-    STAGING_VOLUME_NAME, create_if_missing=True, version=2
+    STAGING_VOLUME_NAME, environment_name=PILOT_MODAL_ENVIRONMENT,
+    create_if_missing=False, version=2,
 )
 huggingface_secret = modal.Secret.from_name(
-    "huggingface-secret", required_keys=["HF_TOKEN"]
+    "huggingface-secret", environment_name=PILOT_MODAL_ENVIRONMENT,
+    required_keys=["HF_TOKEN"],
 )
 
 

@@ -272,7 +272,7 @@ class ModalVllmCliTransport:
         result = subprocess.run(
             command,
             cwd=self._repository_root,
-            env=_minimal_modal_environment(),
+            env=_minimal_modal_environment(self._profile.modal_environment),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -339,7 +339,7 @@ class ModalVllmCliTransport:
                     timeout_seconds=collection_lease,
                 ),
                 cwd=self._repository_root,
-                env=_minimal_modal_environment(),
+                env=_minimal_modal_environment(self._profile.modal_environment),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -812,7 +812,9 @@ def _remote_call_pending(external_call_id: str) -> bool:
     return False
 
 
-def _minimal_modal_environment() -> dict[str, str]:
+def _minimal_modal_environment(modal_environment: str) -> dict[str, str]:
+    if modal_environment != "dev":
+        raise ValueError("the development Modal transport requires the dev environment")
     allowed = (
         "HOME",
         "PATH",
@@ -824,7 +826,10 @@ def _minimal_modal_environment() -> dict[str, str]:
         "MODAL_TOKEN_ID",
         "MODAL_TOKEN_SECRET",
     )
-    return {key: os.environ[key] for key in allowed if key in os.environ}
+    return {
+        **{key: os.environ[key] for key in allowed if key in os.environ},
+        "MODAL_ENVIRONMENT": modal_environment,
+    }
 
 
 def _write_once(path: Path, content: bytes) -> None:

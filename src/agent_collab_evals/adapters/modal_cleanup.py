@@ -11,9 +11,10 @@ from ..pilot_evidence import retain_document
 class ModalCallCanceller:
     """Request cancellation only; acknowledgment is not terminal billing proof."""
 
-    def __init__(self, repository: Path, modal_cli: Path):
+    def __init__(self, repository: Path, modal_cli: Path, modal_environment: str = "dev"):
         self.repository = repository
         self.python = modal_cli.parent / "python"
+        self.modal_environment = modal_environment
 
     def cancel(self, call_id: str) -> dict:
         from .modal_vllm_compute import _minimal_modal_environment
@@ -22,7 +23,8 @@ class ModalCallCanceller:
             raise ValueError("Modal cleanup call ID is invalid")
         result = subprocess.run(
             (str(self.python), str(self.repository / "scripts/runtime/modal_cancel.py"), call_id),
-            cwd=self.repository, env=_minimal_modal_environment(), stdin=subprocess.DEVNULL,
+            cwd=self.repository, env=_minimal_modal_environment(self.modal_environment),
+            stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=30, check=False)
         if result.returncode != 0:
             raise RuntimeError("Modal cancellation was not acknowledged")

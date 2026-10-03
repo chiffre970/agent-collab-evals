@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import tempfile
@@ -44,6 +45,27 @@ CAMPAIGN_PATH = REPOSITORY_ROOT / "campaigns/model_serving_v0/campaign.toml"
 
 
 class ModalCallProbeTests(unittest.TestCase):
+    def test_evaluator_resources_are_pinned_and_never_implicitly_created(self) -> None:
+        script = REPOSITORY_ROOT / "campaigns/model_serving_v0/reference/modal_vllm.py"
+        tree = ast.parse(script.read_text())
+        environment_pins = [node.value.value for node in tree.body
+            if isinstance(node, ast.Assign) and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "PILOT_MODAL_ENVIRONMENT"
+            and isinstance(node.value, ast.Constant)]
+        self.assertEqual(environment_pins, ["dev"])
+        resource_calls = [node for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "from_name" and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr in {"Volume", "Secret"}]
+        self.assertEqual(len(resource_calls), 5)
+        for call in resource_calls:
+            keywords = {item.arg: item.value for item in call.keywords}
+            self.assertEqual(ast.unparse(keywords["environment_name"]),
+                "PILOT_MODAL_ENVIRONMENT")
+            if call.func.value.attr == "Volume":
+                self.assertIs(keywords["create_if_missing"].value, False)
+
     def test_collector_interpreter_must_exist_before_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             modal_cli = Path(temporary) / "modal"
@@ -203,9 +225,12 @@ class ModalComputeAdapterTests(unittest.TestCase):
             self.profile.performance_profile_digest,
             self.campaign.transitive_digests["public_profile"],
         )
-        environment = _minimal_modal_environment()
+        environment = _minimal_modal_environment(self.profile.modal_environment)
+        self.assertEqual(environment["MODAL_ENVIRONMENT"], "dev")
         self.assertNotIn("OPENROUTER_API_KEY", environment)
         self.assertNotIn("HF_TOKEN", environment)
+        with self.assertRaisesRegex(ValueError, "requires the dev environment"):
+            _minimal_modal_environment("main")
 
     def test_transport_detaches_the_app_around_the_spawned_function(self) -> None:
         command = self.transport._command(
@@ -319,6 +344,7 @@ class ModalComputeAdapterTests(unittest.TestCase):
         self.assertEqual(pending.external_call_id, function_call_id)
         self.assertIn("--collect-only", collect.call_args.args[0])
         self.assertNotIn("--dispatch-only", collect.call_args.args[0])
+        self.assertEqual(collect.call_args.kwargs["env"]["MODAL_ENVIRONMENT"], "dev")
         self.assertEqual(
             self.authorizations.status(self.authorization.authorization_id), "consumed"
         )

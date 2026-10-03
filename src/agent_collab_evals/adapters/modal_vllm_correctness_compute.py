@@ -239,7 +239,7 @@ class ModalVllmCorrectnessCliTransport:
                 candidate_path, measurement_id, role, dispatch_only=True
             ),
             cwd=self._repository_root,
-            env=_minimal_modal_environment(),
+            env=_minimal_modal_environment(self._profile.modal_environment),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -289,7 +289,7 @@ class ModalVllmCorrectnessCliTransport:
                     timeout_seconds=collection_lease,
                 ),
                 cwd=self._repository_root,
-                env=_minimal_modal_environment(),
+                env=_minimal_modal_environment(self._profile.modal_environment),
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
