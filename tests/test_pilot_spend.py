@@ -727,6 +727,33 @@ class PilotSpendTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "reference-probe"):
                 PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
 
+    def test_staging_settlement_marker_blocks_older_authority(self):
+        chain = []
+        for index in range(1, 10):
+            value = {"schema_version": f"exploratory-solo-retry/v{index}",
+                "run_id": f"run-{index}",
+                "provider_limits_usd_nanos": {"modal": 20_000_000_000,
+                    "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000}
+            if chain:
+                value["previous_amendment"] = {"file": str(chain[-1][0]),
+                    "digest": digest_file(chain[-1][0])}
+            path = self.root / f"amendment-{index}.json"
+            retain_document(path, value)
+            chain.append((path, value))
+        names = ("approval.json", "settlement-approval.json",
+            "final-settlement-approval.json", "feedback-settlement-approval.json",
+            "collector-settlement-approval.json", "series-settlement-approval.json",
+            "connected-settlement-approval.json", "reference-probe-approval.json")
+        for name, (_, value) in zip(names, chain):
+            retain_document(self.envelope.root / "retry" / name, value)
+        with patch("agent_collab_evals.pilot_retry.validate_retry",
+                return_value=([], {"modal": 0, "openrouter": 0})):
+            latest = PilotSpendEnvelope(self.envelope.root, self.plan, retry=chain[-1][1])
+            self.assertTrue((latest.root / "retry/staging-settlement-approval.json").exists())
+            with self.assertRaisesRegex(PermissionError, "staging settlement"):
+                PilotSpendEnvelope(latest.root, self.plan, retry=chain[-2][1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,8 @@ _REFERENCE_ABORT_SOURCE_COMMIT = "f5ea74212535a29dce73c412b7d807d834219d80"
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v9":
+        return _validate_staging_bundle_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v8":
         return _validate_reference_probe_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v7":
@@ -102,6 +104,174 @@ def _billing_nanos(row):
     if not amount.is_finite() or amount <= 0 or amount != amount.to_integral_value():
         raise ValueError("settlement billing amount is invalid")
     return int(amount)
+
+
+def _validate_staging_bundle_settlement(document, plan_digest):
+    """Settle the V8 abort only after terminal, billing, and model evidence.
+
+    The older unresolved reference dispatch remains reserved by the V8 chain.
+    This amendment does not make the aborted run scoreable.
+    """
+    fields = {"schema_version", "previous_amendment", "prior_plan_digest",
+        "prior_receipts_digest", "prior_audit", "prior_run_config", "prior_budget_plan",
+        "prior_budget_database", "prior_compute_inventory", "prior_compute_route",
+        "terminal_observation", "billing_report", "staging_diagnostic",
+        "staging_approval", "staging_result", "run_id", "provider_limits_usd_nanos",
+        "total_limit_usd_nanos", "billing_buffer_usd_nanos", "model_buffer_usd_nanos"}
+    if (not isinstance(document, dict) or set(document) != fields
+        or document["schema_version"] != "exploratory-solo-retry/v9"
+        or document["prior_plan_digest"] != plan_digest
+        or document["run_id"] != "solo-stagingfix-1003"
+        or document["provider_limits_usd_nanos"] !=
+            {"modal": 20_000_000_000, "openrouter": 3_100_000_000}
+        or document["total_limit_usd_nanos"] != 23_100_000_000
+        or document["billing_buffer_usd_nanos"] != 100_000_000
+        or document["model_buffer_usd_nanos"] != 10_000_000):
+        raise ValueError("staging-bundle settlement fields or limits differ")
+    _, previous = _resolve(document["previous_amendment"])
+    if previous.get("schema_version") != "exploratory-solo-retry/v8":
+        raise ValueError("staging-bundle settlement requires the reviewed V8 amendment")
+    older_receipts, releases = validate_retry(previous, plan_digest)
+    audit_path, audit = _resolve(document["prior_audit"])
+    config_path, run_config = _resolve(document["prior_run_config"])
+    if (audit_path.parent != config_path.parent
+        or document["prior_audit"]["digest"] !=
+            "sha256:3030449ace799cb20f2e9a9a00425c11aa872e28c2e4e4d63a23859fa48c2fdf"
+        or audit.get("run_id") != previous["run_id"]
+        or audit.get("status") != "aborted" or audit.get("scoreable") is not False
+        or audit.get("failure") != {"stage": "hidden_evaluation", "type": "RuntimeError"}
+        or audit.get("budget_reconciliation", {}).get("valid") is not True
+        or audit.get("run_config_digest") != document["prior_run_config"]["digest"]
+        or run_config.get("git_commit") != "176d3912c4d30f7b4435aa6021c46badd79bf822"
+        or run_config.get("git_dirty") is not False
+        or audit_path.parent.joinpath("hidden-result.json").exists()
+        or audit_path.parent.joinpath("budget.sqlite3-wal").stat().st_size != 0):
+        raise ValueError("prior staging-bundle attempt differs")
+    cleanup = audit.get("remote_cleanup", [])
+    ambiguous = [item for item in cleanup if item.get("status") == "cancellation_requested"]
+    if (len(cleanup) != 12 or len(ambiguous) != 1
+        or sum(item.get("status") == "terminal_evidence_verified" and
+            item.get("terminal_confirmed") is True for item in cleanup) != 5
+        or sum(item.get("status") == "not_dispatched" for item in cleanup) != 6
+        or ambiguous[0].get("terminal_confirmed") is not False
+        or ambiguous[0].get("function_call_id") !=
+            "fc-01M3YQZ7V6AQA075F29G3FQP5G"):
+        raise ValueError("prior remote cleanup differs")
+    receipts = audit["spend_admission"]["receipts"]
+    old_by_key = {item["operation_key"]: item for item in older_receipts}
+    by_key = {item["operation_key"]: item for item in receipts}
+    prefix = f"pilot:retry-{digest_value(previous)[7:]}:"
+    expected_new = {
+        prefix + "modal:base": ("modal", "overhead", 1_000_000_000),
+        prefix + "openrouter:base": ("openrouter", "pilot", 2_900_000_000),
+        **{f"pilot:{previous['run_id']}:compute:{item['request_digest'][7:]}":
+            ("modal", "pilot", 766_080_000) for item in cleanup},
+    }
+    if (len(receipts) != len(older_receipts) + 14
+        or len(by_key) != len(receipts)
+        or any(by_key.get(key) != value for key, value in old_by_key.items())
+        or set(by_key) - set(old_by_key) != set(expected_new)
+        or audit["spend_admission"].get("retry_amendment_digest") != digest_value(previous)):
+        raise ValueError("prior staging-bundle admissions differ")
+    for key, expected in expected_new.items():
+        receipt = by_key[key]
+        if (receipt["provider"], receipt["purpose"], receipt["maximum_usd_nanos"]) != expected:
+            raise ValueError("prior staging-bundle allowance differs")
+    inventory = _resolve_path(document["prior_compute_inventory"])
+    route = _resolve_path(document["prior_compute_route"])
+    compute_root = audit_path.parent / "evaluation/compute"
+    if (inventory != compute_root / "inventory.sqlite3"
+        or not route.is_relative_to(compute_root / "routes")
+        or route.name != "executions.sqlite3"):
+        raise ValueError("prior compute evidence path differs")
+    with sqlite3.connect(inventory.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        campaigns = connection.execute("SELECT campaign_run_id FROM route_inventory").fetchall()
+        requests = {row[0]: row[1] for row in connection.execute(
+            "SELECT request_digest, route_id FROM route_requests")}
+    if (campaigns != [(previous["run_id"],)]
+        or set(requests) != {item["request_digest"] for item in cleanup}
+        or route.parent.name != requests[ambiguous[0]["request_digest"]]):
+        raise ValueError("prior compute inventory differs")
+    with sqlite3.connect(route.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        dispatch = connection.execute(
+            "SELECT status, external_call_id, dispatch_evidence_digest "
+            "FROM compute_executions WHERE request_digest = ?",
+            (ambiguous[0]["request_digest"],)).fetchone()
+    if (dispatch is None or dispatch[0] != "dispatched"
+        or dispatch[1] != ambiguous[0]["function_call_id"]
+        or not isinstance(dispatch[2], str) or not dispatch[2].startswith("sha256:")):
+        raise ValueError("prior ambiguous dispatch identity differs")
+    _, terminal = _resolve(document["terminal_observation"])
+    pointer = terminal.get("pointer", {})
+    if (terminal.get("schema_version") != "statusprobe-terminal-observation/v1"
+        or terminal.get("function_call_id") != dispatch[1]
+        or terminal.get("new_scored_dispatches") != 0
+        or terminal.get("pointer_digest") != digest_value(pointer)
+        or pointer.get("schema_version") != "modal-evaluator-staging-pointer/v0alpha1"
+        or pointer.get("volume_name") != "agent-collab-evals-evaluator-staging-v2"
+        or not isinstance(pointer.get("root"), str)
+        or not pointer["root"].startswith("model-serving/")
+        or not isinstance(pointer.get("remote_receipt_digest"), str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", pointer["remote_receipt_digest"])):
+        raise ValueError("later terminal Modal observation differs")
+    _, billing = _resolve(document["billing_report"])
+    if (billing.get("schema_version") != "statusprobe-modal-billing-snapshot/v1"
+        or billing.get("command") != ["billing", "report", "--start", "2026-10-02",
+            "--end", "2026-10-04", "-r", "h", "--json", "--show-resources"]
+        or not isinstance(billing.get("rows"), list)):
+        raise ValueError("prior Modal billing snapshot differs")
+    rows = [row for row in billing["rows"] if row.get("interval_start") in
+        {"2026-10-02T15:00:00", "2026-10-02T16:00:00"}]
+    app_ids = {"ap-05VPFb2F1SBtNkqDTjJFUF", "ap-EL5e2oLrLo2hNkoSPpkQBi",
+        "ap-FNeMo9MkDlPF77D4xuTcJ2", "ap-IS497w4DK6ckCzm8k9pnAr",
+        "ap-RNAZpbjJEqgZPPdxVPUJWR", "ap-SHWpUo3xAR8SAMA2BqcU9V",
+        "ap-USJBmygF5dsUdzQxdAqEgt", "ap-UzTUQwjUwNIWVyqGFx3FEJ",
+        "ap-WhTQwGGGhL2Cmwfci32u38", "ap-YTiSJoUpeZzHo9H8DpYOdC",
+        "ap-aXRv3HOeUekDEQyvuDTGcc", "ap-mR1XqV6fraaU6BmXZx5qs1",
+        "ap-uUOA4rz8W2YhKJXyidzxf1"}
+    if (len(rows) != 35 or {row.get("object_id") for row in rows} != app_ids
+        or any(row.get("resource") not in {"L4", "CPU", "Memory"} for row in rows)
+        or any(row.get("object_id") in app_ids for row in billing["rows"] if row not in rows)):
+        raise ValueError("prior Modal billed application set differs")
+    billed = sum(_billing_nanos(row) for row in rows)
+    if billed != 993_867_050:
+        raise ValueError("prior Modal billed amount differs")
+    _, diagnostic = _resolve(document["staging_diagnostic"])
+    _, approval = _resolve(document["staging_approval"])
+    _, result = _resolve(document["staging_result"])
+    if (diagnostic.get("schema_version") != "cpu-staging-bundle-diagnostic/v1"
+        or diagnostic.get("source_commit") != "cc1832319b0ea0b1b4d81e88c9c4e21e14f49f38"
+        or diagnostic.get("approval_digest") != document["staging_approval"]["digest"]
+        or diagnostic.get("result_digest") != document["staging_result"]["digest"]
+        or diagnostic.get("staging_pointer_schema") !=
+            "modal-evaluator-staging-bundle-pointer/v0alpha1"
+        or diagnostic.get("raw_documents_verified") != 1
+        or diagnostic.get("new_scored_dispatches") != 0
+        or diagnostic.get("model_calls") != 0
+        or diagnostic.get("maximum_modal_usd_nanos") != 100_000_000
+        or approval.get("schema_version") != "cpu-staging-bundle-diagnostic-approval/v1"
+        or approval.get("operator_approved_modal_usd_nanos") != 100_000_000
+        or result.get("schema_version") != "modal-staging-conformance/v0alpha1"
+        or result.get("ok") is not True):
+        raise ValueError("CPU-only staging diagnostic differs")
+    diagnostic_receipt = dict(operation_key=prefix + "staging-bundle-1003",
+        provider="modal", purpose="qualification", request_digest=digest_value(approval),
+        maximum_usd_nanos=100_000_000, plan_digest=plan_digest)
+    if diagnostic["admission_digest"] != digest_value(diagnostic_receipt):
+        raise ValueError("CPU diagnostic admission differs")
+    complete_receipts = sorted((*receipts, diagnostic_receipt),
+        key=lambda item: digest_value(item["operation_key"])[7:])
+    if digest_value(complete_receipts) != document["prior_receipts_digest"]:
+        raise ValueError("staging-bundle prior receipts differ")
+    model_cost = _reconcile_prior_model(document, run_config, audit,
+        expected_cost=3_114_720, expected_calls=5)
+    if (billed + document["billing_buffer_usd_nanos"] >= 10_192_960_000
+        or model_cost + document["model_buffer_usd_nanos"] >= 2_900_000_000):
+        raise ValueError("staging-bundle release bounds differ")
+    releases["modal"] += 10_192_960_000 - billed - document["billing_buffer_usd_nanos"]
+    releases["openrouter"] += (2_900_000_000 - model_cost
+        - document["model_buffer_usd_nanos"])
+    return complete_receipts, releases
 
 
 def _validate_reference_probe_settlement(document, plan_digest):
