@@ -149,6 +149,51 @@ post-measurement environment checks.
 `run-solo-evaluation-continuation` command requires an authorization file and
 its independently supplied digest. Neither command requires an OpenRouter key.
 
+## Authorized clean-build deployment
+
+The implementation is committed, pushed, and deployed at
+`fd03324c4a4f217b5efd39b124677dcf90b4453a`. The dedicated VM archives the prior
+source at `.private/original-source-34ca542`. Its original run evidence stays at
+`/home/rmh.guest/ace-runs/solo-devbound-1003` and is not rewritten.
+
+The first deployed preparation correctly rejected the earlier snapshot's
+manifest: that snapshot had 98 Mac metadata files in its source inventory.
+No authority or spend occurred in that failed preparation. A separate clean
+Git preparation verified that the only differences were those non-executable
+files; all executable source digests, candidate bytes, workloads, scoring and
+the six requests are unchanged. The earlier snapshot remains retained, but
+is superseded and was never authorized.
+
+The active state is
+`/home/rmh.guest/agent-collab-evals/.private/solo-devbound-1003/evaluation-continuation-deployed`.
+Its evidence references are:
+
+- Manifest:
+  `sha256:9088405d01ca8e030e5251a33bf98acc9b65d4ef7bd19ce35f4d4142a18e0499`.
+- Reviewed V11 amendment:
+  `sha256:8be5c0b16e2932e7cb3aa1e3d04f1e718a8cd9490b37a9d06a16b709bc44ac29`.
+- Clean-build offline conformance:
+  `sha256:d1d76eaa3df6117cea15ef4a7338170b64ecc50c1e266c45c91ceea376e4218d`.
+- One-use authorization:
+  `sha256:2e7cf54996e8de60da98fab3b21ab952209edcb827cc015d577b788a1c70ab67`.
+- User approval observation:
+  `sha256:f5d55f090cace0728dac5dc0d4a84ecd580c4623f6048105f5b1c062000edd57`.
+- Launch:
+  `sha256:285358c9fe17c698c36004f60d0cec3230e027e98be126b399970ae7602bb3ed`.
+
+The user explicitly authorized this next continuation. It started at
+`2026-10-04T03:03:16Z` as `solo-evalonly-1004`, using only Modal credentials
+relayed in process memory. No OpenRouter key was read or forwarded. Its first
+replacement, `quality-2-reference`, completed as
+`fc-01M42DVGR9BX998BAFCV6AK6HS` with 564 measured function-body seconds and
+no failure. At `2026-10-04T03:17Z`, `quality-3-reference` is dispatched as
+`fc-01M42ENC8SBHA6TDYT60XX5JAR`; four later executions remain unstarted.
+The original audit still matches its pin.
+The full $5.59648 allowance is admitted under the existing cumulative caps.
+Final quality/performance completion and outcome closure remain pending.
+The detached runner continues independently of the chat and requires all six
+new executions to reconcile before publishing its exploratory outcome.
+
 ## Planner command
 
 Run this command from a development checkout with access to the original pinned

@@ -6,6 +6,34 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Live continuation checkpoint (October 4): implementation commit `fd03324` is
+pushed and deployed to the dedicated VM. The original source is archived at
+`.private/original-source-34ca542`; the original aborted run evidence is
+unchanged. The user approved one evaluation-only continuation under the existing
+$20 Modal / $3.10 OpenRouter cumulative ceilings. Its frozen request set has
+three outstanding quality executions and three performance executions, with
+no agent rerun or model API calls. The full $5.59648 Modal allowance is reserved
+before request authority; no new OpenRouter allowance is admitted.
+
+The deployed Git checkout exposed a preparation-only mismatch: the earlier Mac
+source snapshot contained 98 non-executable metadata files. The launch gate
+rejected that snapshot before authority or spend. A new production preparation
+verified that executable sources and experiment settings are otherwise identical
+and froze the clean deployed build without overwriting the earlier manifest.
+The new manifest digest is
+`sha256:9088405d01ca8e030e5251a33bf98acc9b65d4ef7bd19ce35f4d4142a18e0499`;
+its no-spend conformance digest is
+`sha256:d1d76eaa3df6117cea15ef4a7338170b64ecc50c1e266c45c91ceea376e4218d`.
+The authorized `solo-evalonly-1004` process started at `2026-10-04T03:03:16Z`.
+At `2026-10-04T03:17Z`, its first replacement, `quality-2-reference`, completed
+with 564 measured function-body seconds and no failure. `quality-3-reference`
+is dispatched; four later executions remain unstarted. Final outcome and
+reconciliation are pending; the source campaign remains aborted and neither
+run is registered. The detached runner continues independently of this chat
+and closes the exact six-job inventory before publishing an outcome.
+Evidence is retained under
+`.private/solo-devbound-1003/evaluation-continuation-deployed` in the VM.
+
 Latest checkpoint (October 4): `solo-devbound-1003` crossed the earlier
 collector failures, completed public reference/candidate evaluation, agent work,
 hidden correctness, and three hidden quality executions. It then aborted during
@@ -818,11 +846,12 @@ Updated October 4, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
-Current action: commit/deploy the implemented evaluation-only continuation and
-obtain fresh one-use approval for its six GPU calls. The full synthetic series,
-restart/durable-authority checks, production preparation against real retained
-evidence, and settlement validation on a journal copy are complete. Applying
-settlement and live execution remain gated by that approval. Preserve the original aborted
+Current action: observe the authorized `solo-evalonly-1004` continuation to a
+terminal outcome, then reconcile and report it. Implementation, tests, clean
+commit/deployment, user approval, settlement and bounded admission are complete.
+Live quality/performance completion and outcome closure remain pending. Do not
+restart the agent, redispatch an uncertain call, or start another continuation
+automatically. Preserve the original aborted
 audit, reuse the six verified source results, and authorize only the six
 outstanding evaluations after reconciling billing. Report the continuation as
 exploratory, with explicit mixed-build provenance, not as a valid registered run.
@@ -836,8 +865,9 @@ The current recommendation is a local
 Linux VM with the existing rootless OCI adapter. The user approved setup and
 a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter), subsequently
 amended to cumulative $20 Modal and $3.10 OpenRouter admission ceilings.
-The latest one-use attempt is consumed and aborted; a continuation requires
-separately bound authority and settlement, not reuse of that authorization.
+The original solo attempt's one-use authority is consumed and its campaign
+remains aborted. The evaluation-only continuation uses separately bound
+authority and settlement, not reuse of that authorization.
 Paid execution still requires verified deployment and
 enforceable controls.
 Lima is provisioned without host mounts or credential forwarding. Rootless
