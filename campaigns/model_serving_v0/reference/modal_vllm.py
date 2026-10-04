@@ -549,9 +549,15 @@ def _validate_quality_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         "max_concurrency",
         "request_timeout_seconds",
         "requests",
+        "expected_gpu",
     }
     if set(spec) != expected:
         raise ValueError("quality spec fields differ")
+    gpu = spec["expected_gpu"]
+    if (not isinstance(gpu, dict)
+        or set(gpu) != {"name", "memory_mib", "driver_version", "power_limit_watts"}
+        or any(not isinstance(value, str) or not value for value in gpu.values())):
+        raise ValueError("quality expected GPU identity is invalid")
     for key in (
         "campaign_manifest_digest",
         "quality_profile_digest",
@@ -715,6 +721,37 @@ def _run_quality_requests(
         else:
             raw_results[f"{case_id}.json"] = raw
     return raw_results, receipts, errors[0] if errors else None
+
+
+def _expected_gpu_identity(profile: Any) -> dict[str, str]:
+    """Carry the host-owned measurement pin into the scored function."""
+    return {"name": f"NVIDIA {profile.gpu_type}",
+            "memory_mib": str(profile.gpu_memory_mib),
+            "driver_version": profile.gpu_driver_version,
+            "power_limit_watts": profile.gpu_power_limit_watts}
+
+
+def _quality_environment_rejection(candidate, spec, installed_vllm, gpu, started_at, started):
+    errors = [f"gpu.{key} differs" for key, value in spec["expected_gpu"].items()
+              if gpu.get(key) != value]
+    if not errors:
+        return None
+    return {"ok": False, "error": "environment_rejected_before_model_start",
+        "environment_rejection": {"errors": errors, "expected_gpu": spec["expected_gpu"],
+                                  "observed_gpu": gpu},
+        "candidate_id": candidate["candidate_id"], "model_id": candidate["model"]["id"],
+        "model_revision": candidate["model"]["revision"],
+        "served_model_name": candidate["server"]["served_model_name"],
+        "vllm_version": installed_vllm,
+        **{key: spec[key] for key in ("campaign_manifest_digest", "quality_profile_digest",
+            "quality_workload_digest", "repetition", "attempt")},
+        "started_at": started_at,
+        "timing": {"primary_source": "served_generation_responses",
+                   "lifecycle_source": "in_container_monotonic", "startup_ms": 0,
+                   "evaluated_cases_ms": 0, "function_body_ms": round((time.monotonic() - started) * 1000)},
+        "execution": {key: spec[key] for key in ("max_concurrency", "request_timeout_seconds")},
+        "gpu_before": gpu, "gpu_after": gpu, "environment": _environment_receipt(),
+        "canary_before": None, "canary_after": None, "case_receipts": []}
 
 
 def _run_quality_request(
@@ -943,6 +980,11 @@ def quality_serving_repetition(
     repetition_started = time.monotonic()
     started_at = datetime.now(timezone.utc).isoformat()
     gpu_before = _gpu_metadata()
+    rejected = _quality_environment_rejection(
+        candidate, quality_spec, installed_vllm, gpu_before, started_at, repetition_started
+    )
+    if rejected is not None:
+        return _stage_evaluator_evidence(quality_spec["evidence_root"], rejected, {})
     with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
         process = subprocess.Popen(
             server_command,
@@ -2123,6 +2165,9 @@ def _run_staging_probe(output_path: Path) -> None:
 def _security_conformance_spec(
     candidate: dict[str, Any], campaign_manifest_digest: str, conformance_id: str
 ) -> dict[str, Any]:
+    from agent_collab_evals.campaigns.model_serving import ModelServingCampaign
+
+    campaign = ModelServingCampaign.load(Path(__file__).resolve().parents[1] / "campaign.toml")
     request = {
         "case_id": "security-conformance",
         "body": {
@@ -2155,6 +2200,7 @@ def _security_conformance_spec(
         "max_concurrency": 1,
         "request_timeout_seconds": 120,
         "requests": [request],
+        "expected_gpu": _expected_gpu_identity(campaign.measurement_profile()),
     }
 
 
@@ -2835,6 +2881,7 @@ def _run_quality_repetition(
         "max_concurrency": profile.max_concurrency,
         "request_timeout_seconds": profile.request_timeout_seconds,
         "requests": list(requests),
+        "expected_gpu": _expected_gpu_identity(environment_profile),
     }
     dispatch_path = (
         output_root
@@ -3231,6 +3278,7 @@ def _run_correctness_repetition(
         "max_concurrency": min(8, len(requests)),
         "request_timeout_seconds": 120,
         "requests": requests,
+        "expected_gpu": _expected_gpu_identity(environment_profile),
     }
     dispatch_path = (
         output_root

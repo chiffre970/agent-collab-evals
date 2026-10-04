@@ -30,6 +30,8 @@ def _quality_spec() -> dict[str, object]:
         "evidence_root": "model-serving-quality/abc/repetition-0001-attempt-01",
         "max_concurrency": 8,
         "request_timeout_seconds": 300,
+        "expected_gpu": {"name": "NVIDIA L4", "memory_mib": "23034",
+                         "driver_version": "580.95.05", "power_limit_watts": "72.00"},
         "requests": [
             {
                 "case_id": "mmlu-abc123",
@@ -144,6 +146,31 @@ class _WritableVolume(_ReadOnlyVolume):
 
 
 class ModalVllmContractTests(unittest.TestCase):
+    def test_driver_rejection_stages_evidence_without_loading_model(self) -> None:
+        candidate = json.loads(Path("campaigns/model_serving_v0/reference/candidate.json").read_text())
+        spec = _quality_spec()
+        observed = {**spec["expected_gpu"], "driver_version": "610.57.04"}
+        with (patch.object(MODAL_VLLM, "_gpu_metadata", return_value=observed),
+              patch.object(MODAL_VLLM.importlib.metadata, "version", return_value="0.21.0"),
+              patch.object(MODAL_VLLM, "_environment_receipt", return_value={}),
+              patch.object(MODAL_VLLM, "_stage_evaluator_evidence") as stage,
+              patch.object(MODAL_VLLM.subprocess, "Popen") as launch,
+              patch.object(MODAL_VLLM, "_run_quality_requests") as evaluate):
+            MODAL_VLLM.quality_serving_repetition.get_raw_f()(candidate, spec)
+        launch.assert_not_called()
+        evaluate.assert_not_called()
+        receipt, raw = stage.call_args.args[1:]
+        self.assertFalse(receipt["ok"])
+        self.assertEqual(receipt["error"], "environment_rejected_before_model_start")
+        self.assertEqual(receipt["environment_rejection"]["errors"], ["gpu.driver_version differs"])
+        self.assertEqual(receipt["timing"]["startup_ms"], 0)
+        self.assertEqual(raw, {})
+
+    def test_expected_gpu_identity_is_required_and_cannot_be_disabled(self) -> None:
+        for value in (None, {}, {**_quality_spec()["expected_gpu"], "driver_version": ""}):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "expected GPU"):
+                MODAL_VLLM._validate_quality_spec({**_quality_spec(), "expected_gpu": value})
+
     def test_new_staging_is_one_verified_bundle_and_old_format_remains_readable(self) -> None:
         root = "model-serving-quality/bundle-test/repetition-0001-attempt-01"
         receipt = {"ok": True, "function_call_id": "fc-existing"}

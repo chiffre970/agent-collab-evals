@@ -6,6 +6,62 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest checkpoint (October 4): `solo-devbound-1003` crossed the earlier
+collector failures, completed public reference/candidate evaluation, agent work,
+hidden correctness, and three hidden quality executions. It then aborted during
+quality repetition two. The fourth quality result was fully retained, but its
+GPU driver was `610.57.04` rather than the pinned `580.95.05`. The resolver
+incorrectly treated an environment-invalid result containing a diagnostic score
+as malformed terminal evidence. The run remains aborted and non-scoreable;
+its model budget reconciles, but no final hidden outcome exists.
+
+The local fix records that result as a failed execution, verifies its durable
+seal, preserves the validation reasons and measured duration, and excludes the
+diagnostic score. New quality/correctness functions check the pinned GPU identity
+before starting vLLM or evaluating cases. The driver pin is unchanged. A
+no-spend replay on the dedicated VM verified all 64 retained documents and the
+504-second duration without changing any original evidence. Its conformance
+digest is `sha256:3f38031a3f35e0adcde845fc4743519e628cc05080ada6d3b25c733dcb30742e`.
+
+`plan-solo-evaluation-recovery` reconstructs the original frozen manifests and
+uses read-only SQLite inspection. It retains six verified completed results
+with their original profile provenance, identifies one environment-rejected
+replacement and five never-dispatched requests, and grants no execution
+authority. It rejects ambiguous delivery and corrupt evidence. The separate
+evaluation-only continuation runner is now implemented. It freezes exactly six
+replacement requests, recomputes the public selection, validates source semantic
+pins, uses the existing quality/performance scoring functions, and reconciles
+every new execution and consumed authorization before publishing an exploratory
+outcome. Restart collects the same call or reuses its result; it cannot retry a
+failed or ambiguous execution automatically. No agent runtime is constructed.
+The original campaign stays aborted. Do not restart the agent or repeat the
+completed public evaluations.
+Read-only provider follow-up confirms all seven dispatched calls are terminal.
+The current billing snapshot attributes $1.20508955 Modal usage to their apps;
+the reconciled model ledger records $0.00429174. A retained settlement preview
+would cover the six outstanding evaluations under the existing $20 Modal /
+$3.10 OpenRouter ceilings. The V11 validator now independently reconstructs the
+original model charges from the frozen budget plan and provider receipts and
+validates terminal/billing evidence before allowing that settlement. The new
+one-use authority binds the clean source commit, continuation manifest, state,
+and shared journal. Its guard reserves all six GPU allowances before issuing any
+request authority; it cannot fund agents, model calls, or other compute. Older
+authority cannot reopen the amended journal.
+
+A dedicated-VM offline check composed the production Modal factories against the
+real selected artifact, hidden workload and retained results. It validated V11
+and admitted all six allowances on a temporary journal copy only. The actual
+shared journal and every original evidence file stayed unchanged; no authority
+was issued. The allowance is $5.59648 Modal including overhead, and $0
+OpenRouter. Its conformance digest is
+`sha256:72a4037554d437fd9ea5192ef1c2d261452d1b384d93b8ecccfeb07878299581`.
+The offline checkpoint preceded the source commit. Commit/deploy the matching build, obtain
+fresh explicit one-use approval, and only then run the six evaluations. The
+billing snapshot is not a final invoice. The full local suite ran 444 tests:
+421 passed and 23 live integrations were skipped. No new paid compute or model
+calls ran in this checkpoint. See
+`evidence/solo_pilot/20261004-environment-rejection/README.md`.
+
 Latest live checkpoint (October 3, later): the approved CPU-only staging-bundle
 diagnostic passed. An evidence-bound V9 settlement reconciled the preceding
 aborted attempt without changing its audit and admitted one more solo attempt
@@ -758,9 +814,20 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated September 29, 2026. This sequencing update supersedes earlier "next"
+Updated October 4, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
+
+Current action: commit/deploy the implemented evaluation-only continuation and
+obtain fresh one-use approval for its six GPU calls. The full synthetic series,
+restart/durable-authority checks, production preparation against real retained
+evidence, and settlement validation on a journal copy are complete. Applying
+settlement and live execution remain gated by that approval. Preserve the original aborted
+audit, reuse the six verified source results, and authorize only the six
+outstanding evaluations after reconciling billing. Report the continuation as
+exploratory, with explicit mixed-build provenance, not as a valid registered run.
+Only a complete, reconciled exploratory outcome justifies advancing to the
+matched peer conditions. Avoid unrelated platform expansion before that outcome.
 
 Deployment/cost proposal: [first solo pilot](SOLO_PILOT_PROPOSAL.md). Lifecycle
 and cleanup are committed in `050b382`; initial OCI wiring/setup in `d13e96f`.
@@ -768,9 +835,10 @@ The no-spend Podman pilot and dependency follow-up are committed in `fd0a7f8`.
 The current recommendation is a local
 Linux VM with the existing rootless OCI adapter. The user approved setup and
 a conditional US$15 usage envelope ($12 Modal, $3 OpenRouter), subsequently
-amended to cumulative $16 Modal and $3 OpenRouter ceilings for one September 25
-attempt. That attempt is consumed and aborted; another execution requires a new
-evidence-bound approval. Paid execution still requires verified deployment and
+amended to cumulative $20 Modal and $3.10 OpenRouter admission ceilings.
+The latest one-use attempt is consumed and aborted; a continuation requires
+separately bound authority and settlement, not reuse of that authorization.
+Paid execution still requires verified deployment and
 enforceable controls.
 Lima is provisioned without host mounts or credential forwarding. Rootless
 Podman `keep-id` resolves private workspace/state/socket ownership while

@@ -34,11 +34,14 @@ class SqliteComputeBackend:
         transport: ComputeExecutionTransport,
         evidence: ComputeEvidenceResolver,
         authority: FrozenComputeRunManifest,
+        *,
+        read_only: bool = False,
     ) -> None:
         self._database = database
         self._transport = transport
         self._evidence = evidence
         self._authority = authority
+        self._read_only = read_only
         self._lock = threading.RLock()
         self._profile_digest = self.profile_digest_for(
             transport.profile_digest, evidence.profile_digest
@@ -46,8 +49,12 @@ class SqliteComputeBackend:
         authority.assert_backend_profiles(
             self._profile_digest, transport.profile_digest
         )
-        database.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize()
+        if read_only:
+            if not database.is_file():
+                raise FileNotFoundError("retained compute database does not exist")
+        else:
+            database.parent.mkdir(parents=True, exist_ok=True)
+            self._initialize()
 
     @staticmethod
     def profile_digest_for(
@@ -70,6 +77,7 @@ class SqliteComputeBackend:
     def submit(
         self, request: ComputeExecutionRequest, candidate: bytes
     ) -> ComputeExecutionReceipt:
+        self._require_writable()
         if digest_bytes(candidate) != request.candidate_digest:
             raise ValueError("candidate bytes differ from the compute request")
         request_json = canonical_json_bytes(_request_document(request)).decode()
@@ -192,6 +200,7 @@ class SqliteComputeBackend:
     def collect(
         self, request: ComputeExecutionRequest, *, timeout_seconds: int
     ) -> ComputeExecutionReceipt:
+        self._require_writable()
         if type(timeout_seconds) is not int or not 0 <= timeout_seconds <= 300:
             raise ValueError("compute collection timeout must be between 0 and 300")
         request_json = canonical_json_bytes(_request_document(request)).decode()
@@ -287,6 +296,18 @@ class SqliteComputeBackend:
         self._resolve_dispatch(request, row)
         document = self._resolve_evidence(request, row)
         return self._receipt(row), document
+
+    def inspect(self, request: ComputeExecutionRequest) -> ComputeExecutionReceipt | None:
+        """Verify retained identity and dispatch without polling or changing state."""
+        self._authority.assert_authorized(request)
+        with closing(self._connect()) as connection:
+            row = self._execution_row(connection, request.execution_key, required=False)
+        if row is None:
+            return None
+        self._validate_row(row, request, canonical_json_bytes(request.document).decode())
+        if row["external_call_id"] is not None:
+            self._resolve_dispatch(request, row)
+        return self._receipt(row)
 
     def validate_cleanup_dispatch(self, request: ComputeExecutionRequest) -> None:
         """Cross-check any acknowledged call before abort cleanup targets it."""
@@ -576,11 +597,20 @@ class SqliteComputeBackend:
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
+        if self._read_only:
+            connection = sqlite3.connect(self._database.resolve().as_uri() + "?mode=ro", uri=True)
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only = ON")
+            return connection
         connection = sqlite3.connect(self._database)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = FULL")
         return connection
+
+    def _require_writable(self) -> None:
+        if self._read_only:
+            raise PermissionError("retained compute inspection cannot dispatch or collect")
 
     class _Transaction:
         def __init__(self, backend: "SqliteComputeBackend") -> None:
@@ -605,6 +635,7 @@ class SqliteComputeBackend:
                 self._backend._lock.release()
 
     def _transaction(self) -> "SqliteComputeBackend._Transaction":
+        self._require_writable()
         return self._Transaction(self)
 
 

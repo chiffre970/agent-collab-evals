@@ -171,6 +171,30 @@ def _parser() -> argparse.ArgumentParser:
     pilot.add_argument("--check", action="store_true", help="check live adapter configuration offline; never authorize or dispatch")
     pilot.add_argument("--authorization", type=Path, help="operator-owned authorization for one exploratory solo attempt")
     pilot.add_argument("--authorization-digest", help="independently supplied SHA-256 digest of that authorization")
+    recovery = subparsers.add_parser("plan-solo-evaluation-recovery",
+        help="verify retained results and plan evaluation-only recovery; never authorize or dispatch")
+    recovery.add_argument("--source-root", type=Path, required=True)
+    recovery.add_argument("--audit-digest", required=True)
+    recovery.add_argument("--config", type=Path, required=True, help="original live configuration")
+    recovery.add_argument("--source-repository", type=Path, default=Path(__file__).resolve().parents[2],
+        help="checkout containing the original pinned evaluation inputs")
+    recovery.add_argument("--output-root", type=Path, required=True)
+    continuation = subparsers.add_parser("prepare-solo-evaluation-continuation",
+        help="freeze evaluation-only Modal continuation; never authorize or dispatch")
+    continuation.add_argument("--recovery-plan", type=Path, required=True)
+    continuation.add_argument("--recovery-digest", required=True)
+    continuation.add_argument("--config", type=Path, required=True, help="replacement live compute configuration")
+    continuation.add_argument("--output-root", type=Path, required=True)
+    continuation.add_argument("--run-id", required=True)
+    execute = subparsers.add_parser("run-solo-evaluation-continuation",
+        help="run six evaluation-only jobs with fresh digest-pinned operator authority")
+    execute.add_argument("--recovery-plan", type=Path, required=True)
+    execute.add_argument("--recovery-digest", required=True)
+    execute.add_argument("--config", type=Path, required=True)
+    execute.add_argument("--output-root", type=Path, required=True)
+    execute.add_argument("--run-id", required=True)
+    execute.add_argument("--authorization", type=Path, required=True)
+    execute.add_argument("--authorization-digest", required=True)
     return parser
 
 
@@ -679,6 +703,26 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.authorization, arguments.authorization_digest)
         else:
             output = run_solo_pilot(arguments.config, arguments.state_root, arguments.run_id)
+    elif arguments.command == "plan-solo-evaluation-recovery":
+        from .solo_modal_recovery import plan_modal_evaluation_recovery
+        output = plan_modal_evaluation_recovery(arguments.source_root, arguments.audit_digest,
+            arguments.config, arguments.source_repository, arguments.output_root)
+    elif arguments.command in {"prepare-solo-evaluation-continuation", "run-solo-evaluation-continuation"}:
+        from .solo_live_configuration import LivePilotConfiguration
+        from .solo_modal_recovery import prepare_modal_evaluation_continuation
+        configuration = LivePilotConfiguration.load(arguments.config, Path(__file__).resolve().parents[2])
+        prepared = prepare_modal_evaluation_continuation(configuration, arguments.recovery_plan,
+            arguments.recovery_digest, arguments.output_root, arguments.run_id)
+        if arguments.command == "prepare-solo-evaluation-continuation":
+            output = {"ok": True, "manifest_digest": prepared.digest, "planned_executions": len(prepared.requests),
+                "execution_authorized": False, "agent_reruns": 0, "model_calls": 0, "scoreable": False}
+        else:
+            from .solo_evaluation_authorization import EvaluationContinuationAuthorization, run_authorized_evaluation_continuation
+            authority = EvaluationContinuationAuthorization.load(arguments.authorization, arguments.authorization_digest)
+            result = run_authorized_evaluation_continuation(prepared, configuration, authority)
+            output = {"ok": True, "status": result["status"], "eligible": result["eligible"],
+                "scoreable": False, "outcome_file": str(prepared.root / "outcome.json"),
+                "manifest_digest": prepared.digest}
     else:  # pragma: no cover - argparse enforces the command set.
         raise AssertionError(f"unhandled command: {arguments.command}")
     print(json.dumps(output, indent=2, sort_keys=True))

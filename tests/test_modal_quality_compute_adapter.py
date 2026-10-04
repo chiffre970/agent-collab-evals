@@ -301,6 +301,57 @@ class ModalQualityComputeAdapterTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._temporary.cleanup()
 
+    def test_environment_rejected_score_becomes_durable_failure_not_exception(self) -> None:
+        transport_digest = digest_value({"transport": "rejected-quality"})
+        resolver = ModalVllmQualityEvidenceResolver(self.profile, self.root, transport_digest)
+        request = ComputeExecutionRequest(
+            execution_key="hidden:rejected:quality:2:reference",
+            campaign_run_id=self.reservation.campaign_run_id,
+            reservation_id=self.reservation.reservation_id, scope=EvaluationScope.HIDDEN,
+            candidate_digest=digest_bytes(self.candidate),
+            candidate_manifest_digest=CAMPAIGN.validate_reference_candidate().manifest_digest,
+            evaluator_profile_digest=digest_value("rejected-quality"), maximum_seconds=600)
+        backend_digest = SqliteComputeBackend.profile_digest_for(transport_digest, resolver.profile_digest)
+        manifest = FrozenComputeRunManifest.load_or_create(self.root / "manifest.json",
+            campaign_run_id=request.campaign_run_id, compute_enabled=True,
+            transport_profile_digest=transport_digest, backend_profile_digest=backend_digest, requests=(request,))
+        retained = _RetainedModalQualityTransport(self.root, self.profile, resolver, transport_digest, self.policy)
+        original_dispatch = retained.dispatch
+
+        def rejected_dispatch(req, candidate):
+            dispatched = original_dispatch(req, candidate)
+            store = LocalMeasurementBundleStore(self.root / "quality-measurements")
+            bundle = store.load(_measurement_id(req), 2)
+            normalized = dict(bundle.receipt["normalized"])
+            normalized.update(valid=False, validation_errors=["gpu.driver_version differs", "gpu_after.driver_version differs"])
+            normalized["durable_evidence"] = {"volume_name": self.profile.evidence_volume}
+            normalized["durable_evidence"]["normalized_digest"] = digest_bytes(canonical_json_bytes(normalized) + b"\n")
+            # Simulate the collector's first write, not a production overwrite.
+            path = self.root / "quality-measurements" / _measurement_id(req) / "repetition-0002-attempt-01/receipt.json"
+            document = {**bundle.receipt, "normalized": normalized}
+            path.write_bytes(canonical_json_bytes(document) + b"\n")
+            return dispatched
+
+        durable = SqliteComputeBackend(self.root / "compute.sqlite3", retained, resolver, manifest)
+        with patch.object(retained, "dispatch", side_effect=rejected_dispatch):
+            durable.submit(request, self.candidate)
+        terminal = durable.collect(request, timeout_seconds=300)
+        self.assertEqual(terminal.status, ComputeExecutionStatus.FAILED)
+        self.assertIn("gpu.driver_version differs", terminal.failure)
+        self.assertEqual(terminal.used_seconds, 8)
+        _, evidence = durable.resolve(request)
+        self.assertIsNone(evidence["result"]["quality_evaluation"]["run"])
+        self.assertEqual(durable.reconcile(request.campaign_run_id)[0].status, ComputeExecutionStatus.FAILED)
+        self.assertEqual(durable.submit(request, self.candidate), terminal)
+        self.assertEqual(retained.dispatch_count, 1)
+        # Invalid evidence still has to pass its durable normalized seal.
+        path = self.root / "quality-measurements" / _measurement_id(request) / "repetition-0002-attempt-01/receipt.json"
+        document = parse_json(path.read_text())
+        document["normalized"]["validation_errors"] = ["forged error"]
+        path.write_bytes(canonical_json_bytes(document) + b"\n")
+        with self.assertRaisesRegex(RuntimeError, "digest differs"):
+            durable.resolve(request)
+
     def test_retained_modal_bundle_composes_with_durable_quality_backend(
         self,
     ) -> None:

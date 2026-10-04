@@ -305,6 +305,17 @@ class ComputeQualityRepetitionBackend:
         role: str,
         repetition: int,
     ) -> Mapping[str, object]:
+        return self.validate_evidence(self._profile, evidence, request, role, repetition)
+
+    @staticmethod
+    def validate_evidence(
+        profile: ComputeQualityRepetitionProfile,
+        evidence: Mapping[str, object],
+        request: ComputeExecutionRequest,
+        role: str,
+        repetition: int,
+    ) -> Mapping[str, object]:
+        """Validate retained quality evidence without dispatch or a receipt ledger."""
         result = evidence.get("result")
         if not isinstance(result, Mapping) or set(result) != {"quality_evaluation"}:
             raise RuntimeError("quality compute result envelope differs")
@@ -324,12 +335,12 @@ class ComputeQualityRepetitionBackend:
             raise RuntimeError("quality compute evidence fields differ")
         expected = {
             "schema_version": "serving-quality-compute-evidence/v0alpha1",
-            "campaign_manifest_digest": self._profile.campaign_manifest_digest,
+            "campaign_manifest_digest": profile.campaign_manifest_digest,
             "hidden_workload_manifest_digest": (
-                self._profile.hidden_workload_manifest_digest
+                profile.hidden_workload_manifest_digest
             ),
-            "quality_profile_digest": self._profile.quality_profile_digest,
-            "quality_workload_digest": self._profile.quality_workload_digest,
+            "quality_profile_digest": profile.quality_profile_digest,
+            "quality_workload_digest": profile.quality_workload_digest,
             "candidate_digest": request.candidate_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
             "role": role,

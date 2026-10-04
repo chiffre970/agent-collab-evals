@@ -71,11 +71,15 @@ class PilotSpendEnvelope:
         self._reference_retry = None
         self._staging_retry = None
         self._environment_retry = None
+        self._evaluation_retry = None
         self._initial_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
             self._prior_receipts, self._releases = validate_retry(retry, self.plan_digest)
             self._model_release = self._releases["openrouter"]
+            if retry["schema_version"] == "exploratory-solo-retry/v11":
+                self._evaluation_retry = retry
+                retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
             if retry["schema_version"] == "exploratory-solo-retry/v2":
                 self._previous_retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
             elif retry["schema_version"] == "exploratory-solo-retry/v3":
@@ -126,7 +130,8 @@ class PilotSpendEnvelope:
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                filename = ("environment-settlement-approval.json" if self._environment_retry is not None
+                filename = ("evaluation-settlement-approval.json" if self._evaluation_retry is not None
+                    else "environment-settlement-approval.json" if self._environment_retry is not None
                     else "staging-settlement-approval.json" if self._staging_retry is not None
                     else "reference-probe-approval.json" if self._reference_retry is not None
                     else "connected-settlement-approval.json" if self._connected_retry is not None
@@ -136,7 +141,7 @@ class PilotSpendEnvelope:
                     else "final-settlement-approval.json" if self._settlement_retry is not None
                     else "settlement-approval.json" if self._previous_retry is not None
                     else "approval.json")
-                retain_document(self.root / "retry" / filename, retry)
+                retain_document(self.root / "retry" / filename, self.retry)
 
     @contextmanager
     def _locked(self):
@@ -154,6 +159,7 @@ class PilotSpendEnvelope:
             request_digest=request_digest, maximum_usd_nanos=maximum_usd_nanos,
             plan_digest=self.plan_digest)
         self._validate_receipt(record)
+        self._validate_evaluation_admission(record)
         if self.retry is not None and not operation_key.startswith((
             f"pilot:retry-{self.retry_digest[7:]}:", f"pilot:{self.retry['run_id']}:compute:")):
             raise PermissionError("retry journal only accepts the approved attempt")
@@ -238,6 +244,11 @@ class PilotSpendEnvelope:
             or environment_settlement.exists() and (self._environment_retry is None
                 or environment_settlement.read_bytes() != canonical_json_bytes(self._environment_retry))):
             raise PermissionError("journal requires its pinned environment settlement amendment")
+        evaluation_settlement = self.root / "retry/evaluation-settlement-approval.json"
+        if (self._evaluation_retry is not None and not environment_settlement.exists()
+            or evaluation_settlement.exists() and (self._evaluation_retry is None
+                or evaluation_settlement.read_bytes() != canonical_json_bytes(self._evaluation_retry))):
+            raise PermissionError("journal requires its pinned evaluation-only settlement amendment")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}
@@ -262,6 +273,9 @@ class PilotSpendEnvelope:
             if any(item["operation_key"] not in prior_keys and not item["operation_key"].startswith(allowed)
                 for item in receipts):
                 raise RuntimeError("journal contains an unapproved retry")
+            for item in receipts:
+                if item["operation_key"] not in prior_keys:
+                    self._validate_evaluation_admission(item)
             for provider, release in self._releases.items():
                 totals[provider] -= release
         if any(totals[key] > self._limits[key] for key in totals) or sum(totals.values()) > self._total:
@@ -285,3 +299,12 @@ class PilotSpendEnvelope:
             or not isinstance(record["request_digest"], str) or not _DIGEST.fullmatch(record["request_digest"])
             or type(record["maximum_usd_nanos"]) is not int or record["maximum_usd_nanos"] < 1):
             raise ValueError("pilot admission receipt is invalid")
+
+    def _validate_evaluation_admission(self, record):
+        if self._evaluation_retry is None:
+            return
+        from .solo_evaluation_spend import evaluation_admissions
+        allowed = evaluation_admissions(self._evaluation_retry)
+        expected = allowed.get(record["operation_key"])
+        if expected is None or (record["provider"], record["purpose"], record["maximum_usd_nanos"]) != expected:
+            raise PermissionError("evaluation-only admission cannot fund agents, model calls, or unplanned compute")

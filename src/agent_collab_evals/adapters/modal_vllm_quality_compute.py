@@ -543,7 +543,7 @@ class ModalVllmQualityEvidenceResolver:
     def profile_digest_for(quality_profile_digest: str) -> str:
         return digest_value(
             {
-                "adapter": "modal-vllm-quality-evidence-resolver/v0alpha1",
+                "adapter": "modal-vllm-quality-evidence-resolver/v0alpha2",
                 "quality_profile_digest": quality_profile_digest,
                 "source": "digest_verified_local_mirror_of_modal_volume",
             }
@@ -653,7 +653,9 @@ class ModalVllmQualityEvidenceResolver:
             != self._profile.modal_client_version
         ):
             raise RuntimeError("Modal quality platform build evidence differs")
-        valid = normalized.get("valid") is True
+        if type(normalized.get("valid")) is not bool:
+            raise RuntimeError("Modal quality validity must be boolean")
+        valid = normalized["valid"]
         quality_run = normalized.get("quality_score")
         if valid:
             if not isinstance(quality_run, dict):
@@ -668,8 +670,20 @@ class ModalVllmQualityEvidenceResolver:
             if any(quality_run.get(key) != value for key, value in expected_run.items()):
                 raise RuntimeError("Modal quality score identity differs")
             _validate_durable_evidence(normalized, self._profile.evidence_volume)
-        elif quality_run is not None or not isinstance(normalized.get("failure"), dict):
-            raise RuntimeError("Modal quality terminal failure evidence is invalid")
+        else:
+            errors = normalized.get("validation_errors")
+            validation_rejected = (
+                isinstance(errors, list) and bool(errors)
+                and all(isinstance(error, str) and bool(error) for error in errors)
+            )
+            if validation_rejected:
+                # Collection succeeded, but the pinned measurement environment or
+                # outputs were rejected. Verify the seal even on this failure path.
+                _validate_durable_evidence(normalized, self._profile.evidence_volume)
+            elif quality_run is not None or not isinstance(normalized.get("failure"), dict):
+                raise RuntimeError("Modal quality terminal failure evidence is invalid")
+            # A diagnostic score from rejected evidence cannot enter the series.
+            quality_run = None
         status = (
             ComputeExecutionStatus.COMPLETE
             if valid

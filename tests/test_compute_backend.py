@@ -197,6 +197,29 @@ class ComputeBackendTests(unittest.TestCase):
 
         self.assertEqual(restarted.reconcile("campaign-run"), (completed,))
 
+    def test_read_only_inspection_cannot_dispatch_collect_or_modify_source(self) -> None:
+        self.backend.submit(self.request, self.candidate)
+        self.backend.collect(self.request, timeout_seconds=0)
+        # Use the actual source path retained by the normal adapter.
+        database = self.backend._database
+        before = {path: path.read_bytes() for path in (database, Path(str(database) + "-wal")) if path.exists()}
+        reader = SqliteComputeBackend(database, self.transport, self.evidence, self.manifest, read_only=True)
+        self.assertIs(reader.inspect(self.request).status, ComputeExecutionStatus.COMPLETE)
+        self.assertEqual(reader.resolve(self.request)[1]["result"]["criterion_units"], 1_002_000)
+        for action in (lambda: reader.submit(self.request, self.candidate),
+                       lambda: reader.collect(self.request, timeout_seconds=0)):
+            with self.assertRaises(PermissionError):
+                action()
+        self.assertEqual(self.transport.dispatch_count, 1)
+        self.assertEqual(self.transport.poll_count, 1)
+        self.assertEqual(before, {path: path.read_bytes() for path in before})
+
+    def test_read_only_missing_database_is_not_created(self) -> None:
+        database = self.root / "missing.sqlite3"
+        with self.assertRaises(FileNotFoundError):
+            SqliteComputeBackend(database, self.transport, self.evidence, self.manifest, read_only=True)
+        self.assertFalse(database.exists())
+
     def test_reconciliation_rejects_missing_execution_and_manifest_tampering(
         self,
     ) -> None:

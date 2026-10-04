@@ -19,6 +19,9 @@ _ENVIRONMENT_ABORT_AUDIT_DIGEST = "sha256:2b6502eca0e1d1b6b975cc2dc86724f49357c3
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v11":
+        from .solo_evaluation_spend import validate_evaluation_settlement
+        return validate_evaluation_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v10":
         return _validate_environment_recovery(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v9":
@@ -538,8 +541,9 @@ def _reconcile_prior_model(document, run_config, audit, *, expected_cost=1_351_6
     if plan.rate_card_digest != digest_value(gateway.rate_card):
         raise ValueError("prior model rate card differs")
     with tempfile.TemporaryDirectory() as temporary:
-        with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True) as source:
-            with sqlite3.connect(Path(temporary) / "ledger.sqlite3") as copy:
+        from contextlib import closing
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)) as source:
+            with closing(sqlite3.connect(Path(temporary) / "ledger.sqlite3")) as copy:
                 source.backup(copy)
         account = SqliteBudgetAccount(Path(temporary) / "ledger.sqlite3", gateway.rate_card,
             budget_plan=plan, receipt_verifier=OpenRouterReceiptVerifier(gateway))

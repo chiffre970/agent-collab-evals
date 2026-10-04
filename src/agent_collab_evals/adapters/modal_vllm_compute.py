@@ -901,7 +901,8 @@ def _failure(normalized: Mapping[str, Any]) -> str:
     failure = normalized.get("failure")
     if isinstance(failure, dict):
         return json.dumps(failure, sort_keys=True, separators=(",", ":"))[-2000:]
-    errors = normalized.get("parse_errors") or normalized.get("environment_errors")
+    errors = (normalized.get("validation_errors") or normalized.get("parse_errors")
+              or normalized.get("environment_errors"))
     return str(errors or "Modal evaluator marked the repetition invalid")[-2000:]
 
 

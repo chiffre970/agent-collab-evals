@@ -292,6 +292,15 @@ class ComputeCandidateEvaluator:
         evidence: Mapping[str, object],
         request: ComputeExecutionRequest,
     ) -> EvaluationResult:
+        return self.validate_evidence(self._profile, evidence, request)
+
+    @staticmethod
+    def validate_evidence(
+        profile: ComputeCandidateEvaluationProfile,
+        evidence: Mapping[str, object],
+        request: ComputeExecutionRequest,
+    ) -> EvaluationResult:
+        """Validate retained phase evidence without dispatch or a receipt ledger."""
         result = evidence.get("result")
         if not isinstance(result, Mapping) or set(result) != {
             "candidate_evaluation"
@@ -316,12 +325,12 @@ class ComputeCandidateEvaluator:
             raise RuntimeError("candidate phase evidence fields differ")
         expected_identity = {
             "schema_version": "serving-candidate-compute-evidence/v0alpha1",
-            "phase": self._profile.phase,
-            "campaign_manifest_digest": self._profile.campaign_manifest_digest,
+            "phase": profile.phase,
+            "campaign_manifest_digest": profile.campaign_manifest_digest,
             "hidden_workload_manifest_digest": (
-                self._profile.hidden_workload_manifest_digest
+                profile.hidden_workload_manifest_digest
             ),
-            "workload_digest": self._profile.workload_digest,
+            "workload_digest": profile.workload_digest,
             "candidate_digest": request.candidate_digest,
             "candidate_manifest_digest": request.candidate_manifest_digest,
         }

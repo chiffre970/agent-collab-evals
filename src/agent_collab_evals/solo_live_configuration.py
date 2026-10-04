@@ -213,6 +213,22 @@ def build_live_stack(root, configuration, run_id, hidden, policy):
     """Install real Modal factories without issuing authority or executing work."""
     campaign, repository = configuration.campaign, configuration.repository
     public = configuration.public_compute
+    modals, adapters = make_modal_adapters(configuration, hidden)
+    scoring = ScoringProfile.load(repository / "campaigns/model_serving_v0/evaluator/scoring_hidden_v1.toml")
+    stack = compose_pilot_stack(root, campaign, run_id, adapters, public_profile=public,
+        hidden_digest=hidden.manifest_digest, policy=policy, scoring=scoring,
+        correctness_workload=modals["correctness"].correctness_workload_digest,
+        performance_workload=modals["performance-1"].performance_profile_digest,
+        phase_seconds=configuration.document["phase_seconds"], collection_seconds=public.maximum_collection_seconds,
+        execution_mode="live", authority_digest=digest_value(configuration.document),
+        details={"execution_authorized": False, "modal_profiles": {key: value.digest for key, value in modals.items()}})
+    return stack, adapters
+
+
+def make_modal_adapters(configuration, hidden):
+    """Build compute-only factories; do not create a harness, ledger, or authority."""
+    campaign, repository = configuration.campaign, configuration.repository
+    public = configuration.public_compute
     common = dict(campaign=campaign, campaign_manifest=public.campaign_manifest,
         hidden_workload=hidden, modal_script=public.modal_script,
         modal_environment=public.modal_environment, modal_client_version=public.modal_client_version,
@@ -261,14 +277,7 @@ def build_live_stack(root, configuration, run_id, hidden, policy):
             return transport_type(profile, repository, route_root, configuration.modal_cli, spend, **options)
 
         adapters[key] = ComputeRouteAdapter(transport_digest, evidence_digest, transport, evidence)
-    stack = compose_pilot_stack(root, campaign, run_id, adapters, public_profile=public,
-        hidden_digest=hidden.manifest_digest, policy=policy, scoring=scoring,
-        correctness_workload=modals["correctness"].correctness_workload_digest,
-        performance_workload=modals["performance-1"].performance_profile_digest,
-        phase_seconds=configuration.document["phase_seconds"], collection_seconds=public.maximum_collection_seconds,
-        execution_mode="live", authority_digest=digest_value(configuration.document),
-        details={"execution_authorized": False, "modal_profiles": {key: value.digest for key, value in modals.items()}})
-    return stack, adapters
+    return modals, adapters
 
 
 def check_live_pilot(config_path: Path, repository: Path) -> dict:

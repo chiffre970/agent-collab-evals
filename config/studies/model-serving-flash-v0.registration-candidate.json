@@ -63,7 +63,7 @@
     {
       "id": "compute_development",
       "path": "config/compute/modal-vllm-development.json",
-      "digest": "sha256:cc1a0d412324a2348b06ab075c7e4c20e612422918e4ab3d9ab128855a56dcbc"
+      "digest": "sha256:33ecce096ed8daa6668eaf5d81cff66876f6605a8fd0e09511e911b38e467159"
     },
     {
       "id": "sandbox_development",

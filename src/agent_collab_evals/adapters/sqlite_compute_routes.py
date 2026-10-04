@@ -118,12 +118,13 @@ class SqliteComputeRouteInventory:
         self._expected_seal = digest
         return digest
 
-    def require_authorized(self, requests: tuple[ComputeExecutionRequest, ...]) -> None:
+    def require_authorized(self, requests: tuple[ComputeExecutionRequest, ...], *, consumed: bool = False) -> None:
         """Refuse unapproved collection before it can fail an admission ledger."""
         for request in requests:
             route_id, _ = self._route(request)
             source, spend = self._source(route_id)
-            if spend.request_status(request, source.manifest.transport_profile_digest) not in {"issued", "consumed"}:
+            allowed = {"consumed"} if consumed else {"issued", "consumed"}
+            if spend.request_status(request, source.manifest.transport_profile_digest) not in allowed:
                 raise RuntimeError("pilot compute request needs explicit authorization")
 
     def cleanup(self, canceller) -> tuple[dict, ...]:
