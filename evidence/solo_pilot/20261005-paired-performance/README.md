@@ -35,6 +35,17 @@ skipped, with resource warnings treated as errors. The current provider billing
 snapshot totals $0.01799946 for the cancelled app. This is not a final invoice
 or a refund authorization; all admission reserves remain held.
 
+The user subsequently instructed: "fix the bug and rerun." The reviewed
+settlement requires the exact frozen old manifest, append-only admissions,
+dispatch record, and both durable databases. The first request must be consumed
+and dispatched; the other two must remain unissued and unregistered. A retained
+provider observation binds that call to its app, confirms termination and
+stopped-app state, and retains raw CPU/memory/L4 billing. The observed cancelled
+app cost plus a $0.10 provisional-billing buffer remain charged to the envelope.
+Older unresolved reserves remain untouched. The replacement is three fresh
+requests with identical experiment settings, no model calls, and unchanged
+$20 Modal / $3.10 OpenRouter ceilings. No automatic replacement is introduced.
+
 Retained document digests:
 
 - Manifest: `sha256:bc8c3cbb3ef78c1342d9a4fcbef6c1d38e48d5e7dfc713a00b2f80586e6f6f40`.

@@ -19,6 +19,9 @@ _ENVIRONMENT_ABORT_AUDIT_DIGEST = "sha256:2b6502eca0e1d1b6b975cc2dc86724f49357c3
 
 
 def validate_retry(document, plan_digest):
+    if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v13":
+        from .solo_performance_spend import validate_performance_settlement
+        return validate_performance_settlement(document, plan_digest)
     if isinstance(document, dict) and document.get("schema_version") == "exploratory-solo-retry/v12":
         from .solo_performance_spend import validate_performance_extension
         return validate_performance_extension(document, plan_digest)

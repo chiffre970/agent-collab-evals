@@ -84,6 +84,18 @@ class _RetainedTransport(ModalPairedPerformanceTransport):
         return ExternalDispatch(call, digest_bytes(self.resolver.resolve_dispatch(request, call)))
 
 
+class _PendingTransport(ModalPairedPerformanceTransport):
+    def dispatch(self, request, candidate):
+        self.spend.consume(request, self.profile_digest)
+        call = "fc-pending" + request.request_digest[7:23]
+        job = self.resolver._job(request)
+        retain_document(self.root / "dispatch" / (request.request_digest[7:] + ".json"),
+            {"schema_version": "modal-paired-dispatch/v1", "request_digest": request.request_digest,
+             "function_call_id": call, "binding_digest": digest_value(self.binding),
+             "evidence_root": job["spec"]["benchmark"]["evidence_root"], "git_commit": self.binding["git_commit"]})
+        return ExternalDispatch(call, digest_bytes(self.resolver.resolve_dispatch(request, call)))
+
+
 class PairedPerformanceTests(unittest.TestCase):
     def setUp(self):
         from tests.test_solo_evaluation_continuation import EvaluationContinuationTests
@@ -107,6 +119,7 @@ class PairedPerformanceTests(unittest.TestCase):
         public = ModalVllmComputeProfile.load(REPOSITORY_ROOT / "config/compute/modal-vllm-development.json", repository_root=REPOSITORY_ROOT)
         configuration = SimpleNamespace(repository=REPOSITORY_ROOT, campaign=self.campaign,
             public_compute=public, hidden_bundle=lambda: self.hidden)
+        self.configuration = configuration
         self.state = self.root / "performance"
         self.document = prepare(configuration, self.retained, self.state, "paired-test")
         self.binding = self.document["binding"]
@@ -339,3 +352,125 @@ class PairedPerformanceTests(unittest.TestCase):
             invalid_digest = retain_document(invalid_path, {**auth, "schema_version": "unrecognized/v1"})
             with self.assertRaisesRegex(PermissionError, "fields differ"):
                 run(self.state, invalid_path, invalid_digest)
+
+    def test_cancelled_pair_settlement_preserves_history_and_funds_only_exact_replacement(self):
+        from agent_collab_evals.pilot_spend import PilotSpendEnvelope
+        from agent_collab_evals.pilot_retry import validate_retry as real_validate
+        from agent_collab_evals.solo_evaluation_spend import evaluation_admissions
+        from agent_collab_evals.solo_performance_spend import performance_admissions
+        from agent_collab_evals.solo_performance_followup import reference
+        journal = self.root / "retry-journal"
+        plan = parse_json((REPOSITORY_ROOT / "config/pilots/solo-spend-envelope-v1.json").read_text())
+        names = ("approval.json", "settlement-approval.json", "final-settlement-approval.json",
+            "feedback-settlement-approval.json", "collector-settlement-approval.json", "series-settlement-approval.json",
+            "connected-settlement-approval.json", "reference-probe-approval.json", "staging-settlement-approval.json",
+            "environment-settlement-approval.json")
+        previous_ref = None
+        for index, name in enumerate(names, 1):
+            value = {"schema_version": f"exploratory-solo-retry/v{index}", "run_id": f"prior-{index}",
+                "provider_limits_usd_nanos": {"modal": 20_000_000_000, "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000}
+            if previous_ref:
+                value["previous_amendment"] = previous_ref
+            path = self.root / f"retry-history-{index}.json"
+            retain_document(path, value)
+            previous_ref = reference(path)
+            retain_document(journal / "retry" / name, value)
+        prior_manifest = parse_json(self.retained.read_text())["previous_manifest"]
+        evaluation = {"schema_version": "exploratory-solo-retry/v11", "previous_amendment": previous_ref,
+            "run_id": "eval-only", "continuation_manifest": prior_manifest,
+            "provider_limits_usd_nanos": {"modal": 20_000_000_000, "openrouter": 3_100_000_000},
+            "total_limit_usd_nanos": 23_100_000_000}
+        evaluation_path = self.root / "retry-evaluation.json"
+        retain_document(evaluation_path, evaluation)
+        def validate(value, digest):
+            if value["schema_version"] == "exploratory-solo-retry/v11":
+                return [], {"modal": 0, "openrouter": 0}
+            return real_validate(value, digest)
+        with patch("agent_collab_evals.pilot_retry.validate_retry", side_effect=validate):
+            envelope = PilotSpendEnvelope(journal, plan, retry=evaluation)
+            for key, (provider, purpose, amount) in evaluation_admissions(evaluation).items():
+                envelope.reserve(operation_key=key, provider=provider, purpose=purpose,
+                    request_digest=digest_value(key), maximum_usd_nanos=amount)
+            old_stop = self.root / "retry-evaluation-stop.json"
+            retain_document(old_stop, {"schema_version": "evaluation-continuation-stop/v1", "status": "stopped",
+                "scoreable": False, "manifest_digest": prior_manifest["digest"], "spend_admission": envelope.snapshot()})
+            previous = {"schema_version": "exploratory-solo-retry/v12", "previous_amendment": reference(evaluation_path),
+                "prior_plan_digest": digest_value(plan), "prior_stop": reference(old_stop),
+                "prior_receipts_digest": digest_value(envelope.snapshot()["receipts"]),
+                "followup_manifest": reference(self.state / "manifest.json"), "run_id": "paired-test",
+                "provider_limits_usd_nanos": {"modal": 20_000_000_000, "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000}
+            previous_path = self.root / "retry-performance.json"
+            retain_document(previous_path, previous)
+            envelope = PilotSpendEnvelope(journal, plan, retry=previous)
+            admissions = {}
+            for key, (provider, purpose, amount) in performance_admissions(previous).items():
+                request_digest = digest_file(self.state / "manifest.json") if purpose == "overhead" else "sha256:" + key.rsplit(":", 1)[1]
+                admissions[key] = envelope.reserve(operation_key=key, provider=provider, purpose=purpose,
+                    request_digest=request_digest, maximum_usd_nanos=amount)
+            authority = FrozenComputeRunManifest.load(self.state / "compute-manifest.json",
+                expected_digest=self.document["compute_manifest_digest"])
+            spend = SqliteComputeSpendAuthorizationService(self.state / "spend.sqlite3", authority)
+            transport = _PendingTransport(self.state, self.binding, self.state / "manifest.json", spend)
+            backend = SqliteComputeBackend(self.state / "executions.sqlite3", transport, self.resolver, authority=authority)
+            first = authority.requests()[0]
+            spend.issue(first, transport.profile_digest, "pilot-admission:" + digest_value(
+                admissions[f"pilot:paired-test:compute:{first.request_digest[7:]}"]))
+            receipt = backend.submit(first, (self.state / "candidate.json").read_bytes())
+            stop_path = self.state / "stops" / "test.json"
+            retain_document(stop_path, {"schema_version": "solo-paired-performance-stop/v1", "status": "stopped",
+                "scoreable": False, "manifest_digest": digest_file(self.state / "manifest.json"), "spend_admission": envelope.snapshot()})
+            observation = {"schema_version": "paired-performance-settlement-observation/v1",
+                "function_call_id": receipt.external_call_id,
+                "provider_metadata": {"function_call_id": receipt.external_call_id, "app_id": "ap-paired1", "function_id": "fu-paired1"},
+                "status_values": [3], "actor_containers_active": False,
+                "apps_snapshot": [{"app_id": "ap-paired1", "state": "stopped", "tasks": "0"}],
+                "billing_snapshot": [{"object_id": "ap-paired1", "environment": "dev", "resource": resource,
+                    "interval_start": "2026-10-05T02:00:00", "cost": cost} for resource, cost in
+                    (("CPU", "0.00304824"), ("Memory", "0.00206224"), ("L4", "0.01288898"))],
+                "cost_snapshot_usd_nanos": 17_999_460, "billing_finality": "current_provider_snapshot_not_final_invoice"}
+            observation_path = self.root / "provider.json"
+            retain_document(observation_path, observation)
+            replacement = self.root / "replacement"
+            prepare(self.configuration, self.retained, replacement, "paired-retry")
+            amendment = {"schema_version": "exploratory-solo-retry/v13", "previous_amendment": reference(previous_path),
+                "prior_plan_digest": digest_value(plan), "prior_stop": reference(stop_path),
+                "prior_receipts_digest": digest_value(envelope.snapshot()["receipts"]),
+                "prior_compute_manifest": reference(self.state / "compute-manifest.json"),
+                "prior_spend_database": reference(self.state / "spend.sqlite3"),
+                "prior_execution_database": reference(self.state / "executions.sqlite3"),
+                "prior_dispatch": reference(self.state / "dispatch" / (first.request_digest[7:] + ".json")),
+                "provider_observation": reference(observation_path), "followup_manifest": reference(replacement / "manifest.json"),
+                "run_id": "paired-retry", "provider_limits_usd_nanos": {"modal": 20_000_000_000, "openrouter": 3_100_000_000},
+                "total_limit_usd_nanos": 23_100_000_000, "billing_buffer_usd_nanos": 100_000_000}
+            original, releases = real_validate(amendment, digest_value(plan))
+            self.assertEqual(original, envelope.snapshot()["receipts"])
+            self.assertEqual(releases, {"modal": 4_295_952_540, "openrouter": 0})
+            for change in ({"billing_buffer_usd_nanos": 0}, {"total_limit_usd_nanos": 23_200_000_000}):
+                with self.assertRaises(ValueError):
+                    real_validate({**amendment, **change}, digest_value(plan))
+            for field, value in (("status_values", [0]), ("cost_snapshot_usd_nanos", 1),
+                ("actor_containers_active", True), ("provider_metadata", {"function_call_id": "fc-other", "app_id": "ap-paired1"})):
+                path = self.root / (field + ".json")
+                retain_document(path, {**observation, field: value})
+                with self.assertRaises(ValueError):
+                    real_validate({**amendment, "provider_observation": reference(path)}, digest_value(plan))
+            settled = PilotSpendEnvelope(journal, plan, retry=amendment)
+            for key, (provider, purpose, amount) in performance_admissions(amendment).items():
+                request_digest = amendment["followup_manifest"]["digest"] if purpose == "overhead" else "sha256:" + key.rsplit(":", 1)[1]
+                with self.assertRaisesRegex(PermissionError, "request identity"):
+                    settled.reserve(operation_key=key, provider=provider, purpose=purpose,
+                        request_digest=digest_value("wrong"), maximum_usd_nanos=amount)
+                settled.reserve(operation_key=key, provider=provider, purpose=purpose,
+                    request_digest=request_digest, maximum_usd_nanos=amount)
+            self.assertEqual(len(settled.snapshot()["receipts"]), 15)
+            self.assertEqual(PilotSpendEnvelope(journal, plan, retry=amendment).snapshot(), settled.snapshot())
+            with self.assertRaises(PermissionError):
+                settled.reserve(operation_key="pilot:paired-retry:model", provider="openrouter", purpose="pilot",
+                    request_digest=digest_value("model"), maximum_usd_nanos=1)
+            with self.assertRaisesRegex(PermissionError, "performance-only settlement"):
+                PilotSpendEnvelope(journal, plan, retry=previous)
+            spend.issue(authority.requests()[1], transport.profile_digest, "test:unexpected-second-authorization")
+            with self.assertRaisesRegex(ValueError, "first request"):
+                real_validate({**amendment, "prior_spend_database": reference(self.state / "spend.sqlite3")}, digest_value(plan))

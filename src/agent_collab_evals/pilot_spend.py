@@ -73,11 +73,15 @@ class PilotSpendEnvelope:
         self._environment_retry = None
         self._evaluation_retry = None
         self._performance_retry = None
+        self._performance_settlement_retry = None
         self._initial_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
             self._prior_receipts, self._releases = validate_retry(retry, self.plan_digest)
             self._model_release = self._releases["openrouter"]
+            if retry["schema_version"] == "exploratory-solo-retry/v13":
+                self._performance_settlement_retry = retry
+                retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
             if retry["schema_version"] == "exploratory-solo-retry/v12":
                 self._performance_retry = retry
                 retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
@@ -134,7 +138,8 @@ class PilotSpendEnvelope:
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                filename = ("performance-extension-approval.json" if self._performance_retry is not None
+                filename = ("performance-settlement-approval.json" if self._performance_settlement_retry is not None
+                    else "performance-extension-approval.json" if self._performance_retry is not None
                     else "evaluation-settlement-approval.json" if self._evaluation_retry is not None
                     else "environment-settlement-approval.json" if self._environment_retry is not None
                     else "staging-settlement-approval.json" if self._staging_retry is not None
@@ -259,6 +264,11 @@ class PilotSpendEnvelope:
             or performance_extension.exists() and (self._performance_retry is None
                 or performance_extension.read_bytes() != canonical_json_bytes(self._performance_retry))):
             raise PermissionError("journal requires its pinned performance-only extension")
+        performance_settlement = self.root / "retry/performance-settlement-approval.json"
+        if (self._performance_settlement_retry is not None and not performance_extension.exists()
+            or performance_settlement.exists() and (self._performance_settlement_retry is None
+                or performance_settlement.read_bytes() != canonical_json_bytes(self._performance_settlement_retry))):
+            raise PermissionError("journal requires its pinned performance-only settlement")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}
@@ -311,9 +321,9 @@ class PilotSpendEnvelope:
             raise ValueError("pilot admission receipt is invalid")
 
     def _validate_evaluation_admission(self, record):
-        if self._performance_retry is not None:
+        if self._performance_settlement_retry is not None or self._performance_retry is not None:
             from .solo_performance_spend import performance_admissions
-            allowed = performance_admissions(self._performance_retry)
+            allowed = performance_admissions(self._performance_settlement_retry or self._performance_retry)
         elif self._evaluation_retry is not None:
             from .solo_evaluation_spend import evaluation_admissions
             allowed = evaluation_admissions(self._evaluation_retry)
@@ -322,3 +332,9 @@ class PilotSpendEnvelope:
         expected = allowed.get(record["operation_key"])
         if expected is None or (record["provider"], record["purpose"], record["maximum_usd_nanos"]) != expected:
             raise PermissionError("evaluation-only admission cannot fund agents, model calls, or unplanned compute")
+        if self._performance_settlement_retry is not None or self._performance_retry is not None:
+            amendment = self._performance_settlement_retry or self._performance_retry
+            request_digest = (amendment["followup_manifest"]["digest"] if record["purpose"] == "overhead"
+                else "sha256:" + record["operation_key"].rsplit(":", 1)[1])
+            if record["request_digest"] != request_digest:
+                raise PermissionError("performance admission request identity differs")

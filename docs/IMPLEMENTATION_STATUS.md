@@ -75,6 +75,25 @@ snapshot lists $0.01799946 for the cancelled app; it is not a final invoice.
 Terminal and raw billing observations are retained alongside the stopped state,
 but no allowance has been released from that observation.
 
+The user subsequently approved fixing the bug and rerunning. The settlement
+path checks the stopped run's frozen manifest, exact dispatch, and both durable
+databases. Only the first request may have consumed authority or dispatched;
+the other two must be absent. Provider call-to-app metadata, termination,
+stopped-app state, and raw CPU/memory/L4 billing must agree. The cancelled app
+retains its observed cost plus a $0.10 provisional-billing buffer. The original
+admissions remain append-only; older releases and unresolved reserves do not
+change. A new amendment can fund only three fresh requests with unchanged
+candidate, reference, workload, warmups, order, and scoring. No cap increase,
+agent rerun, or new model allowance is permitted. Deployment, real-chain
+settlement verification, and live replacement remain pending.
+
+Local settlement validation: 459 tests ran, 436 passed, and 23 live integrations
+were skipped, with resource warnings treated as errors. The new test composes
+the real frozen manifest, consumed single-use authority, durable execution
+ledger, and shared currency journal. It rejects nonterminal provider state,
+mismatched call metadata or billing totals, changed caps, incorrect admission
+identity, active actors, and unexpected authorization of a second old request.
+
 Live continuation checkpoint (October 4): implementation commit `fd03324` is
 pushed and deployed to the dedicated VM. The original source is archived at
 `.private/original-source-34ca542`; the original aborted run evidence is
