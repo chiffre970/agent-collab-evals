@@ -85,7 +85,10 @@ admissions remain append-only; older releases and unresolved reserves do not
 change. A new amendment can fund only three fresh requests with unchanged
 candidate, reference, workload, warmups, order, and scoring. No cap increase,
 agent rerun, or new model allowance is permitted. Deployment, real-chain
-settlement verification, and live replacement remain pending.
+settlement verification, and launch are complete: commit `9f4847e` is pushed
+and deployed. The replacement `solo-paired-performance-1005b` started at
+`2026-10-05T03:29:28Z`; its first paired call is
+`fc-01M451RBT9YKTC84SY6XQB6Q55`. Final completion remains pending.
 
 Local settlement validation: 459 tests ran, 436 passed, and 23 live integrations
 were skipped, with resource warnings treated as errors. The new test composes
@@ -93,6 +96,23 @@ the real frozen manifest, consumed single-use authority, durable execution
 ledger, and shared currency journal. It rejects nonterminal provider state,
 mismatched call metadata or billing totals, changed caps, incorrect admission
 identity, active actors, and unexpected authorization of a second old request.
+
+The production no-spend check resolved all 94 earlier receipts and the complete
+historical settlement chain. It checked the cancelled call's exact provider
+app and $0.01799946 billing snapshot, retained $0.11799946 including the buffer,
+and simulated the full replacement allowance in a temporary journal. The real
+launch now holds the new $4.413952 allowance, leaving $0.15263352 Modal under
+the unchanged ceiling. No OpenRouter allowance was added. Original evidence
+and stopped-run databases remain unchanged; older uncertain reserves remain
+held. The new frozen manifest is
+`sha256:ec9ebd35d3b1db3d00f3db0227595f01ccc040698b642f6c08a643974f79fdfe`.
+State is retained in the VM under
+`.private/solo-devbound-1003/paired-performance-1005-retry`; its Git checkout
+stays pinned to the implementation commit while the detached runner is active.
+At `2026-10-05T03:31:38Z`, the first paired call remained dispatched with an
+active controller and no stop, beyond the previous early-poll abort window.
+Its detached Modal app is `ap-MbXhJcJQB286sgc02XIeID`. This is a live polling
+check, not a completed paired measurement or final quality/performance claim.
 
 Live continuation checkpoint (October 4): implementation commit `fd03324` is
 pushed and deployed to the dedicated VM. The original source is archived at

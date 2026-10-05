@@ -1,7 +1,7 @@
 # Performance-only matched-GPU follow-up
 
-Status: first follow-up stopped during polling; collector correction awaiting
-live qualification. No paired outcome exists.
+Status: first follow-up stopped during polling; corrected replacement is active.
+No paired outcome exists yet.
 The user approved the next run on October 5, 2026.
 
 Implementation commit: `a9c2416bb59db294f55ee881659c3cf278d3932c`.
@@ -45,6 +45,40 @@ app cost plus a $0.10 provisional-billing buffer remain charged to the envelope.
 Older unresolved reserves remain untouched. The replacement is three fresh
 requests with identical experiment settings, no model calls, and unchanged
 $20 Modal / $3.10 OpenRouter ceilings. No automatic replacement is introduced.
+
+## Approved replacement
+
+Commit `9f4847e0b49859f7e32b0d3180e29f95f792b277` is pushed and deployed.
+The production no-spend check resolved the complete historical settlement chain
+and all 94 earlier receipts. It independently matched the cancelled call to its
+provider app, termination, stopped state, and raw billing. The settlement retains
+$0.11799946 for that app, including the $0.10 provisional-billing buffer.
+After reserving the replacement's full $4.413952 allowance, $0.15263352 Modal
+remains unallocated under the unchanged cap. No OpenRouter allowance is added.
+
+The authorized replacement `solo-paired-performance-1005b` started at
+`2026-10-05T03:29:28Z` using fresh expiring single-use authority. Its first paired
+call is `fc-01M451RBT9YKTC84SY6XQB6Q55`. VM state is retained at
+`/home/rmh.guest/agent-collab-evals/.private/solo-devbound-1003/paired-performance-1005-retry`.
+Original evidence, stopped ledgers, and older unresolved reserves are unchanged.
+The runner stays pinned to the implementation commit while it is active.
+
+- Manifest: `sha256:ec9ebd35d3b1db3d00f3db0227595f01ccc040698b642f6c08a643974f79fdfe`.
+- Offline conformance: `sha256:40100e45d8400710007bf35e510d1084f5581a526ae37fdea650083c7be180f9`.
+- Settlement amendment: `sha256:48dc04ca7fa7646694b4a3366008c6bad431dbda2d27559bfd4d58b672929c8d`.
+- Provider settlement observation: `sha256:3beae36ca3bb1583b9260478c338bd9a680d53701854e82ee6a83ebf18534832`.
+- Launch: `sha256:1e4b7311ef8f1d506db749bd60fed473ab131a12a0b3d64329e761370b3ceac5`.
+
+Validation: 459 tests ran, 436 passed, and 23 live integrations were skipped,
+with resource warnings treated as errors. The polling regression uses the
+installed Modal SDK's exact unfinished-input path. The bridge/backend test
+confirms three unfinished polls retain one dispatch before sealed completion.
+The replacement still needs live completion and final raw-evidence reconciliation;
+launch and nonterminal polling are not a completed performance result.
+
+At `2026-10-05T03:31:38Z`, the first paired call remained active without a stop,
+beyond the previous early-poll abort window. Monitor
+[the detached Modal app](https://modal.com/apps/chiffre970/dev/ap-MbXhJcJQB286sgc02XIeID).
 
 Retained document digests:
 
