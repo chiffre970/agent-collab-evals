@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 import importlib.util
 import json
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from agent_collab_evals.adapters.local_measurements import LocalMeasurementBundleStore
 from agent_collab_evals.adapters.modal_paired_performance import ModalPairedPerformanceEvidence, ModalPairedPerformanceTransport
@@ -187,6 +187,65 @@ class PairedPerformanceTests(unittest.TestCase):
         result = backend.collect(request, timeout_seconds=0)
         self.assertEqual(result.status, ComputeExecutionStatus.FAILED)
         self.assertEqual(backend.resolve(request)[1]["result"], {})
+
+    def test_real_bridge_poll_timeouts_keep_one_durable_dispatch_until_completion(self):
+        import subprocess
+        import sys
+        from tests.test_modal_vllm_contracts import MODAL_VLLM, _ReadOnlyVolume
+        spec = importlib.util.spec_from_file_location("paired_poll_bridge", REPOSITORY_ROOT / "scripts/runtime/modal_paired_performance.py")
+        bridge = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bridge)
+        authority = FrozenComputeRunManifest.load(self.state / "compute-manifest.json",
+            expected_digest=self.document["compute_manifest_digest"])
+        spend = SqliteComputeSpendAuthorizationService(self.state / "spend.sqlite3", authority)
+        transport = ModalPairedPerformanceTransport(self.state, self.binding, self.state / "manifest.json", spend)
+        backend = SqliteComputeBackend(self.state / "executions.sqlite3", transport, self.resolver, authority=authority)
+        job = self.binding["jobs"][0]
+        request = ComputeExecutionRequest.from_document(job["request"])
+        spend.issue(request, transport.profile_digest, "test:poll")
+        call_id = "fc-poll-test"
+        def dispatch(request, candidate):
+            spend.consume(request, transport.profile_digest)
+            retain_document(self.state / "dispatch" / (request.request_digest[7:] + ".json"),
+                {"schema_version": "modal-paired-dispatch/v1", "request_digest": request.request_digest,
+                 "function_call_id": call_id, "binding_digest": digest_value(self.binding),
+                 "evidence_root": job["spec"]["benchmark"]["evidence_root"], "git_commit": self.binding["git_commit"]})
+            return ExternalDispatch(call_id, digest_bytes(self.resolver.resolve_dispatch(request, call_id)))
+        call = Mock()
+        call.get.side_effect = [TimeoutError(), TimeoutError(), TimeoutError(), {"complete": True}]
+        remote, raw = measured_bundle(self.resolver, job)
+        durable = {"volume_name": "agent-collab-evals-evaluator-evidence-v2",
+            "root": job["spec"]["benchmark"]["evidence_root"],
+            "remote_receipt_digest": digest_bytes(canonical_json_bytes(remote) + b"\n"),
+            "raw_digests": {k: digest_bytes(v) for k, v in raw.items()}}
+        module = ModuleType("paired_poll_remote")
+        module.modal = MODAL_VLLM.modal
+        module._get_scored_call_result = MODAL_VLLM._get_scored_call_result
+        module._ensure_durable_evidence = lambda pointer, **kwargs: pointer
+        module._collect_remote_evidence = lambda pointer, **kwargs: (remote, raw, durable)
+        loader = Mock()
+        loader.create_module.return_value = module
+        loader.exec_module.return_value = None
+        remote_spec = importlib.machinery.ModuleSpec(module.__name__, loader)
+        def collect(command, **kwargs):
+            with (patch.object(sys, "argv", command[1:]),
+                  patch.object(bridge.importlib.util, "spec_from_file_location", return_value=remote_spec)):
+                bridge.main()
+            return subprocess.CompletedProcess(command, 0, stdout="")
+        with (patch.object(transport, "dispatch", side_effect=dispatch) as dispatch_mock,
+              patch("agent_collab_evals.adapters.modal_paired_performance.subprocess.run", side_effect=collect),
+              patch.object(MODAL_VLLM.modal.FunctionCall, "from_id", return_value=call),
+              patch.object(MODAL_VLLM, "staging_volume", _ReadOnlyVolume({}))):
+            backend.submit(request, Path(self.binding["candidate"]["file"]).read_bytes())
+            for _ in range(3):
+                self.assertEqual(backend.collect(request, timeout_seconds=0).status, ComputeExecutionStatus.DISPATCHED)
+                self.assertEqual(backend.inspect(request).status, ComputeExecutionStatus.DISPATCHED)
+                self.assertEqual(backend.submit(request, Path(self.binding["candidate"]["file"]).read_bytes()).status,
+                    ComputeExecutionStatus.DISPATCHED)
+            self.assertEqual(backend.collect(request, timeout_seconds=0).status, ComputeExecutionStatus.COMPLETE)
+            self.assertEqual(backend.resolve(request)[0].status, ComputeExecutionStatus.COMPLETE)
+            dispatch_mock.assert_called_once()
+            self.assertEqual(call.get.call_count, 4)
 
     def test_tampered_retained_evidence_blocks_followup(self):
         retained = parse_json(self.retained.read_text())

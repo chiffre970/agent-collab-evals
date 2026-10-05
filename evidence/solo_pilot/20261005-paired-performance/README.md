@@ -1,6 +1,7 @@
 # Performance-only matched-GPU follow-up
 
-Status: committed, pushed, and deployed; live follow-up active, completion pending.
+Status: first follow-up stopped during polling; collector correction awaiting
+live qualification. No paired outcome exists.
 The user approved the next run on October 5, 2026.
 
 Implementation commit: `a9c2416bb59db294f55ee881659c3cf278d3932c`.
@@ -12,9 +13,27 @@ All four previous continuation calls were provider-confirmed successful and
 terminal before launch; no dev apps or actor containers remained active.
 
 The detached runner started at `2026-10-05T02:16:51Z`. Its first paired execution
-is `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`. The VM state root is
+was `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`. At `2026-10-05T02:18:07Z`, the collector
+mistook a built-in `TimeoutError` from an unfinished `FunctionCall.get()` poll
+for a fatal bridge error. The runner requested cancellation; the provider
+subsequently reported the call terminated and app `ap-XNXRa8BQRj3KWomiPCAHlf`
+stopped. The last two executions never started. The VM state root is
 `/home/rmh.guest/agent-collab-evals/.private/solo-devbound-1003/paired-performance-1005`.
-The VM remains pinned to the implementation commit while the runner is active.
+The VM remains pinned to the stopped implementation until another deployment.
+All evidence and reservations remain unchanged.
+
+The correction makes collection-only poll timeouts nonterminal, but does not
+swallow Modal's genuine function timeout or output-expiration exceptions.
+Regressions exercise the installed SDK's exact polling path and the production
+bridge with the real durable backend: three unfinished polls, one dispatch,
+then sealed completion. These tests use simulated provider responses, not a
+new paid call. Live qualification and a new one-use authorization remain gates
+for any replacement run.
+
+Post-fix validation: 458 tests ran, 435 passed, and 23 live integrations were
+skipped, with resource warnings treated as errors. The current provider billing
+snapshot totals $0.01799946 for the cancelled app. This is not a final invoice
+or a refund authorization; all admission reserves remain held.
 
 Retained document digests:
 

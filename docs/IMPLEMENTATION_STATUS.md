@@ -32,8 +32,13 @@ $20 / $3.10 caps without any new release of historical reservations. User
 approval was received on October 5. Commit `a9c2416` is pushed and deployed;
 the detached follow-up started at `2026-10-05T02:16:51Z` after production
 no-spend validation and fresh expiring one-use authority. Its first paired
-execution is dispatched as `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`; live completion
-remains pending. Original registered measurement
+execution was dispatched as `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`, but collection
+stopped at `2026-10-05T02:18:07Z`. The new bridge caught Modal's timeout class
+instead of the built-in `TimeoutError` that `FunctionCall.get()` raises for an
+unfinished input. The runner therefore cancelled the still-pending call.
+Modal subsequently reported the call terminated and its app stopped. No paired
+result or final outcome exists, and the last two jobs never started.
+Original registered measurement
 and scoring rules remain unchanged. Cross-driver quality has not been retested:
 a completed paired result on the newer driver is diagnostic performance
 evidence, not proof of quality preservation on that driver or a registered score.
@@ -53,9 +58,22 @@ existing cap, with no new releases or model allowance. Before launch, the
 provider confirmed all four earlier continuation calls successful and terminal;
 no dev app or actor container was active. The frozen follow-up manifest is
 `sha256:bc8c3cbb3ef78c1342d9a4fcbef6c1d38e48d5e7dfc713a00b2f80586e6f6f40`.
-State, receipts, stops, and eventual outcome are retained in the VM under
+State, receipts, and the stop are retained in the VM under
 `.private/solo-devbound-1003/paired-performance-1005`. The VM stays pinned to
-the implementation commit while the background runner is active.
+the stopped implementation commit until the next approved deployment.
+
+The shared collection helper now treats the built-in poll timeout as pending
+in collection-only mode. Actual Modal function timeouts and expired outputs
+still propagate as failures. A regression invokes the installed SDK's polling
+implementation, and a bridge/backend integration polls three times before
+completion while proving one dispatch and no failed ledger transition. This
+fix is not live-qualified yet. The stopped run and all its reservations remain
+unchanged; no automatic replacement, refund, or cap increase is authorized.
+Post-fix validation: 458 tests ran, 435 passed, and 23 live integrations were
+skipped, with resource warnings treated as errors. The provider's current
+snapshot lists $0.01799946 for the cancelled app; it is not a final invoice.
+Terminal and raw billing observations are retained alongside the stopped state,
+but no allowance has been released from that observation.
 
 Live continuation checkpoint (October 4): implementation commit `fd03324` is
 pushed and deployed to the dedicated VM. The original source is archived at

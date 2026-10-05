@@ -77,7 +77,7 @@ def main():
                 return
             pointer = module._ensure_durable_evidence(pointer, evidence_root=evidence_root)
             receipt, raw, durable = module._collect_remote_evidence(pointer, expected_root=evidence_root)
-        except (module.modal.exception.ConnectionError, module.modal.exception.TimeoutError):
+        except module.modal.exception.ConnectionError:
             return
         LocalMeasurementBundleStore(root / "measurements").save(request.request_digest[7:], 1,
             {"request_digest": request.request_digest, "function_call_id": call_id,

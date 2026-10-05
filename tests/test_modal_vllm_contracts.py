@@ -398,6 +398,35 @@ class ModalVllmContractTests(unittest.TestCase):
             with self.assertRaisesRegex(AttributeError, "application failure"):
                 MODAL_VLLM._get_scored_call_result(call, root, 300, collect_only=True)
 
+    def test_collect_only_retains_pending_on_the_real_sdk_poll_timeout(self) -> None:
+        import asyncio
+        from modal._functions import _Invocation
+        from modal_proto import api_pb2
+        from unittest.mock import AsyncMock
+
+        invocation = _Invocation(None, "fc-pending", None)
+        invocation.pop_function_call_outputs = AsyncMock(return_value=
+            api_pb2.FunctionGetOutputsResponse(num_unfinished_inputs=1))
+        call = Mock()
+        call.get.side_effect = lambda **kwargs: asyncio.run(invocation.poll_function(**kwargs))
+        root = "model-serving/pending/repetition-0001-attempt-01"
+        with patch.object(MODAL_VLLM, "staging_volume", _ReadOnlyVolume({})):
+            for _ in range(3):
+                self.assertIsNone(MODAL_VLLM._get_scored_call_result(call, root, 60, collect_only=True))
+            with self.assertRaises(TimeoutError):
+                MODAL_VLLM._get_scored_call_result(call, root, 60, collect_only=False)
+        self.assertEqual(invocation.pop_function_call_outputs.await_count, 4)
+
+    def test_collect_only_does_not_hide_terminal_or_expired_modal_results(self) -> None:
+        call = Mock()
+        root = "model-serving/failed/repetition-0001-attempt-01"
+        with patch.object(MODAL_VLLM, "staging_volume", _ReadOnlyVolume({})):
+            for exception in (MODAL_VLLM.modal.exception.FunctionTimeoutError,
+                              MODAL_VLLM.modal.exception.OutputExpiredError):
+                call.get.side_effect = exception("terminal")
+                with self.assertRaises(exception):
+                    MODAL_VLLM._get_scored_call_result(call, root, 60, collect_only=True)
+
     def test_server_command_is_built_from_typed_settings(self) -> None:
         candidate = json.loads(
             Path("campaigns/model_serving_v0/reference/candidate.json").read_text(

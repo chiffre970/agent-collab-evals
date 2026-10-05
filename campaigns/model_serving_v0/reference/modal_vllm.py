@@ -1759,6 +1759,12 @@ def _get_scored_call_result(
                 return staged
     try:
         return function_call.get(timeout=timeout)
+    except TimeoutError:
+        # FunctionCall.get() uses the built-in exception for an unfinished
+        # input. Modal's FunctionTimeoutError is a different terminal failure.
+        if collect_only:
+            return None
+        raise
     except AttributeError as error:
         # Modal 1.5.4 raised this internal connection error after a completed
         # call. It says nothing about the scored function's terminal outcome.
