@@ -1,7 +1,28 @@
 # Performance-only matched-GPU follow-up
 
-Status: implemented and locally tested; deployment and live completion pending.
+Status: committed, pushed, and deployed; live follow-up active, completion pending.
 The user approved the next run on October 5, 2026.
+
+Implementation commit: `a9c2416bb59db294f55ee881659c3cf278d3932c`.
+Local validation: 455 tests ran, 432 passed, and 23 live integrations were
+skipped, with resource warnings treated as errors. The deployed no-spend check
+resolved all historical settlement and evidence references, preserved the 90
+existing admissions, reused nine completed results, and issued no authority.
+All four previous continuation calls were provider-confirmed successful and
+terminal before launch; no dev apps or actor containers remained active.
+
+The detached runner started at `2026-10-05T02:16:51Z`. Its first paired execution
+is `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`. The VM state root is
+`/home/rmh.guest/agent-collab-evals/.private/solo-devbound-1003/paired-performance-1005`.
+The VM remains pinned to the implementation commit while the runner is active.
+
+Retained document digests:
+
+- Manifest: `sha256:bc8c3cbb3ef78c1342d9a4fcbef6c1d38e48d5e7dfc713a00b2f80586e6f6f40`.
+- Offline conformance: `sha256:46111c3343ee3e1cb86a2bd5be8a9e70fefa42178b9fa09a4b8cedb98c11cf44`.
+- Amendment: `sha256:e48f0223f2ae8c61199f4bcf43d40d6ed0508b0be67a4d8f2ef3b83815facd24`.
+- Launch: `sha256:a773e022b8ca1b5479d6ec170fa64f44f10054095b510db56c7271704f40efe9`.
+- Original audit, unchanged: `sha256:be6dd8d3e8f223baa9f316f414b059943c80bf09ad1772b4359eb47e83b92e32`.
 
 `solo-evalonly-1004` stopped during its first performance collection at
 `2026-10-04T05:19:29Z`. All three outstanding quality executions completed.

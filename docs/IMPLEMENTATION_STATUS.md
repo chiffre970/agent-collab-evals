@@ -29,8 +29,11 @@ The follow-up rechecks all nine completed inputs under their original pins and
 quality policy. It cannot restart the agent or call a model API. Its reviewed
 allowance is $4.413952 Modal / $0 OpenRouter, within the existing cumulative
 $20 / $3.10 caps without any new release of historical reservations. User
-approval was received on October 5; clean-build deployment, expiring one-use
-authority, and live completion remain pending. Original registered measurement
+approval was received on October 5. Commit `a9c2416` is pushed and deployed;
+the detached follow-up started at `2026-10-05T02:16:51Z` after production
+no-spend validation and fresh expiring one-use authority. Its first paired
+execution is dispatched as `fc-01M44XKBN4W4GEGP0MYJ6J4QP0`; live completion
+remains pending. Original registered measurement
 and scoring rules remain unchanged. Cross-driver quality has not been retested:
 a completed paired result on the newer driver is diagnostic performance
 evidence, not proof of quality preservation on that driver or a registered score.
@@ -39,8 +42,20 @@ Local validation: 455 tests ran, 432 passed, and 23 live integrations were
 skipped. Resource warnings are treated as errors. The new integration covers
 three retained paired executions through the real SQLite backend, durable
 single-use authority, the shared currency journal, restart reconciliation,
-expired-authority refusal, and denial of new model allowances. Deployment
-validation must still resolve the real historical settlement and evidence chain.
+expired-authority refusal, and denial of new model allowances. The local test
+simulates historical settlement; the deployed preflight checks the real chain.
+
+The deployed preflight resolved the complete historical settlement and evidence
+chain, reconciled the three newly completed quality receipts, and verified that
+original evidence and the shared journal were unchanged. It simulated all new
+admissions in a temporary journal, leaving $0.27063298 Modal allowance under the
+existing cap, with no new releases or model allowance. Before launch, the
+provider confirmed all four earlier continuation calls successful and terminal;
+no dev app or actor container was active. The frozen follow-up manifest is
+`sha256:bc8c3cbb3ef78c1342d9a4fcbef6c1d38e48d5e7dfc713a00b2f80586e6f6f40`.
+State, receipts, stops, and eventual outcome are retained in the VM under
+`.private/solo-devbound-1003/paired-performance-1005`. The VM stays pinned to
+the implementation commit while the background runner is active.
 
 Live continuation checkpoint (October 4): implementation commit `fd03324` is
 pushed and deployed to the dedicated VM. The original source is archived at
