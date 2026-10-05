@@ -6,6 +6,42 @@ The integrated live optimization pilot remains incomplete. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+Latest checkpoint (October 5): `solo-evalonly-1004` stopped at
+`2026-10-04T05:19:29Z`. Its three outstanding quality jobs completed with
+564, 560, and 545 measured function-body seconds. The first performance job
+produced nine raw benchmark outputs, but its driver was `610.57.04`, not the
+profile's `580.95.05`. The evidence adapter then raised while translating the
+environment rejection. The last two performance jobs never started; no outcome
+was published. The original aborted audit and completed evidence are preserved.
+
+The performance adapter now verifies the seal on rejected diagnostic results,
+returns a terminal failed receipt with the uncapped duration, and exposes no
+accepted score. A separate performance-only follow-up measures the stock
+reference and selected candidate in the same restricted, single-use L4 container
+for each of three repetitions. Both observed drivers are explicitly qualified
+for this exploratory comparison; a driver outside that list is rejected before
+either model starts. The two roles have separate processes, engine caches and
+benchmark directories, fixed alternating order, and identical warmup, workload,
+and latency requirements. Scores are recomputed from raw outputs against the
+same-GPU reference, not the older driver's baseline.
+
+The follow-up rechecks all nine completed inputs under their original pins and
+quality policy. It cannot restart the agent or call a model API. Its reviewed
+allowance is $4.413952 Modal / $0 OpenRouter, within the existing cumulative
+$20 / $3.10 caps without any new release of historical reservations. User
+approval was received on October 5; clean-build deployment, expiring one-use
+authority, and live completion remain pending. Original registered measurement
+and scoring rules remain unchanged. Cross-driver quality has not been retested:
+a completed paired result on the newer driver is diagnostic performance
+evidence, not proof of quality preservation on that driver or a registered score.
+
+Local validation: 455 tests ran, 432 passed, and 23 live integrations were
+skipped. Resource warnings are treated as errors. The new integration covers
+three retained paired executions through the real SQLite backend, durable
+single-use authority, the shared currency journal, restart reconciliation,
+expired-authority refusal, and denial of new model allowances. Deployment
+validation must still resolve the real historical settlement and evidence chain.
+
 Live continuation checkpoint (October 4): implementation commit `fd03324` is
 pushed and deployed to the dedicated VM. The original source is archived at
 `.private/original-source-34ca542`; the original aborted run evidence is
@@ -846,15 +882,14 @@ Updated October 4, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
-Current action: observe the authorized `solo-evalonly-1004` continuation to a
-terminal outcome, then reconcile and report it. Implementation, tests, clean
-commit/deployment, user approval, settlement and bounded admission are complete.
-Live quality/performance completion and outcome closure remain pending. Do not
-restart the agent, redispatch an uncertain call, or start another continuation
-automatically. Preserve the original aborted
-audit, reuse the six verified source results, and authorize only the six
-outstanding evaluations after reconciling billing. Report the continuation as
-exploratory, with explicit mixed-build provenance, not as a valid registered run.
+Current action: validate and deploy the approved performance-only matched-GPU
+follow-up, freeze its three requests, issue fresh expiring authority and run it.
+Preserve the stopped `solo-evalonly-1004` continuation and original aborted audit.
+Reuse the nine completed inputs; do not rerun agents or quality jobs, redispatch
+the rejected performance call, or release historical reservations. The separate
+follow-up must close all three new executions and recheck all nine inputs before
+publishing an exploratory outcome. Report driver-specific provenance and the
+remaining cross-driver quality limitation, not a valid registered result.
 Only a complete, reconciled exploratory outcome justifies advancing to the
 matched peer conditions. Avoid unrelated platform expansion before that outcome.
 

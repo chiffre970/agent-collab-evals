@@ -610,11 +610,12 @@ class ModalVllmEvidenceResolver:
             expected["scoring_profile_digest"] = scoring_profile_digest
         if any(normalized.get(key) != value for key, value in expected.items()):
             raise RuntimeError("Modal normalized evidence identity differs")
-        valid = normalized.get("valid") is True
-        measurement_complete = valid or (
+        measured = (
             normalized.get("failure") is None
             and isinstance(normalized.get("performance_score"), dict)
-            and normalized.get("parse_errors") == []
+        )
+        measurement_complete = measured and (
+            normalized.get("parse_errors") == []
             and normalized.get("environment_errors") == []
         )
         dispatch = self._dispatch_record(measurement_id)
@@ -627,7 +628,7 @@ class ModalVllmEvidenceResolver:
         ):
             raise RuntimeError("Modal platform build evidence differs")
         durable_evidence = normalized.get("durable_evidence")
-        if measurement_complete:
+        if measured:
             self._validate_durable_evidence(normalized, durable_evidence)
         elif (
             not isinstance(normalized.get("failure"), dict)

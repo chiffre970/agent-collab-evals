@@ -68,3 +68,32 @@ def modal_pilot_cost(script: Path, cost_profile: Path) -> dict:
         "limitations": ["CPU limit is soft; timeout and cleanup timing are not exact.",
             "GPU preemption restarts and additional evidence helper dispatches require an outer provider usage cap.",
             "Shared overhead is reserved, not measured; setup, qualification, storage, and cleanup are not free."]}
+
+
+def modal_paired_cost(script: Path, cost_profile: Path) -> dict:
+    """Bound three same-GPU pairs without changing the original resource policy."""
+    estimate = modal_pilot_cost(script, cost_profile)
+    tree = ast.parse(script.read_text())
+    constants = {node.targets[0].id: ast.literal_eval(node.value) for node in tree.body
+        if isinstance(node, ast.Assign) and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == "PAIRED_FUNCTION_TIMEOUT_SECONDS"}
+    if constants != {"PAIRED_FUNCTION_TIMEOUT_SECONDS": 3000}:
+        raise ValueError("paired function timeout differs from reviewed allowance")
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+        and node.name == "paired_serving_repetition")
+    decorator, = function.decorator_list
+    options = {k.arg: k.value for k in decorator.keywords if k.arg is not None}
+    spreads = [k.value for k in decorator.keywords if k.arg is None]
+    if (len(spreads) != 1 or not isinstance(spreads[0], ast.Name) or spreads[0].id != "GPU_RESOURCES"
+        or any(k in options for k in ("cpu", "memory", "startup_timeout", "secrets", "region", "cloud", "nonpreemptible"))
+        or not isinstance(options["timeout"], ast.Name) or options["timeout"].id != "PAIRED_FUNCTION_TIMEOUT_SECONDS"
+        or any(ast.literal_eval(options[k]) != v for k, v in {"gpu": "L4", "min_containers": 0,
+            "max_containers": 1, "retries": 0, "single_use_containers": True,
+            "block_network": True, "restrict_modal_access": True}.items())):
+        raise ValueError("paired GPU enforcement or resources differ")
+    policy = parse_json(cost_profile.read_text())
+    rate = policy["l4_usd_nanos_per_second"] + 4 * policy["cpu_core_usd_nanos_per_second"] + 16 * policy["memory_gib_usd_nanos_per_second"]
+    return {**estimate, "schema_version": "modal-paired-admission-estimate/v1", "function_timeout_seconds": 3000,
+        "per_execution_allowance_usd_nanos": estimate["per_execution_allowance_usd_nanos"] + 1200 * rate,
+        "new_gpu_calls": 3, "new_model_calls": 0}

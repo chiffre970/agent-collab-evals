@@ -56,6 +56,8 @@ class _RetainedPerformanceTransport:
         self.resolver = resolver
         self.profile_digest = profile_digest
         self.dispatch_count = 0
+        self.environment_errors = []
+        self.break_seal = False
 
     def dispatch(
         self, request: ComputeExecutionRequest, candidate: bytes
@@ -106,10 +108,10 @@ class _RetainedPerformanceTransport:
             "modal_function_call_id": call_id,
             "repetition": self.profile.repetition,
             "attempt": self.profile.attempt,
-            "valid": True,
+            "valid": not self.environment_errors,
             "failure": None,
             "parse_errors": [],
-            "environment_errors": [],
+            "environment_errors": self.environment_errors,
             "remote_receipt": {"timing": {"function_body_ms": 21_001}},
             "performance_score": {
                 "eligible": True,
@@ -133,6 +135,8 @@ class _RetainedPerformanceTransport:
             ).encode("utf-8")
             + b"\n"
         )
+        if self.break_seal:
+            normalized["durable_evidence"]["normalized_digest"] = "sha256:" + "0" * 64
         LocalMeasurementBundleStore(self.state_root / "measurements").save(
             measurement_id,
             self.profile.repetition,
@@ -238,6 +242,49 @@ class ModalHiddenPerformanceComputeTests(unittest.TestCase):
             command[scoring_index + 1], str(self.modal_profile.scoring_profile)
         )
         self.assertIn("--dispatch-only", command)
+
+    def test_environment_rejection_is_terminal_without_accepting_score(self):
+        request, resolver, transport, backend = self._rejection_backend("rejected")
+        transport.environment_errors = ["gpu.driver_version differs from profile"]
+        backend.submit(request, self.candidate)
+        result = backend.collect(request, timeout_seconds=0)
+        self.assertEqual(result.status, ComputeExecutionStatus.FAILED)
+        self.assertEqual(result.used_seconds, 22)
+        self.assertIn("driver_version", result.failure)
+        _, evidence = backend.resolve(request)
+        score = evidence["result"]["candidate_evaluation"]
+        self.assertFalse(score["eligible"])
+        self.assertEqual(score["criterion_units"], 0)
+        self.assertEqual(score["failures"], ["execution_failed"])
+        self.assertEqual(backend.reconcile(request.campaign_run_id)[0].status,
+                         ComputeExecutionStatus.FAILED)
+
+    def test_environment_rejection_still_verifies_normalized_seal(self):
+        request, resolver, transport, backend = self._rejection_backend("bad-seal")
+        transport.environment_errors = ["gpu.driver_version differs from profile"]
+        transport.break_seal = True
+        backend.submit(request, self.candidate)
+        with self.assertRaisesRegex(RuntimeError, "normalized evidence digest differs"):
+            backend.collect(request, timeout_seconds=0)
+
+    def _rejection_backend(self, name):
+        state = self.root / name
+        transport_digest = digest_value({"transport": name})
+        resolver = ModalVllmHiddenPerformanceEvidenceResolver(
+            self.modal_profile, REPOSITORY_ROOT, state, transport_digest)
+        request = ComputeExecutionRequest(
+            execution_key="hidden:" + name, campaign_run_id=name,
+            reservation_id=self.reservation.reservation_id, scope=EvaluationScope.HIDDEN,
+            candidate_digest=digest_bytes(self.candidate),
+            candidate_manifest_digest=self.campaign.validate_reference_candidate().manifest_digest,
+            evaluator_profile_digest=digest_value({"evaluator": name}), maximum_seconds=1800)
+        manifest = FrozenComputeRunManifest.load_or_create(state / "manifest.json",
+            campaign_run_id=name, compute_enabled=True, transport_profile_digest=transport_digest,
+            backend_profile_digest=SqliteComputeBackend.profile_digest_for(transport_digest, resolver.profile_digest),
+            requests=(request,))
+        transport = _RetainedPerformanceTransport(state, self.modal_profile, resolver, transport_digest)
+        backend = SqliteComputeBackend(state / "executions.sqlite3", transport, resolver, authority=manifest)
+        return request, resolver, transport, backend
 
     def test_hidden_performance_composes_with_durable_candidate_evaluator(
         self,

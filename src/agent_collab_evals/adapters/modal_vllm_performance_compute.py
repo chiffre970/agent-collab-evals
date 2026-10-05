@@ -250,7 +250,7 @@ class ModalVllmHiddenPerformanceEvidenceResolver:
         ):
             raise RuntimeError("Modal performance scoring profile differs")
         performance = normalized.get("performance_score")
-        if performance is None and envelope.get("status") == "failed":
+        if envelope.get("status") == "failed":
             scalar = 0
             failures = ["execution_failed"]
             eligible = False

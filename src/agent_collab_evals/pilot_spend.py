@@ -72,11 +72,15 @@ class PilotSpendEnvelope:
         self._staging_retry = None
         self._environment_retry = None
         self._evaluation_retry = None
+        self._performance_retry = None
         self._initial_retry = None
         if retry is not None:
             from .pilot_retry import validate_retry
             self._prior_receipts, self._releases = validate_retry(retry, self.plan_digest)
             self._model_release = self._releases["openrouter"]
+            if retry["schema_version"] == "exploratory-solo-retry/v12":
+                self._performance_retry = retry
+                retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
             if retry["schema_version"] == "exploratory-solo-retry/v11":
                 self._evaluation_retry = retry
                 retry = parse_json(Path(retry["previous_amendment"]["file"]).read_text())
@@ -130,7 +134,8 @@ class PilotSpendEnvelope:
             retain_document(self.root / "plan.json", plan)
             self._snapshot()
             if retry is not None:
-                filename = ("evaluation-settlement-approval.json" if self._evaluation_retry is not None
+                filename = ("performance-extension-approval.json" if self._performance_retry is not None
+                    else "evaluation-settlement-approval.json" if self._evaluation_retry is not None
                     else "environment-settlement-approval.json" if self._environment_retry is not None
                     else "staging-settlement-approval.json" if self._staging_retry is not None
                     else "reference-probe-approval.json" if self._reference_retry is not None
@@ -249,6 +254,11 @@ class PilotSpendEnvelope:
             or evaluation_settlement.exists() and (self._evaluation_retry is None
                 or evaluation_settlement.read_bytes() != canonical_json_bytes(self._evaluation_retry))):
             raise PermissionError("journal requires its pinned evaluation-only settlement amendment")
+        performance_extension = self.root / "retry/performance-extension-approval.json"
+        if (self._performance_retry is not None and not evaluation_settlement.exists()
+            or performance_extension.exists() and (self._performance_retry is None
+                or performance_extension.read_bytes() != canonical_json_bytes(self._performance_retry))):
+            raise PermissionError("journal requires its pinned performance-only extension")
         if (self.root / "plan.json").read_bytes() != self._plan_bytes:
             raise RuntimeError("pilot spending plan differs from pinned authority")
         totals = {provider: 0 for provider in self._limits}
@@ -301,10 +311,14 @@ class PilotSpendEnvelope:
             raise ValueError("pilot admission receipt is invalid")
 
     def _validate_evaluation_admission(self, record):
-        if self._evaluation_retry is None:
+        if self._performance_retry is not None:
+            from .solo_performance_spend import performance_admissions
+            allowed = performance_admissions(self._performance_retry)
+        elif self._evaluation_retry is not None:
+            from .solo_evaluation_spend import evaluation_admissions
+            allowed = evaluation_admissions(self._evaluation_retry)
+        else:
             return
-        from .solo_evaluation_spend import evaluation_admissions
-        allowed = evaluation_admissions(self._evaluation_retry)
         expected = allowed.get(record["operation_key"])
         if expected is None or (record["provider"], record["purpose"], record["maximum_usd_nanos"]) != expected:
             raise PermissionError("evaluation-only admission cannot fund agents, model calls, or unplanned compute")

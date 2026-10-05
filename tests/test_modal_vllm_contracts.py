@@ -430,6 +430,7 @@ class ModalVllmContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for function_name in (
             "benchmark_serving_repetition",
+            "paired_serving_repetition",
             "quality_serving_repetition",
         ):
             start = source.index(f"def {function_name}(")
@@ -438,6 +439,41 @@ class ModalVllmContractTests(unittest.TestCase):
             self.assertIn("with_mount_options(read_only=True)", decorator)
             self.assertNotIn("secrets=", decorator)
             self.assertNotIn("EVIDENCE_MOUNT_PATH", decorator)
+
+    def test_paired_function_qualifies_driver_before_starting_either_model(self):
+        benchmark = _benchmark_spec()
+        spec = {"benchmark": benchmark, "allowed_drivers": ["580.95.05", "610.57.04"],
+            "expected_gpu": {"name": "NVIDIA L4", "memory_mib": "23034", "power_limit_watts": "72.00"},
+            "order": ["reference", "candidate"], "pair_digest": "sha256:" + "a" * 64}
+        gpu = {**spec["expected_gpu"], "driver_version": "unknown"}
+        candidate = {"candidate_id": "test"}
+        with (patch.object(MODAL_VLLM, "_gpu_metadata", return_value=gpu),
+              patch.object(MODAL_VLLM, "_server_command", return_value=()),
+              patch.object(MODAL_VLLM, "_benchmark_once") as measure,
+              patch.object(MODAL_VLLM, "_environment_receipt", return_value={}),
+              patch.object(MODAL_VLLM, "_stage_evaluator_evidence", side_effect=lambda root, receipt, raw: receipt)):
+            result = MODAL_VLLM.paired_serving_repetition.info.raw_f(candidate, candidate, spec)
+        measure.assert_not_called()
+        self.assertFalse(result["ok"])
+        self.assertIn("unqualified GPU driver", result["errors"])
+
+    def test_paired_function_uses_separate_cache_roles_and_retains_both_measurements(self):
+        benchmark = _benchmark_spec()
+        spec = {"benchmark": benchmark, "allowed_drivers": ["580.95.05", "610.57.04"],
+            "expected_gpu": {"name": "NVIDIA L4", "memory_mib": "23034", "power_limit_watts": "72.00"},
+            "order": ["reference", "candidate"], "pair_digest": "sha256:" + "a" * 64}
+        gpu = {**spec["expected_gpu"], "driver_version": "610.57.04", "pci_bus_id": "1"}
+        candidate = {"candidate_id": "test"}
+        measured = {"ok": True, "gpu_before": gpu, "gpu_after": gpu}
+        with (patch.object(MODAL_VLLM, "_gpu_metadata", return_value=gpu),
+              patch.object(MODAL_VLLM, "_server_command", return_value=()),
+              patch.object(MODAL_VLLM, "_benchmark_once", return_value=(measured, {"point.json": b"{}"})) as measure,
+              patch.object(MODAL_VLLM, "_environment_receipt", return_value={}),
+              patch.object(MODAL_VLLM, "_stage_evaluator_evidence", side_effect=lambda root, receipt, raw: (receipt, raw))):
+            receipt, raw = MODAL_VLLM.paired_serving_repetition.info.raw_f(candidate, candidate, spec)
+        self.assertTrue(receipt["ok"])
+        self.assertEqual([call.kwargs["cache_role"] for call in measure.call_args_list], ["reference", "candidate"])
+        self.assertEqual(set(raw), {"reference-point.json", "candidate-point.json"})
 
     def test_inline_evidence_bundle_is_bounded_and_digest_verified(self) -> None:
         receipt = {"ok": True, "candidate_id": "candidate"}

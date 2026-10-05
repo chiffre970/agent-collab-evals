@@ -42,6 +42,7 @@ VLLM_CACHE_PATH = "/cache/vllm"
 SERVER_LOG_PATH = "/tmp/reference-vllm.log"
 STARTUP_TIMEOUT_SECONDS = 600
 FUNCTION_TIMEOUT_SECONDS = 1800
+PAIRED_FUNCTION_TIMEOUT_SECONDS = 3000
 # Requests equal limits. CPU throttling is soft; these are admission inputs,
 # not a substitute for the provider's gross-usage workspace budget.
 GPU_RESOURCES = {"cpu": (4.0, 4.0), "memory": (16384, 16384), "startup_timeout": 600}
@@ -458,9 +459,10 @@ def _validate_benchmark_spec(spec: dict[str, Any]) -> tuple[dict[str, Any], ...]
 
 
 def _run_benchmark_points(
-    invocations: tuple[dict[str, Any], ...], point_timeout_seconds: int
+    invocations: tuple[dict[str, Any], ...], point_timeout_seconds: int,
+    *, result_root: Path = BENCHMARK_RESULT_ROOT,
 ) -> tuple[dict[str, bytes], list[dict[str, Any]], str | None]:
-    BENCHMARK_RESULT_ROOT.mkdir(mode=0o700)
+    result_root.mkdir(mode=0o700, parents=True)
     raw_results: dict[str, bytes] = {}
     point_receipts: list[dict[str, Any]] = []
     for invocation in invocations:
@@ -510,7 +512,7 @@ def _run_benchmark_points(
             )
             return raw_results, point_receipts, message
         filename = invocation["result_filename"]
-        result_path = BENCHMARK_RESULT_ROOT / filename
+        result_path = result_root / filename
         try:
             raw_result = result_path.read_bytes()
         except FileNotFoundError:
@@ -867,7 +869,22 @@ def benchmark_serving_repetition(
 ) -> dict[str, Any]:
     """Run one isolated, post-warmup serving measurement repetition."""
 
+    receipt, raw_results = _benchmark_once(candidate, benchmark_spec)
+    return _stage_evaluator_evidence(benchmark_spec["evidence_root"], receipt, raw_results)
+
+
+def _benchmark_once(candidate, benchmark_spec, *, cache_role=None):
+    """Measure one server, retaining warm timings separately from startup."""
+
     invocations = _validate_benchmark_spec(benchmark_spec)
+    result_root = BENCHMARK_RESULT_ROOT
+    if cache_role is not None:
+        if cache_role not in {"reference", "candidate"}:
+            raise ValueError("invalid matched benchmark cache role")
+        result_root = result_root / cache_role
+        invocations = tuple({**point, "argv": list(point["argv"])} for point in invocations)
+        for point in invocations:
+            point["argv"][point["argv"].index("--result-dir") + 1] = str(result_root)
     server = candidate["server"]
     model = candidate["model"]
     server_port = int(server["port"])
@@ -881,9 +898,14 @@ def benchmark_serving_repetition(
     started_at = datetime.now(timezone.utc).isoformat()
     gpu_before = _gpu_metadata()
     with Path(SERVER_LOG_PATH).open("w", encoding="utf-8") as server_log:
+        environment = _server_environment(offline=True)
+        if cache_role is not None:
+            if cache_role not in {"reference", "candidate"}:
+                raise ValueError("invalid matched benchmark cache role")
+            environment["VLLM_CACHE_ROOT"] = f"/tmp/vllm-cache-{cache_role}"
         process = subprocess.Popen(
             server_command,
-            env=_server_environment(offline=True),
+            env=environment,
             stdout=server_log,
             stderr=subprocess.STDOUT,
             text=True,
@@ -894,7 +916,7 @@ def benchmark_serving_repetition(
             canary_before = _chat_canary(server_port, served_model_name)
             measurement_started = time.monotonic()
             raw_results, point_receipts, benchmark_error = _run_benchmark_points(
-                invocations, benchmark_spec["point_timeout_seconds"]
+                invocations, benchmark_spec["point_timeout_seconds"], result_root=result_root
             )
             measured_ms = round((time.monotonic() - measurement_started) * 1000)
             try:
@@ -942,9 +964,67 @@ def benchmark_serving_repetition(
         "canary_after": canary_after,
         "point_receipts": point_receipts,
     }
-    return _stage_evaluator_evidence(
-        benchmark_spec["evidence_root"], remote_receipt, raw_results
-    )
+    return remote_receipt, raw_results
+
+
+@app.function(
+    image=reference_image,
+    **GPU_RESOURCES,
+    volumes={HF_CACHE_PATH: model_cache.with_mount_options(read_only=True)},
+    gpu="L4",
+    max_containers=1,
+    min_containers=0,
+    retries=0,
+    block_network=True,
+    restrict_modal_access=True,
+    single_use_containers=True,
+    timeout=PAIRED_FUNCTION_TIMEOUT_SECONDS,
+)
+def paired_serving_repetition(reference, candidate, spec):
+    """Exploratory comparison of two fresh servers on one physical GPU."""
+    started = time.monotonic()
+    if set(spec) != {"benchmark", "allowed_drivers", "expected_gpu", "order", "pair_digest"}:
+        raise ValueError("paired benchmark spec fields differ")
+    benchmark = spec["benchmark"]
+    _validate_benchmark_spec(benchmark)
+    if (spec["allowed_drivers"] != ["580.95.05", "610.57.04"]
+        or spec["order"] != (["reference", "candidate"] if benchmark["repetition"] % 2 else ["candidate", "reference"])
+        or set(spec["expected_gpu"]) != {"name", "memory_mib", "power_limit_watts"}
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", spec["pair_digest"])):
+        raise ValueError("paired benchmark policy differs")
+    _server_command(reference)
+    _server_command(candidate)
+    before = _gpu_metadata()
+    errors = [f"gpu.{k} differs" for k, v in spec["expected_gpu"].items() if before.get(k) != v]
+    if before.get("driver_version") not in spec["allowed_drivers"]:
+        errors.append("unqualified GPU driver")
+    receipts, raw = {}, {}
+    if not errors:
+        for role in spec["order"]:
+            try:
+                receipt, results = _benchmark_once(
+                    reference if role == "reference" else candidate, benchmark, cache_role=role)
+            except Exception as error:
+                errors.append(f"{role}: {type(error).__name__}: {str(error)[-2000:]}")
+                break
+            receipts[role] = receipt
+            raw.update({f"{role}-{name}": content for name, content in results.items()})
+            if receipt.get("ok") is not True:
+                errors.append(f"{role} measurement failed")
+                break
+    after = _gpu_metadata()
+    keys = ("name", "memory_mib", "driver_version", "power_limit_watts", "pci_bus_id")
+    observations = [before, after] + [r[k] for r in receipts.values() for k in ("gpu_before", "gpu_after")]
+    if any(any(g.get(k) != before.get(k) for k in keys) for g in observations):
+        errors.append("GPU identity changed within matched pair")
+    parent = {"schema_version": "modal-paired-serving-repetition/v1", "pair_digest": spec["pair_digest"],
+        "ok": not errors, "errors": errors, "order": spec["order"],
+        "gpu_before": before, "gpu_after": after, "roles": receipts,
+        "reference_document_digest": "sha256:" + hashlib.sha256(_stable_json_bytes(reference)).hexdigest(),
+        "candidate_document_digest": "sha256:" + hashlib.sha256(_stable_json_bytes(candidate)).hexdigest(),
+        "timing": {"function_body_ms": round((time.monotonic() - started) * 1000)},
+        "environment": _environment_receipt()}
+    return _stage_evaluator_evidence(benchmark["evidence_root"], parent, raw)
 
 
 @app.function(
