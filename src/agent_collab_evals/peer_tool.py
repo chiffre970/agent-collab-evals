@@ -300,15 +300,19 @@ class PeerToolGateway:
         if self._thread is not None:
             self._thread.join(timeout=5)
 
+    @staticmethod
+    def unix_socket_path(root: Path, token_id: str = "0" * 12) -> Path:
+        path = root.resolve() / ("p-" + token_id[-12:]) / "peer.sock"
+        if len(str(path).encode("utf-8")) >= 100:
+            raise ValueError("Unix peer socket path exceeds the portable limit")
+        return path
+
     def _start_unix_transport(self, token_id: str) -> Path | None:
         if self._unix_socket_root is None:
             return None
-        directory = self._unix_socket_root / f"p-{token_id[-12:]}"
+        socket_path = self.unix_socket_path(self._unix_socket_root, token_id)
+        directory = socket_path.parent
         directory.mkdir(mode=0o755)
-        socket_path = directory / "peer.sock"
-        if len(str(socket_path).encode("utf-8")) >= 100:
-            directory.rmdir()
-            raise ValueError("Unix peer socket path exceeds the portable limit")
         try:
             server = _ThreadingUnixHTTPServer(str(socket_path), self._handler)
             server.expected_token_id = token_id  # type: ignore[attr-defined]

@@ -551,9 +551,9 @@ class OpenCodeHarnessRuntime:
             self._native_gateway.tools.validate_scope(spec.campaign_run_id, spec.organisation_size)
         if self._candidate_gateway is not None and (
             self._profile.status != "development"
-            or spec.condition is not CoordinationCondition.SOLO
+            or spec.condition is CoordinationCondition.NATIVE_MULTIAGENT
         ):
-            raise RuntimeError("candidate tool transport is qualified only for development solo wiring")
+            raise RuntimeError("candidate tools require development solo or peer wiring")
         if (
             spec.condition is CoordinationCondition.NATIVE_MULTIAGENT
             and self._profile.status != "development"

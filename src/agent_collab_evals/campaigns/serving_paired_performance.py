@@ -8,9 +8,10 @@ from ..canonical import canonical_json_bytes, digest_bytes, digest_value
 from .serving_benchmark import build_vllm_benchmark_invocations
 from .serving_measurement import parse_vllm_benchmark_result, replay_vllm_goodput
 from .serving_scoring import score_repetition
+from .serving_pair_policy import ALLOWED_DRIVERS as _DRIVERS, validate_pair_environment
 
 
-ALLOWED_DRIVERS = ["580.95.05", "610.57.04"]
+ALLOWED_DRIVERS = list(_DRIVERS)
 FUNCTION_SECONDS = 3000
 MODEL_SOURCE = "/cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c"
 RESULT_ROOT = Path("/tmp/reference-benchmark")
@@ -40,6 +41,7 @@ def pair_spec(campaign, plan, scoring, performance_digest, repetition, evidence_
 
 def evaluate_pair(campaign, plan, scoring, spec, reference, candidate, receipt, raw):
     """Recompute each score from sealed raw outputs and a matched reference."""
+    driver = validate_pair_environment(spec, receipt, campaign.measurement_profile())
     if receipt.get("schema_version") != "modal-paired-serving-repetition/v1" or receipt.get("pair_digest") != spec["pair_digest"]:
         raise RuntimeError("paired receipt identity differs")
     if receipt.get("order") != spec["order"]:
@@ -48,22 +50,10 @@ def evaluate_pair(campaign, plan, scoring, spec, reference, candidate, receipt, 
         campaign.validate_candidate_document(document)
         if receipt.get(role + "_document_digest") != digest_bytes(canonical_json_bytes(document) + b"\n"):
             raise RuntimeError("paired candidate identity differs")
-    before, after = receipt.get("gpu_before", {}), receipt.get("gpu_after", {})
-    if before.get("driver_version") not in spec["allowed_drivers"]:
-        raise RuntimeError("paired GPU driver is unqualified")
-    if any(before.get(k) != v for k, v in spec["expected_gpu"].items()):
-        raise RuntimeError("paired GPU type, capacity or power differs")
     roles = receipt.get("roles", {})
     if receipt.get("ok") is not True or receipt.get("errors") != [] or set(roles) != {"reference", "candidate"}:
         raise RuntimeError("paired execution failed: " + str(receipt.get("errors")))
-    measurement = campaign.measurement_profile()
-    expected_environment = {"base_image_ref": "nvidia/cuda:12.9.0-devel-ubuntu22.04",
-        "base_image_digest": measurement.base_image_digest, "package_set_digest": measurement.resolved_package_digest}
     environment = receipt.get("environment", {})
-    if any(environment.get(k) != v for k, v in expected_environment.items()):
-        raise RuntimeError("paired software environment differs")
-    gpu_keys = ("name", "memory_mib", "driver_version", "power_limit_watts", "pci_bus_id")
-    gpu_observations = [after]
     replayed, points = {}, {}
     benchmark_invocations = invocations(campaign, plan, scoring)
     expected_names = {f"{role}-{i.result_file.name}" for role in roles for i in benchmark_invocations}
@@ -81,7 +71,6 @@ def evaluate_pair(campaign, plan, scoring, spec, reference, candidate, receipt, 
         for k in ("canary_before", "canary_after"):
             if r.get(k, {}).get("content") != "READY" or r[k].get("returned_model") != "target-model":
                 raise RuntimeError("paired server canary failed")
-        gpu_observations.extend([r.get("gpu_before", {}), r.get("gpu_after", {})])
         points[role], replayed[role] = [], []
         for i in benchmark_invocations:
             content = raw[f"{role}-{i.result_file.name}"]
@@ -94,8 +83,6 @@ def evaluate_pair(campaign, plan, scoring, spec, reference, candidate, receipt, 
                 aggregate_tolerance_us=scoring.legacy_aggregate_tolerance_us)
             points[role].append({**point.to_document(), "goodput": replay.to_document()})
             replayed[role].append(replay)
-    if any(any(g.get(k) != before.get(k) for k in gpu_keys) for g in gpu_observations):
-        raise RuntimeError("paired physical GPU identity changed")
     refs = {(r.bucket_id, r.request_rate): r for r in replayed["reference"]}
     rules = {key: replace(rule, reference_goodput_micro_rps=refs[(key, rule.selected_request_rate)].goodput_micro_rps)
         for key, rule in scoring.bucket_rules.items()}
@@ -107,7 +94,7 @@ def evaluate_pair(campaign, plan, scoring, spec, reference, candidate, receipt, 
         for role, values in replayed.items()}
     return {"schema_version": "exploratory-paired-performance-result/v1",
         "eligible": all(s["eligible"] for s in scores.values()), "scoreable": False,
-        "pair_digest": spec["pair_digest"], "driver_version": before["driver_version"],
+        "pair_digest": spec["pair_digest"], "driver_version": driver,
         "repetition": spec["benchmark"]["repetition"], "order": spec["order"],
         "scores": scores, "points": points, "timing": receipt["timing"]}
 

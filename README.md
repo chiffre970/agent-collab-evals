@@ -183,6 +183,21 @@ python -m unittest discover -s tests -v
 ```
 
 This is calibration infrastructure, not a completed experimental platform.
+The recovered solo exploratory outcome is now complete: it reconciled all three
+same-GPU performance pairs, found negligible speedup, and failed overall
+correctness/quality eligibility. Both peer formats also pass the shared candidate
+lifecycle with real OpenCode inside the rootless OCI sandbox, using synthetic
+model and GPU evidence. Paid peer execution remains disabled. See the
+[peer pilot plan](docs/PEER_PILOT_PLAN.md) for completed work and the next bounded
+comparison; historical milestones below are not the current work queue.
+
+The paired live-composition factory also passes the complete candidate and
+evaluation lifecycle against simulated raw GPU receipts, including restart and
+closure. It uses one physical stock/candidate pair per public or hidden job.
+`peer-pilot --check` constructs this factory without spending; remote wrapper
+conformance, current stock qualification, and new currency authority remain
+required before paid execution.
+
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
 publication and storage gates now pass, as do the development provider-route,
 cache-isolation, sandbox, budget-reconciliation and fake candidate-lifecycle

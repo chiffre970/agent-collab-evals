@@ -1,4 +1,60 @@
-# Performance-only matched-GPU follow-up
+# Completed exploratory solo outcome
+
+Run `solo-paired-performance-1005b` completed all three paired performance
+executions. Closure reconciled all three durable receipts and rechecked the
+nine retained public, correctness, and quality inputs. The final outcome was
+observed complete on October 5, 2026, at 06:55 UTC.
+
+Outcome digest:
+`sha256:8b033bc46ae10c6be9bec77bc8a3f61e5c41668ea6687ed6c9c3ef4b37b308a1`.
+The outcome remains in the dedicated Linux VM at
+`/home/rmh.guest/agent-collab-evals/.private/solo-devbound-1003/paired-performance-1005-retry/outcome.json`.
+Its execution implementation is pinned to
+`9f4847e0b49859f7e32b0d3180e29f95f792b277`.
+
+## Results
+
+- Candidate: `qwen3-4b-mem950`.
+- Candidate/reference performance ratios: 999728, 1000625, and 1000815 ppm.
+- Median improvement: 0.0625%; minimum observed change: -0.0272%.
+- Each repetition measured both roles on the same physical L4. All three
+  observed driver versions were `580.95.05`.
+- Performance eligibility passed, but overall eligibility failed.
+- Correctness failed `hidden-arithmetic-02:check_failed` (875000 criterion units).
+- Quality failed `bbh_reasoning quality lower bound exceeds margin`.
+  This does not establish preserved quality in that family; it is not proof
+  that the candidate degraded average quality.
+- `scoreable` remains false. The candidate did not demonstrate useful speedup.
+
+## Retained executions
+
+| Repetition | Modal call ID | Function-body seconds |
+| --- | --- | ---: |
+| 1 | `fc-01M451RBT9YKTC84SY6XQB6Q55` | 1341 |
+| 2 | `fc-01M4534MTPQX6WJY6P1WNBNAAC` | 1327 |
+| 3 | `fc-01M454GK8WNDPANDJPCHH5P2Z2` | 1341 |
+
+Function-body time is not authoritative provider billing. Final currency
+settlement for these executions remains pending. Historical unresolved reserves
+remain held; this outcome does not grant a refund, retry, or new paid run.
+
+## Interpretation and next action
+
+This is a reconciled exploratory outcome assembled after evaluation-only
+recoveries. The original agent campaign remains aborted; do not describe this
+as one uninterrupted successful solo invocation or as a collaboration result.
+No agent or OpenRouter call was rerun for the performance follow-up.
+
+Advance to the matched peer candidate path without requiring the solo candidate
+to succeed. Before paid comparison, freeze a shared measurement/driver policy,
+check the stock reference against the same hidden gates, reconcile billing,
+and approve a new bounded envelope. Do not loosen gates to qualify this result.
+
+## Historical launch and recovery record
+
+The following notes preserve the earlier approvals, settlement pins, and launch
+observations. Their active/pending status statements describe those earlier
+checkpoints; the completed outcome above supersedes them.
 
 Status: first follow-up stopped during polling; corrected replacement is active.
 No paired outcome exists yet.
@@ -46,7 +102,7 @@ Older unresolved reserves remain untouched. The replacement is three fresh
 requests with identical experiment settings, no model calls, and unchanged
 $20 Modal / $3.10 OpenRouter ceilings. No automatic replacement is introduced.
 
-## Approved replacement
+### Approved replacement
 
 Commit `9f4847e0b49859f7e32b0d3180e29f95f792b277` is pushed and deployed.
 The production no-spend check resolved the complete historical settlement chain

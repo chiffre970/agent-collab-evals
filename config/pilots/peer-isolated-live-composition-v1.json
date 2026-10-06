@@ -1,0 +1,9 @@
+{
+  "schema_version": "peer-live-composition/v1",
+  "execution_authorized": false,
+  "base_configuration": "config/pilots/solo-live-oci-v1.json",
+  "condition": "peer_isolated",
+  "organisation_size": 4,
+  "model_limit_usd_nanos": 300000000,
+  "measurement_policy": "co_located_reference_candidate_declared_drivers_v1"
+}

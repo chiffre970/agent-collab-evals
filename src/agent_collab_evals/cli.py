@@ -171,6 +171,25 @@ def _parser() -> argparse.ArgumentParser:
     pilot.add_argument("--check", action="store_true", help="check live adapter configuration offline; never authorize or dispatch")
     pilot.add_argument("--authorization", type=Path, help="operator-owned authorization for one exploratory solo attempt")
     pilot.add_argument("--authorization-digest", help="independently supplied SHA-256 digest of that authorization")
+    peer_pilot = subparsers.add_parser("peer-pilot", help="run the peer candidate lifecycle without model or GPU spend")
+    peer_pilot.add_argument("--config", type=Path, required=True)
+    peer_pilot.add_argument("--state-root", type=Path, default=Path("tmp/peer-pilots"))
+    peer_pilot.add_argument("--run-id", required=True)
+    peer_pilot.add_argument("--check", action="store_true", help="construct paired live adapters offline; no spending authority")
+    stock_control = subparsers.add_parser("prepare-peer-stock-control",
+        help="freeze seven paired stock controls; never dispatch or grant spending authority")
+    stock_control.add_argument("--config", type=Path, default=Path("config/pilots/solo-live-oci-v1.json"))
+    stock_control.add_argument("--state-root", type=Path, required=True)
+    stock_control.add_argument("--run-id", required=True)
+    controls = subparsers.add_parser("review-reference-controls",
+        help="replay historical stock controls and check their target scope without spend")
+    controls.add_argument("--campaign", type=Path, default=DEFAULT_CAMPAIGN)
+    for name in ("quality-workload", "quality-store", "correctness-receipt",
+        "source-hidden-manifest", "target-hidden-manifest"):
+        controls.add_argument("--" + name, type=Path, required=True)
+    for name in ("correctness-receipt-digest", "source-hidden-digest", "target-hidden-digest"):
+        controls.add_argument("--" + name, required=True)
+    controls.add_argument("--output", type=Path, help="retain a write-once, answer-free report")
     recovery = subparsers.add_parser("plan-solo-evaluation-recovery",
         help="verify retained results and plan evaluation-only recovery; never authorize or dispatch")
     recovery.add_argument("--source-root", type=Path, required=True)
@@ -690,6 +709,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif arguments.command == "readiness":
         output = readiness_report(Path(__file__).resolve().parents[2], arguments.composition)
+    elif arguments.command == "peer-pilot":
+        if arguments.check:
+            import re
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", arguments.run_id):
+                raise ValueError("peer composition run ID is invalid")
+            from .peer_live_configuration import check_peer_live_configuration
+            output = check_peer_live_configuration(arguments.config, Path(__file__).resolve().parents[2],
+                arguments.state_root / arguments.run_id)
+        else:
+            from .solo_pilot_command import run_peer_pilot
+            output = run_peer_pilot(arguments.config, arguments.state_root, arguments.run_id)
+    elif arguments.command == "review-reference-controls":
+        from .reference_controls import load_control_hidden, verify_reference_controls
+        campaign = ModelServingCampaign.load(arguments.campaign)
+        output = verify_reference_controls(campaign=campaign, policy=campaign.quality_policy(),
+            quality_workload=arguments.quality_workload, quality_store=arguments.quality_store,
+            correctness_receipt=arguments.correctness_receipt,
+            correctness_receipt_digest=arguments.correctness_receipt_digest,
+            source_hidden=load_control_hidden(campaign, arguments.source_hidden_manifest, arguments.source_hidden_digest),
+            target_hidden=load_control_hidden(campaign, arguments.target_hidden_manifest, arguments.target_hidden_digest))
+        if arguments.output:
+            from .pilot_evidence import retain_document
+            retain_document(arguments.output, output)
+    elif arguments.command == "prepare-peer-stock-control":
+        import re
+        from .peer_live_configuration import prepare_paired_stock_control
+        from .solo_live_configuration import LivePilotConfiguration
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", arguments.run_id):
+            raise ValueError("stock control run ID is invalid")
+        configuration = LivePilotConfiguration.load(arguments.config, Path(__file__).resolve().parents[2])
+        output = prepare_paired_stock_control(arguments.state_root / arguments.run_id,
+            configuration, arguments.run_id, configuration.hidden_bundle(), configuration.campaign.quality_policy())
     elif arguments.command == "solo-pilot":
         from .solo_pilot_command import run_solo_pilot
         if bool(arguments.authorization) != bool(arguments.authorization_digest):

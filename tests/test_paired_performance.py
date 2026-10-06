@@ -167,6 +167,31 @@ class PairedPerformanceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "point set"):
             evaluate_pair(self.campaign, self.resolver.plan, self.resolver.scoring, job["spec"], reference, candidate, original, {})
 
+    def test_pair_policy_rejects_rewritten_allowlist_and_missing_identity(self):
+        from agent_collab_evals.campaigns.serving_pair_policy import validate_pair_environment
+        job = self.binding["jobs"][0]
+        original, _ = measured_bundle(self.resolver, job)
+        measurement = self.campaign.measurement_profile()
+        for mutate in (lambda d: d["allowed_drivers"].append("999.00"),
+            lambda d: d.update(order=["candidate", "reference"]),
+            lambda d: d["benchmark"].update(repetition=True),
+            lambda d: d["benchmark"].update(attempt=2)):
+            changed = deepcopy(job["spec"])
+            mutate(changed)
+            with self.assertRaises(RuntimeError):
+                validate_pair_environment(changed, original, measurement)
+        receipt = deepcopy(original)
+        changed = deepcopy(job["spec"])
+        changed["expected_gpu"]["name"] = "NVIDIA A100"
+        changed["pair_digest"] = digest_value({k: v for k, v in changed.items() if k != "pair_digest"})
+        with self.assertRaisesRegex(RuntimeError, "profile differs"):
+            validate_pair_environment(changed, original, measurement)
+        for gpu in [receipt["gpu_before"], receipt["gpu_after"]] + [
+            r[k] for r in receipt["roles"].values() for k in ("gpu_before", "gpu_after")]:
+            gpu.pop("pci_bus_id")
+        with self.assertRaisesRegex(RuntimeError, "identity"):
+            validate_pair_environment(job["spec"], receipt, measurement)
+
     def test_durable_backend_and_real_single_use_spend_service_compose(self):
         authority = FrozenComputeRunManifest.load(self.state / "compute-manifest.json", expected_digest=self.document["compute_manifest_digest"])
         spend = SqliteComputeSpendAuthorizationService(self.state / "spend.sqlite3", authority)

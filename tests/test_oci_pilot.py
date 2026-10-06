@@ -13,7 +13,7 @@ from unittest.mock import patch
 from agent_collab_evals.adapters.oci_sandbox import OciSandboxExec, OciSandboxProfile
 from agent_collab_evals.adapters.opencode_harness import OpenCodeRuntimeProfile, _Bridge, _runtime_config
 from agent_collab_evals.canonical import digest_bytes, digest_file, digest_value
-from agent_collab_evals.solo_pilot_command import PilotAborted, make_opencode_runtime_dependencies, run_solo_pilot
+from agent_collab_evals.solo_pilot_command import PilotAborted, make_opencode_runtime_dependencies, run_solo_pilot, run_peer_pilot
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -83,6 +83,13 @@ class OciPilotConfigurationTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("RUN_OCI_PILOT_INTEGRATION") == "1", "enable local Linux/Podman integration")
 class OciPilotIntegrationTests(unittest.TestCase):
+    def test_complete_matched_peer_pilots_without_model_or_gpu_spend(self):
+        for condition in ("peer_isolated", "peer_collab"):
+            with self.subTest(condition=condition):
+                path = REPOSITORY / f"config/pilots/{condition.replace('_', '-')}-no-spend-oci-v1.json"
+                self._run_pilot(force_stop=False, profile_path=LONG_PROFILE,
+                                config_path=path, peer_condition=condition)
+
     def test_complete_existing_pilot_without_model_or_gpu_spend(self):
         self._run_pilot(force_stop=False)
 
@@ -92,7 +99,7 @@ class OciPilotIntegrationTests(unittest.TestCase):
     def test_forced_bridge_stop_aborts_pilot_and_removes_its_container(self):
         self._run_pilot(force_stop=True)
 
-    def _run_pilot(self, *, force_stop, profile_path=PROFILE, config_path=CONFIG):
+    def _run_pilot(self, *, force_stop, profile_path=PROFILE, config_path=CONFIG, peer_condition=None):
         engine = Path("/usr/bin/podman")
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"}
 
@@ -155,14 +162,23 @@ class OciPilotIntegrationTests(unittest.TestCase):
                         self.assertFalse(audit["scoreable"])
                         self.assertIn("container_after_client_exit", observation)
                         return
-                    result = run_solo_pilot(config_path, root, "pilot", runtime_dependencies=dependencies)
+                    run = run_peer_pilot if peer_condition is not None else run_solo_pilot
+                    result = run(config_path, root, "pilot", runtime_dependencies=dependencies)
                 audit = json.loads(Path(result["audit_path"]).read_text())
                 self.assertEqual(audit["status"], "complete")
                 self.assertEqual(audit["execution_mode"], "no_spend")
                 self.assertFalse(audit["live_execution_authorized"])
                 self.assertFalse(audit["scoreable"])
                 self.assertGreater(audit["synthetic_model_calls"], 0)
-                self.assertEqual(audit["synthetic_compute_executions"], 12)
+                self.assertEqual(audit["synthetic_compute_executions"], 15 if peer_condition is not None else 12)
+                if peer_condition is not None:
+                    self.assertEqual(audit["condition"], peer_condition)
+                    self.assertEqual(audit["peer_entry_count"], 4)
+                    self.assertGreaterEqual(audit["peer_read_count"], 4)
+                    if peer_condition == "peer_isolated":
+                        self.assertEqual(audit["cross_actor_read_count"], 0)
+                    else:
+                        self.assertGreater(audit["cross_actor_read_count"], 0)
                 self.assertEqual(audit["external_model_calls"], 0)
                 self.assertEqual(audit["external_compute_executions"], 0)
                 self.assertEqual(audit["actual_spend_usd_nanos"], 0)

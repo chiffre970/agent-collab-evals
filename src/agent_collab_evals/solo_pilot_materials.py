@@ -1,7 +1,7 @@
 """Self-contained public material for the bounded serving-optimization pilot."""
 
 from .campaigns.model_serving import ModelServingCampaign
-from .canonical import canonical_json_bytes, digest_bytes, digest_value
+from .canonical import canonical_json_bytes, digest_bytes, digest_value, parse_json
 from .domain import Job, MaterializedJobs
 from .evaluation import EvaluationResult
 
@@ -130,3 +130,35 @@ def materialize_solo_pilot(
         "public_materials": contents,
     })
     return MaterializedJobs((Job(original.job_id, mission, material_digest, contents),), material_digest)
+
+
+def materialize_peer_pilot(campaign, task_seed, *, organisation_size,
+                           reference_result, model_limit_usd_nanos,
+                           public_compute_seconds):
+    """Use identical task material in both peer arms, without assigned roles."""
+    if type(organisation_size) is not int or organisation_size < 2:
+        raise ValueError("peer pilot requires at least two actors")
+    material = materialize_solo_pilot(campaign, task_seed,
+        reference_result=reference_result, model_limit_usd_nanos=model_limit_usd_nanos,
+        public_compute_seconds=public_compute_seconds)
+    job = material.jobs[0]
+    materials = dict(job.public_materials)
+    context = parse_json(materials["pilot_context"])
+    context.update(organisation_size=organisation_size,
+        budget_scope="per_actor", candidate_limit_scope="per_actor")
+    materials["pilot_context"] = canonical_json_bytes(context).decode()
+    mission = job.mission + """
+
+## Peer environment
+
+Other agents receive the same task and fixed individual allowances. Your
+candidate and public result remain private to you. Peer tools expose only
+entries permitted by this run's visibility policy. You can use the available
+tools as you judge useful; no roles, coordination method, or division of work
+are assigned. Sharing does not transfer another actor's submission receipt,
+budget, or authority. Submit your own candidate, and retain your own receipt.
+"""
+    digest = digest_value({"profile": "peer-pilot-inline-materials/v1",
+        "source_material_digest": material.material_digest,
+        "mission": mission, "public_materials": materials})
+    return MaterializedJobs((Job(job.job_id, mission, digest, materials),), digest)

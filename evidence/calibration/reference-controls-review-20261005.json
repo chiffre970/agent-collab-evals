@@ -1,0 +1,98 @@
+{
+  "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+  "correctness": {
+    "eligible": true,
+    "matches_target_workload": false,
+    "passed_cases": 8,
+    "receipt_digest": "sha256:229f418297d066f47e3437a70f0b68094b2cdf33c4de24274b59e3972a6c01f5",
+    "source_hidden_manifest_digest": "sha256:2ebd6452a678b42e09644bc89a4c3d95107820d0ced82f96b53993d9b3fd31e6",
+    "source_workload_digest": "sha256:6c2928e9b1945408f51190fba679aed9cfd112d9626f043855726767ce965663",
+    "stock_control_verified": true,
+    "total_cases": 8
+  },
+  "execution_authorized": false,
+  "interpretation": "historical_calibration_replay_not_current_same_gpu_control_qualification",
+  "new_gpu_calls": 0,
+  "new_model_calls": 0,
+  "observed_drivers": [
+    "580.95.05"
+  ],
+  "physical_gpu_pairing_verified": false,
+  "quality": {
+    "aggregate": {
+      "candidate_passes": 166,
+      "delta_ppm": -10417,
+      "lower_bound_passes": true,
+      "lower_bound_ppm": -20833,
+      "margin_ppm": 31250,
+      "observed_passes": true,
+      "reference_passes": 168
+    },
+    "calibration_verified": true,
+    "eligible": true,
+    "failures": [],
+    "families": {
+      "bbh_reasoning": {
+        "candidate_passes": 46,
+        "delta_ppm": -20833,
+        "lower_bound_passes": true,
+        "lower_bound_ppm": -62500,
+        "margin_ppm": 62500,
+        "observed_passes": true,
+        "paired_observations": 48,
+        "reference_passes": 47
+      },
+      "gsm8k": {
+        "candidate_passes": 47,
+        "delta_ppm": -20833,
+        "lower_bound_passes": true,
+        "lower_bound_ppm": -62500,
+        "margin_ppm": 62500,
+        "observed_passes": true,
+        "paired_observations": 48,
+        "reference_passes": 48
+      },
+      "mmlu": {
+        "candidate_passes": 27,
+        "delta_ppm": 0,
+        "lower_bound_passes": true,
+        "lower_bound_ppm": 0,
+        "margin_ppm": 62500,
+        "observed_passes": true,
+        "paired_observations": 48,
+        "reference_passes": 27
+      },
+      "structured_transform": {
+        "candidate_passes": 46,
+        "delta_ppm": 0,
+        "lower_bound_passes": true,
+        "lower_bound_ppm": 0,
+        "margin_ppm": 62500,
+        "observed_passes": true,
+        "paired_observations": 48,
+        "reference_passes": 46
+      }
+    },
+    "historical_campaign_manifest_digest": "sha256:f99a3c63615343b7365b0a377f7aeeb27fadd6302d974004c82b5f71b2b66c8a",
+    "matches_current_campaign": false,
+    "matches_target_workload": true,
+    "quality_policy_digest": "sha256:eae72dc6000cdc7ecb0b09c012030bed0d66e668644040f8a8f1faae57a2bee4",
+    "quality_workload_digest": "sha256:9f129b49dda34d6af30d3e6a59f6ea945756b67fae32fbefca0ed9444492e8f4",
+    "receipt_digests": {
+      "clean_control": [
+        "sha256:8625a38e25a19b3250a9fcb5efb1984115b68770c6a6180e0c889d95a707b178",
+        "sha256:6fb787e515f7de484a60d6f1a44f4e8ba1506378336246526028f286f8d09a22",
+        "sha256:9249bafd1e26c280caa025231b6ab935a2ea2a19fffdb6a2fd76097c18060ad3"
+      ],
+      "reference": [
+        "sha256:70c7e9a06325c1cf2628269087001eaefffb29613784cf09bdb06a6cfa3a0f1d",
+        "sha256:1a71aaa42b3858b68c633de05db61b53f7bceac07dd0541f0f2ccda3ce1ee0a6",
+        "sha256:3a43c23370e8e5ebdb5ff5217a7e8011a472b60b213a30493ea70456623adc97"
+      ]
+    }
+  },
+  "schema_version": "model-serving-reference-controls-review/v1",
+  "scoreable": false,
+  "target_hidden_manifest_digest": "sha256:d4ef783ed35d7418f0e1b5a61a4d5045d1c00781f873a8882ddf0c02ab62ffa8",
+  "verifier_source_digest": "sha256:084d414c869d6d81a9f99d50e2e88886c8b1ccf6fb0993f20de6d7a3fc41e87f"
+}

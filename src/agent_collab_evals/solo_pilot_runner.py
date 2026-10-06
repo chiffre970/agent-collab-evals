@@ -1,4 +1,4 @@
-"""Staged solo pilot orchestration with externally approved compute requests."""
+"""Staged candidate evaluation with externally approved compute requests."""
 
 from dataclasses import dataclass
 from typing import Callable
@@ -7,8 +7,8 @@ from .adapters.sqlite_compute_routes import SqliteComputeRouteInventory
 from .candidate_services import CandidateServices
 from .compute_backend import ComputeExecutionRequest
 from .evaluation import HiddenEvaluationInput, VisibleEvaluationInput
-from .solo_evaluation_closure import SoloEvaluationClosure
-from .solo_evaluation_handoff import SoloEvaluationHandoff
+from .solo_evaluation_closure import CandidateEvaluationClosure
+from .solo_evaluation_handoff import CandidateEvaluationHandoff
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,8 @@ class PilotComputeRoute:
     requests: tuple[ComputeExecutionRequest, ...]
 
 
-class SoloPilotRunner:
-    """Stage and collect one candidate without autonomous spending approval.
+class CandidatePilotRunner:
+    """Stage and collect actor-private candidates without spending approval.
 
     The composition supplies runtime, evaluator factories, and pure exact-request
     planners. Agent delivery and feedback use CampaignController's durable outbox.
@@ -35,10 +35,12 @@ class SoloPilotRunner:
         self.services, self.inventory = services, inventory
         self._public_plan, self._hidden_plan = public_plan, hidden_plan
         self._hidden_seconds = hidden_seconds
-        self._handoff = SoloEvaluationHandoff(services.submissions, services.compute, services.plan.campaign_run_id)
+        self._handoff = CandidateEvaluationHandoff(services.submissions, services.compute,
+            services.plan.campaign_run_id, tuple(services.plan.actor_limits))
 
     def prepare_public(self) -> tuple[ComputeExecutionRequest, ...]:
-        return self._retain(self._public_plan(self._handoff.prepare()))
+        return self._retain(tuple(route for item in self._handoff.prepare()
+                                  for route in self._public_plan(item)))
 
     def collect_public(self):
         self.inventory.require_authorized(self.prepare_public())
@@ -59,7 +61,7 @@ class SoloPilotRunner:
         return services.submissions.evaluate_hidden(selection.receipt, reserved_seconds=self._hidden_seconds)
 
     def reconcile(self, campaign_run_id):
-        return SoloEvaluationClosure(self.services.submissions, self.services.compute,
+        return CandidateEvaluationClosure(self.services.submissions, self.services.compute,
             self.services.plan, self.inventory.sources()).reconcile(campaign_run_id)
 
     def _retain(self, routes):
@@ -71,3 +73,6 @@ class SoloPilotRunner:
         for route in routes:
             self.inventory.register(route.adapter_id, route.requests)
         return requests
+
+
+SoloPilotRunner = CandidatePilotRunner

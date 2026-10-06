@@ -1,12 +1,83 @@
 # Implementation status
 
-The current code is a modular development implementation with synthetic
-runtime/collaboration rehearsals and individually checked live evaluators.
-The integrated live optimization pilot remains incomplete. Follow the
+The current code is a modular development implementation with a completed
+exploratory solo outcome recovered across evaluation-only continuations, and
+complete no-spend peer candidate lifecycles. No live peer comparison or
+registered experiment has run. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
-Latest checkpoint (October 5): `solo-evalonly-1004` stopped at
+Latest checkpoint (October 5): `solo-paired-performance-1005b` completed all
+three same-GPU performance pairs and reconciled their durable receipts plus
+the nine retained inputs. Median gain was 0.0625%, with overall eligibility
+false: one correctness check failed and the reasoning-family quality bound
+did not establish preservation. The [outcome summary](../evidence/solo_pilot/20261005-paired-performance/README.md)
+retains its final digest and limitations. The original source campaign remains
+aborted; this is not one uninterrupted solo run or collaboration evidence.
+Final currency settlement for these three calls remains pending.
+
+The shared candidate lifecycle now supports both peer arms without spend.
+Four actors have equal model/compute allocations, reserved private storage,
+owner-private results, common method-neutral task material, and independent
+per-actor compute reconciliation. Both real OpenCode/rootless OCI lifecycles
+passed: 32 synthetic model calls and 15 synthetic compute executions per arm,
+valid closure, and zero leftover containers. Private peers had zero cross-actor
+reads; collaborative peers had 24. The [observations](../evidence/deployment/peer-candidate-nospend-20261005.json)
+record working-tree source digests, not a committed deployment or live authority.
+Paid peer execution stays disabled. See the [peer pilot plan](PEER_PILOT_PLAN.md)
+for the remaining remote paired-wrapper conformance, stock-control calibration,
+billing, live authority, and spending approval gates.
+
+The retained stock controls now have an executable, no-spend raw replay. It
+reproduces 8/8 correctness on the older workload and passing clean-control
+quality at 166/192 versus 168/192 reference. The
+[scope review](../evidence/calibration/reference-controls-review-20261005.json)
+does not promote that historical calibration to a current same-GPU control:
+the correctness workload differs, the quality build is historical, and all
+controls used driver `580.95.05`. Correctness and quality score tampering is
+rejected even when a test coherently rewrites the receipt seal and anchor.
+The shared performance pair validator also verifies the specification digest
+and rejects missing GPU identity observations. The historical solo factories
+retain their exact-driver pins. A new exploratory peer factory uses consistent
+same-GPU pairs across public, correctness, quality, and performance evaluation.
+No gates or old outcomes changed.
+
+October 6: the paired factory passes a complete no-spend four-actor lifecycle
+through the real durable SQLite backend and authorization service, candidate
+services, selector, handoff, and close-time reconciliation. Simulated raw GPU
+responses produce 12 physical executions: public stock plus four public
+candidates, one hidden correctness pair, three quality pairs, and three
+performance pairs. Each physical job accounts for both roles once. A fresh
+factory and evaluator reconstruct closure without redispatch. Incorrect stock
+or candidate correctness yields measured ineligibility, not a successful score;
+undeclared/mismatched drivers, missing raw cases, and changed input pins fail
+closed. Measured duration remains uncapped. Reservation lifecycle status is
+excluded from immutable request/receipt identity.
+
+The restricted paired Modal wrapper reuses the pinned stock server and request
+primitives with typed candidate settings, no secrets, no network, read-only
+model data, fresh role caches, and post-exit evaluator-owned evidence staging.
+Local SDK 1.5.4 import and serialization pass; the actual remote wrapper remains
+unqualified. The seven-job stock control and paid peer command require fresh
+run-bound currency authority. The old authority and caps are not inherited.
+The two `peer-live-composition/v1` configs differ only in condition. The
+`peer-pilot --check` command constructs the actual paired factory and planners
+without credentials, compute grants, or external calls. Its success means
+composition readiness, not deployment or spending approval. See the
+[cost proposal](PEER_PILOT_PLAN.md#cost-proposal-not-spending-authority).
+
+The stock-control preparation command now freezes all seven current-workload
+requests, the 21,000-second reservation, compute manifest, and sealed inventory
+without issuing authority. The local operator command succeeded with zero
+authorizations and zero dispatches. It refuses to relabel an already authorized
+or dispatched preparation as unused. This is uncommitted working-tree evidence,
+not a stock-control outcome, clean deployment, or new spending approval.
+
+Validation: 488 default tests, 464 passed and 24 opt-in integrations skipped;
+resource warnings are errors. The separately enabled real OCI test passed both
+peer formats. No new API/GPU spend was incurred.
+
+Earlier October 5 checkpoint: `solo-evalonly-1004` stopped at
 `2026-10-04T05:19:29Z`. Its three outstanding quality jobs completed with
 564, 560, and 545 measured function-body seconds. The first performance job
 produced nine raw benchmark outputs, but its driver was `610.57.04`, not the
@@ -950,20 +1021,27 @@ The following remain gates, not implied capabilities:
 
 ## Current priority: exploratory evidence
 
-Updated October 4, 2026. This sequencing update supersedes earlier "next"
+Updated October 6, 2026. This sequencing update supersedes earlier "next"
 recommendations in the historical progress entries below; it does not relax
 safety controls or registered-study requirements.
 
-Current action: validate and deploy the approved performance-only matched-GPU
-follow-up, freeze its three requests, issue fresh expiring authority and run it.
-Preserve the stopped `solo-evalonly-1004` continuation and original aborted audit.
-Reuse the nine completed inputs; do not rerun agents or quality jobs, redispatch
-the rejected performance call, or release historical reservations. The separate
-follow-up must close all three new executions and recheck all nine inputs before
-publishing an exploratory outcome. Report driver-specific provenance and the
-remaining cross-driver quality limitation, not a valid registered result.
-Only a complete, reconciled exploratory outcome justifies advancing to the
-matched peer conditions. Avoid unrelated platform expansion before that outcome.
+Completed: the approved performance-only matched-GPU follow-up closed all three
+new executions and rechecked the nine retained inputs. The candidate did not
+qualify or improve meaningfully, but a complete reconciled outcome now exists.
+Preserve all stopped continuations, original aborted audit, and reservations.
+
+Also completed: matched peer candidate/evaluation wiring and its real OCI
+no-spend acceptance. Current action: follow [the peer pilot plan](PEER_PILOT_PLAN.md).
+Historical stock controls have also been replayed from raw receipts, with their
+workload/build limitations retained. The paired live factory and its current
+request inventory now compose and close against simulated raw receipts.
+The current-workload stock-control inventory is also prepared without grants.
+Next, commit/deploy this build, finish its run-bound currency authority,
+settle completed solo billing, and obtain fresh
+approval for bounded remote conformance/control. Run the matched pair only
+after those gates pass. No paid peer run,
+automatic retry, new allowance, native promotion, or confirmatory execution is
+authorized by these milestones. Defer unrelated platform expansion.
 
 Deployment/cost proposal: [first solo pilot](SOLO_PILOT_PROPOSAL.md). Lifecycle
 and cleanup are committed in `050b382`; initial OCI wiring/setup in `d13e96f`.
@@ -1142,9 +1220,10 @@ for that milestone. Preserve existing protections. Defer generalization,
 production hardening, and registration-only refinements that do not block the
 pilot. An explicit abort can replace automatic recovery for exploratory runs.
 
-Status: the integrated live solo pilot is not yet complete. This planning change
-does not authorize paid execution, change execution-disabled profiles, or claim
-that the development sandbox provides full containment. Update this section
+Status: the recovered solo exploratory outcome and both no-spend peer candidate
+lifecycles are complete. The first paid peer comparison is not ready to launch.
+This planning change does not authorize paid execution, change execution-disabled
+profiles, or claim registered containment. Update this section
 after each milestone; local working notes are kept in Git-ignored
 `.private/NOTES.md` and are not required to interpret the shared plan.
 

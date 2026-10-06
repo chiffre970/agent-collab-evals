@@ -1,0 +1,557 @@
+{
+  "schema_version": "peer-candidate-nospend-observation/v1",
+  "observed_at": "2026-10-05T07:46:30.061665+00:00",
+  "registered_conformance_complete": false,
+  "external_model_calls": 0,
+  "external_compute_executions": 0,
+  "actual_spend_usd_nanos": 0,
+  "working_tree_implementation": true,
+  "runs": [
+    {
+      "evidence_root": "/tmp/ace-peer-PW5CAs/tmp/oci-pilot-conformance/ace-oittppx7",
+      "audit": {
+        "actual_spend_usd_nanos": 0,
+        "budget_reconciliation": {
+          "accounting_mode": "plan_and_synthetic_receipts_verified",
+          "active_reservation_ids": [],
+          "budget_plan_digest": "sha256:cb5fc12cad092b93d7e857578c6f183857c6f4bab369421df9bf3ac4e435e6a6",
+          "campaign_run_id": "pilot",
+          "forfeited_reservation_ids": [],
+          "ledger_errors": [],
+          "missing_receipt_reservation_ids": [],
+          "overrun_reservation_ids": [],
+          "receipt_verifier_digest": "sha256:42e93c2536bebedd515fc6fc6a56cf6113e4639f6a28b4530fc90874b340e739",
+          "valid": true
+        },
+        "collaboration_visibility": "actor_private",
+        "condition": "peer_isolated",
+        "cross_actor_read_count": 0,
+        "elapsed_ms": 15819,
+        "evidence_digests": {
+          "collaboration-snapshot.json": "sha256:f763a53b1f1c06c75b44766cffe7351a7dad3e083db9a55bbcb5e6c477088909",
+          "compute-receipts.json": "sha256:a6c68762f2d38727d55b34c42e49916f4c39ba228c0504f61f6370d868e7b890",
+          "compute-snapshot.json": "sha256:33b4e57ac3cacf5260349efa10afdd6f53158fa70a0cd6240baf32b7ae40a9d2",
+          "hidden-result.json": "sha256:aa2fb4e2b5cf7de944c8f84700b7b5e1ce57f2c974f6587788cbaa8c0673debb",
+          "model-budget-snapshot.json": "sha256:a1fba31e153be76d74fb6cf36aae53fa21fc237be37d03caa222c91490126720",
+          "model-requests.json": "sha256:31b59d672af1e0d6840cbcd49ea340d25fa29003b004235449955d10c749ef91",
+          "public-submissions.json": "sha256:e101fa0fd42e718b2ad25c8641b75fd2862f59ec2e53d92119560a5153169dfb",
+          "runtime-snapshot.json": "sha256:6750dac31b5659537d817bb6a9786ff0db2cd55d3793aca1b642e77b27724eab",
+          "selection.json": "sha256:017973168f64045bc3bdd141805ba359c054861b531addb8201b1a4aa5a7cea6"
+        },
+        "execution_mode": "no_spend",
+        "external_compute_executions": 0,
+        "external_model_calls": 0,
+        "failure": null,
+        "hidden_result": {
+          "criterion_units": 1001000,
+          "diagnostics": {
+            "hidden_workload_manifest_digest": "sha256:58fd326dc9e295b65636ed1f746cd117f360e6ef9a7523a748b826d7a5e9d916",
+            "performance_criterion_units": 1001000,
+            "phase_evidence_digests": {
+              "correctness": "sha256:cd8b4fad9da55c1f9703b07ee7c27eb233f3c53127de1d38928cf8b1bd143080",
+              "performance": "sha256:2a2db1042d59e655d39f8d541587b58b45b946f1643e9104a85915d9e88759d3",
+              "quality": "sha256:e11bd4ea0c5a8ca51ac7b1eadcdd46df95d7b07f210baa6399f52b9592a77122"
+            }
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:be2c82ba7dbf59c2898495c3431f42c2d27188f4802f34acc4bc9fd3a9cb707d",
+          "failures": []
+        },
+        "inventory_digest": "sha256:b54c5fe7e703ea103e5a833a3ab2830105595d6e8919bee8699fd9f74d9d9a34",
+        "live_execution_authorized": false,
+        "organisation_size": 4,
+        "peer_entry_count": 4,
+        "peer_read_count": 8,
+        "public_result": {
+          "criterion_units": 1100000,
+          "diagnostics": {
+            "candidate_id": "synthetic",
+            "development_single_repetition": true,
+            "measurement_profile_digest": null,
+            "modal_function_call_id": null,
+            "scoring_profile_digest": null
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:aeb9fe9ac91108558d19dcae105fcac04a249d6b770dac80876d461222382d9a",
+          "failures": []
+        },
+        "reference_evidence_digest": "sha256:960638bcb1a939736b25dda593ccfff32ff578606effdf061ee93102b998022e",
+        "run_config_digest": "sha256:275acc066b9cd96deec6a01779c9fa4ef1588b557072f760253fdd5d85f936f2",
+        "run_id": "pilot",
+        "runtime": "opencode",
+        "schema_version": "peer-pilot-audit/v1",
+        "scoreable": false,
+        "selected_artifact_digest": "sha256:a5633a16a81584322eec4f07c549673d3a30bae576983515744d85e13d537f72",
+        "status": "complete",
+        "storage_seal_digest": "sha256:af72cc1b1f8e205bdac318eac209edcdd4d824c8aa241af4fcf8b78bc70782c5",
+        "synthetic_compute_executions": 15,
+        "synthetic_compute_seconds": 105,
+        "synthetic_model_calls": 32,
+        "used_default": false
+      },
+      "audit_digest": "sha256:85a7d71752e7496b390e51ff59bf3f0b1ef948556bfd42a25127a94ef59b054a",
+      "configuration": {
+        "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+        "config": {
+          "campaign": "campaigns/model_serving_v0/campaign.toml",
+          "condition": "peer_isolated",
+          "execution_mode": "no_spend",
+          "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+          "organisation_size": 4,
+          "peer_tool_profile": "config/peer_tool_profiles/peer-tool-v0.json",
+          "public_compute_seconds": 240,
+          "runtime": "opencode",
+          "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+          "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v2.json",
+          "schema_version": "peer-pilot-command/v1",
+          "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+          "synthetic_candidate_public_ppm": 1100000,
+          "synthetic_model_limit_usd_nanos": 1000000000,
+          "task_seed": 1729
+        },
+        "config_digest": "sha256:e47fa950cad2d49f2bc0996169ca3a38ffe124d443195c639997f5839d4d557d",
+        "gateway_profile_digest": "sha256:39b5d1f8348aa08d71b14ee3508cce699c7863e699bea3a01c6f98be643f2307",
+        "git_commit": "9f4847e0b49859f7e32b0d3180e29f95f792b277",
+        "git_dirty": true,
+        "peer_tool_profile_digest": "sha256:224b7497f1a34df06476b76d26ada360439fefdfdf3346f67cf62a549d0b7a06",
+        "platform_source_digest": "sha256:27c6dfa73fa7781ea5c79b48d757a2fb82fde03e33e5d2cd8b8bc6d0a0c57f81",
+        "runtime_profile_digest": "sha256:15229995cdf5fb75907addc808ad800a449c8b421f9543f2a86bf15c8e2321d2",
+        "runtime_sandbox_evidence": {
+          "container_cleanup": "exact_launch_name_and_verified_absence",
+          "credential_environment_allowlist": [],
+          "driver": "podman-rootless-keep-id",
+          "filesystem_enforcement": "read_only_root_and_explicit_mounts",
+          "network_mode": "none_with_dedicated_session_unix_socket",
+          "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+          "required_conformance": [
+            "gateway_only_network",
+            "peer_gateway_only_network",
+            "candidate_gateway_only_network",
+            "native_gateway_only_network",
+            "unrelated_loopback_denied",
+            "provider_egress_denied",
+            "evaluator_private_files_denied",
+            "ambient_credentials_absent",
+            "filesystem_write_scope_enforced",
+            "process_resource_limits_enforced"
+          ],
+          "sandbox_profile_digest": "sha256:fdc30674cac79b6d6cedbe455b2f7accee1b209eed2eecd1787a69aa54351561",
+          "sandbox_profile_id": "oci-opencode-podman-development-v2",
+          "status": "development_conformance",
+          "user_namespace": "keep_id"
+        },
+        "sandbox_profile_digest": "sha256:5fde165fd3184d826acc24ecb0b5708a297e78fcdd4d813c74e5c208bce81595",
+        "synthetic_candidate_digest": "sha256:9715eb6e469f11a1d1ec2bc7b6e560d8eaedd7489d72735124f86ec789b93c32"
+      },
+      "configuration_digest": "sha256:275acc066b9cd96deec6a01779c9fa4ef1588b557072f760253fdd5d85f936f2",
+      "engine_identity": {
+        "engine_binary_digest": "sha256:f93ee492920150e229b9b41729bfe675073a4df0569ee5d570a8106b5a64506a",
+        "version": {
+          "APIVersion": "4.9.3",
+          "Version": "4.9.3",
+          "GoVersion": "go1.22.2",
+          "GitCommit": "",
+          "BuiltTime": "Thu Jan  1 10:00:00 1970",
+          "Built": 0,
+          "OsArch": "linux/arm64",
+          "Os": "linux"
+        },
+        "kernel": "6.8.0-142-generic",
+        "security": {
+          "apparmorEnabled": false,
+          "capabilities": "CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_FOWNER,CAP_FSETID,CAP_KILL,CAP_NET_BIND_SERVICE,CAP_SETFCAP,CAP_SETGID,CAP_SETPCAP,CAP_SETUID,CAP_SYS_CHROOT",
+          "rootless": true,
+          "seccompEnabled": true,
+          "seccompProfilePath": "/usr/share/containers/seccomp.json",
+          "selinuxEnabled": false
+        },
+        "runtime": {
+          "name": "runc",
+          "package": "containerd.io_2.3.5-1~ubuntu.24.04~noble_arm64",
+          "path": "/usr/bin/runc",
+          "version": "runc version 1.5.1\ncommit: v1.5.1-0-g8f2685a4\nspec: 1.3.0\ngo: go1.26.8\nlibseccomp: 2.5.5"
+        },
+        "id_mappings": {
+          "gidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ],
+          "uidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ]
+        }
+      },
+      "engine_identity_file_digest": "sha256:42ff4aa6fd902a3228e50a58bd02942da67820c4ca4b13e1ebd087a3d3e0a202",
+      "container_observation": {
+        "forced_bridge_stop": false,
+        "container_name": "ace-0b4f0cee2d1240e0803c81a4b1b6a248",
+        "cgroup_limits": [
+          "200000 100000",
+          "4294967296",
+          "0",
+          "256"
+        ],
+        "read_only_root": true,
+        "network_mode": "none",
+        "security_options": [
+          "no-new-privileges"
+        ],
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-oittppx7/pilot/workspace/actor-0002",
+            "Destination": "/tmp/ace-oittppx7/pilot/workspace/actor-0002",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-oittppx7/pilot/runtime/07ae38b93d8054d84aac3703/actor-0002",
+            "Destination": "/tmp/ace-oittppx7/pilot/runtime/07ae38b93d8054d84aac3703/actor-0002",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-oittppx7/pilot/brokers/model/s-f674a74eee8d",
+            "Destination": "/tmp/ace-oittppx7/pilot/brokers/model/s-f674a74eee8d",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-oittppx7/pilot/brokers/peer/p-4e995008c0dd",
+            "Destination": "/tmp/ace-oittppx7/pilot/brokers/peer/p-4e995008c0dd",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-oittppx7/pilot/brokers/candidate/c-de0e6619c5be",
+            "Destination": "/tmp/ace-oittppx7/pilot/brokers/candidate/c-de0e6619c5be",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          }
+        ],
+        "new_containers_remaining": []
+      },
+      "container_observation_file_digest": "sha256:00ec4d086cc38fced3919c9c902ae48504fe8ca2c4c54afc8caa9d26c5dcc63c",
+      "task_material_digest": "sha256:6a1f85bb219501e9472a706b745c49e7736fc954dc06a05d2fe9abe3c5a5219c"
+    },
+    {
+      "evidence_root": "/tmp/ace-peer-PW5CAs/tmp/oci-pilot-conformance/ace-ijf_rcl1",
+      "audit": {
+        "actual_spend_usd_nanos": 0,
+        "budget_reconciliation": {
+          "accounting_mode": "plan_and_synthetic_receipts_verified",
+          "active_reservation_ids": [],
+          "budget_plan_digest": "sha256:cb5fc12cad092b93d7e857578c6f183857c6f4bab369421df9bf3ac4e435e6a6",
+          "campaign_run_id": "pilot",
+          "forfeited_reservation_ids": [],
+          "ledger_errors": [],
+          "missing_receipt_reservation_ids": [],
+          "overrun_reservation_ids": [],
+          "receipt_verifier_digest": "sha256:42e93c2536bebedd515fc6fc6a56cf6113e4639f6a28b4530fc90874b340e739",
+          "valid": true
+        },
+        "collaboration_visibility": "organisation_shared",
+        "condition": "peer_collab",
+        "cross_actor_read_count": 24,
+        "elapsed_ms": 16254,
+        "evidence_digests": {
+          "collaboration-snapshot.json": "sha256:736a80bb126246bed94f576cbb7366a4db9917794c0e5f9ce33f968b0a8f0695",
+          "compute-receipts.json": "sha256:95b0409f045a158b1342a312f86d270d607d6581d001b1d167a9603feec56b65",
+          "compute-snapshot.json": "sha256:2ec2e6fa7e9cdcbf4cfa09df7c8c8fe8b769b0ef149b9f2552113a9073dc39ff",
+          "hidden-result.json": "sha256:7a491d294c4b40293a2b430f02e1e2a6ec1e78347cac63e6aaf93fc5473d6f2d",
+          "model-budget-snapshot.json": "sha256:9d0a4bf80de148a395ca93c02e0a2169f7494867be38724e8b1255710ea31366",
+          "model-requests.json": "sha256:330c474f2e594e0f4ec00f186f7056988a6bc0bbb9cbc22847c4c3fe27305882",
+          "public-submissions.json": "sha256:9412b162ac875ec8793c53c7f5f6be8cb1622bd5fc5c9cc980bce206e963383f",
+          "runtime-snapshot.json": "sha256:212b1e537cd88d1cff88f413f1fe5a2cf9b1c787095eb9f4ae2ce7e4296d1264",
+          "selection.json": "sha256:ae8f75a0b1a946965a004ed52d71162d65fd14d0c2f735cd9fdba0cb71e9740c"
+        },
+        "execution_mode": "no_spend",
+        "external_compute_executions": 0,
+        "external_model_calls": 0,
+        "failure": null,
+        "hidden_result": {
+          "criterion_units": 1001000,
+          "diagnostics": {
+            "hidden_workload_manifest_digest": "sha256:58fd326dc9e295b65636ed1f746cd117f360e6ef9a7523a748b826d7a5e9d916",
+            "performance_criterion_units": 1001000,
+            "phase_evidence_digests": {
+              "correctness": "sha256:cd8b4fad9da55c1f9703b07ee7c27eb233f3c53127de1d38928cf8b1bd143080",
+              "performance": "sha256:ef48153a622c9e073c9f4ff8920c1578cf3701d4072476f76baca584f4c090ef",
+              "quality": "sha256:132589b83b5df7886b2ca62b0c5fd75e85bae0d74da84207ca0c43d5cb0f4476"
+            }
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:c10aade08f4be13fa67e4f4a26a476f4e872868a0ce60d18b8e960907a4ce0f7",
+          "failures": []
+        },
+        "inventory_digest": "sha256:ff4f51b9ee328593fe4797ec6025d443f8a462a945c6c7568f492a8d483250c8",
+        "live_execution_authorized": false,
+        "organisation_size": 4,
+        "peer_entry_count": 4,
+        "peer_read_count": 8,
+        "public_result": {
+          "criterion_units": 1100000,
+          "diagnostics": {
+            "candidate_id": "synthetic",
+            "development_single_repetition": true,
+            "measurement_profile_digest": null,
+            "modal_function_call_id": null,
+            "scoring_profile_digest": null
+          },
+          "eligible": true,
+          "evidence_digest": "sha256:aeb9fe9ac91108558d19dcae105fcac04a249d6b770dac80876d461222382d9a",
+          "failures": []
+        },
+        "reference_evidence_digest": "sha256:960638bcb1a939736b25dda593ccfff32ff578606effdf061ee93102b998022e",
+        "run_config_digest": "sha256:0fb6726ecaebddec754f16af8fbff3b2adf40c21803dfda4cc76da230a9866ce",
+        "run_id": "pilot",
+        "runtime": "opencode",
+        "schema_version": "peer-pilot-audit/v1",
+        "scoreable": false,
+        "selected_artifact_digest": "sha256:a5633a16a81584322eec4f07c549673d3a30bae576983515744d85e13d537f72",
+        "status": "complete",
+        "storage_seal_digest": "sha256:e383d2fa8efa3b03c7ef5d9444c9d4c53ed805b7a4909e8c3370f01accc07449",
+        "synthetic_compute_executions": 15,
+        "synthetic_compute_seconds": 105,
+        "synthetic_model_calls": 32,
+        "used_default": false
+      },
+      "audit_digest": "sha256:984154173279574149f2d55faf6f6a356d5ca3e6ef78064b5a864d7ac5c12690",
+      "configuration": {
+        "campaign_manifest_digest": "sha256:2427fa2998bf2003d8a2410f32d5075940e827136d65b195658a604e0157a594",
+        "config": {
+          "campaign": "campaigns/model_serving_v0/campaign.toml",
+          "condition": "peer_collab",
+          "execution_mode": "no_spend",
+          "gateway_profile": "config/gateway_profiles/openrouter-deepinfra-local-conformance-v0.json",
+          "organisation_size": 4,
+          "peer_tool_profile": "config/peer_tool_profiles/peer-tool-v0.json",
+          "public_compute_seconds": 240,
+          "runtime": "opencode",
+          "runtime_profile": "config/runtime_profiles/opencode-deepseek-v4-flash-development.json",
+          "sandbox_profile": "config/enforcement_profiles/oci-opencode-podman-development-v2.json",
+          "schema_version": "peer-pilot-command/v1",
+          "synthetic_candidate": "campaigns/model_serving_v0/candidates/vllm-stream-interval-10.json",
+          "synthetic_candidate_public_ppm": 1100000,
+          "synthetic_model_limit_usd_nanos": 1000000000,
+          "task_seed": 1729
+        },
+        "config_digest": "sha256:4a654e36ae84295216439413d5d2435541ae9b3a722a071a4219ee99c5c6798f",
+        "gateway_profile_digest": "sha256:39b5d1f8348aa08d71b14ee3508cce699c7863e699bea3a01c6f98be643f2307",
+        "git_commit": "9f4847e0b49859f7e32b0d3180e29f95f792b277",
+        "git_dirty": true,
+        "peer_tool_profile_digest": "sha256:224b7497f1a34df06476b76d26ada360439fefdfdf3346f67cf62a549d0b7a06",
+        "platform_source_digest": "sha256:27c6dfa73fa7781ea5c79b48d757a2fb82fde03e33e5d2cd8b8bc6d0a0c57f81",
+        "runtime_profile_digest": "sha256:15229995cdf5fb75907addc808ad800a449c8b421f9543f2a86bf15c8e2321d2",
+        "runtime_sandbox_evidence": {
+          "container_cleanup": "exact_launch_name_and_verified_absence",
+          "credential_environment_allowlist": [],
+          "driver": "podman-rootless-keep-id",
+          "filesystem_enforcement": "read_only_root_and_explicit_mounts",
+          "network_mode": "none_with_dedicated_session_unix_socket",
+          "process_resource_enforcement": "cpu_memory_pids_and_timeout",
+          "required_conformance": [
+            "gateway_only_network",
+            "peer_gateway_only_network",
+            "candidate_gateway_only_network",
+            "native_gateway_only_network",
+            "unrelated_loopback_denied",
+            "provider_egress_denied",
+            "evaluator_private_files_denied",
+            "ambient_credentials_absent",
+            "filesystem_write_scope_enforced",
+            "process_resource_limits_enforced"
+          ],
+          "sandbox_profile_digest": "sha256:fdc30674cac79b6d6cedbe455b2f7accee1b209eed2eecd1787a69aa54351561",
+          "sandbox_profile_id": "oci-opencode-podman-development-v2",
+          "status": "development_conformance",
+          "user_namespace": "keep_id"
+        },
+        "sandbox_profile_digest": "sha256:5fde165fd3184d826acc24ecb0b5708a297e78fcdd4d813c74e5c208bce81595",
+        "synthetic_candidate_digest": "sha256:9715eb6e469f11a1d1ec2bc7b6e560d8eaedd7489d72735124f86ec789b93c32"
+      },
+      "configuration_digest": "sha256:0fb6726ecaebddec754f16af8fbff3b2adf40c21803dfda4cc76da230a9866ce",
+      "engine_identity": {
+        "engine_binary_digest": "sha256:f93ee492920150e229b9b41729bfe675073a4df0569ee5d570a8106b5a64506a",
+        "version": {
+          "APIVersion": "4.9.3",
+          "Version": "4.9.3",
+          "GoVersion": "go1.22.2",
+          "GitCommit": "",
+          "BuiltTime": "Thu Jan  1 10:00:00 1970",
+          "Built": 0,
+          "OsArch": "linux/arm64",
+          "Os": "linux"
+        },
+        "kernel": "6.8.0-142-generic",
+        "security": {
+          "apparmorEnabled": false,
+          "capabilities": "CAP_CHOWN,CAP_DAC_OVERRIDE,CAP_FOWNER,CAP_FSETID,CAP_KILL,CAP_NET_BIND_SERVICE,CAP_SETFCAP,CAP_SETGID,CAP_SETPCAP,CAP_SETUID,CAP_SYS_CHROOT",
+          "rootless": true,
+          "seccompEnabled": true,
+          "seccompProfilePath": "/usr/share/containers/seccomp.json",
+          "selinuxEnabled": false
+        },
+        "runtime": {
+          "name": "runc",
+          "package": "containerd.io_2.3.5-1~ubuntu.24.04~noble_arm64",
+          "path": "/usr/bin/runc",
+          "version": "runc version 1.5.1\ncommit: v1.5.1-0-g8f2685a4\nspec: 1.3.0\ngo: go1.26.8\nlibseccomp: 2.5.5"
+        },
+        "id_mappings": {
+          "gidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ],
+          "uidmap": [
+            {
+              "container_id": 0,
+              "host_id": 1000,
+              "size": 1
+            },
+            {
+              "container_id": 1,
+              "host_id": 100000,
+              "size": 65536
+            }
+          ]
+        }
+      },
+      "engine_identity_file_digest": "sha256:42ff4aa6fd902a3228e50a58bd02942da67820c4ca4b13e1ebd087a3d3e0a202",
+      "container_observation": {
+        "forced_bridge_stop": false,
+        "container_name": "ace-377631ae791d448c8bcfba00c09a2539",
+        "cgroup_limits": [
+          "200000 100000",
+          "4294967296",
+          "0",
+          "256"
+        ],
+        "read_only_root": true,
+        "network_mode": "none",
+        "security_options": [
+          "no-new-privileges"
+        ],
+        "mounts": [
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ijf_rcl1/pilot/brokers/model/s-7eecbbf34de5",
+            "Destination": "/tmp/ace-ijf_rcl1/pilot/brokers/model/s-7eecbbf34de5",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ijf_rcl1/pilot/brokers/peer/p-050e3c4045b0",
+            "Destination": "/tmp/ace-ijf_rcl1/pilot/brokers/peer/p-050e3c4045b0",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ijf_rcl1/pilot/brokers/candidate/c-0f7c8895b3fd",
+            "Destination": "/tmp/ace-ijf_rcl1/pilot/brokers/candidate/c-0f7c8895b3fd",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": false,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ijf_rcl1/pilot/workspace/actor-0000",
+            "Destination": "/tmp/ace-ijf_rcl1/pilot/workspace/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          },
+          {
+            "Type": "bind",
+            "Source": "/tmp/ace-ijf_rcl1/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Destination": "/tmp/ace-ijf_rcl1/pilot/runtime/07ae38b93d8054d84aac3703/actor-0000",
+            "Driver": "",
+            "Mode": "",
+            "Options": [
+              "rbind"
+            ],
+            "RW": true,
+            "Propagation": "rprivate"
+          }
+        ],
+        "new_containers_remaining": []
+      },
+      "container_observation_file_digest": "sha256:780cf9133beb0813e067da90b774c9d0ff435e61de6945ca504233c16c9a3982",
+      "task_material_digest": "sha256:6a1f85bb219501e9472a706b745c49e7736fc954dc06a05d2fe9abe3c5a5219c"
+    }
+  ]
+}
