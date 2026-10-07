@@ -104,6 +104,13 @@ compute routes, and raw evidence resolution. They also cover concurrent batch
 admission, stale history, missing pins, tampered receipts, preserved retry
 releases, exhausted caps, and uncertain dispatch without a second spawn.
 
+The final stock-runner guard is deployed as `90bbc1c`. Its separate VM checkout
+passes 47 targeted tests and the clean-build gate. A fresh seven-request
+preparation remains unissued. [The deployment record](../evidence/deployment/paired-stock-preparation-20261007.json)
+also retains the unchanged journal digest and refusal under the current cap.
+Next is a fresh stock-only spending decision, the workspace gross-usage limit
+check, and one bounded live control; the matched peer run remains disabled.
+
 Earlier October 5 checkpoint: `solo-evalonly-1004` stopped at
 `2026-10-04T05:19:29Z`. Its three outstanding quality jobs completed with
 564, 560, and 545 measured function-body seconds. The first performance job

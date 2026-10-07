@@ -1,0 +1,54 @@
+{
+  "schema_version": "paired-stock-deployment-observation/v1",
+  "observed_on": "2026-10-07",
+  "mode": "no_spend_clean_vm_stock_preparation",
+  "git_commit": "90bbc1c2acd70c08b784d371412e8df2b8e22cf8",
+  "deployment_checkout": "/home/rmh.guest/agent-collab-peer-pilot-09c4a67",
+  "clean_build_gate_passed": true,
+  "independent_python_environment": true,
+  "modal_client_version": "1.5.4",
+  "tests": {
+    "modules": [
+      "tests.test_paired_serving_stack",
+      "tests.test_peer_stock_control",
+      "tests.test_pilot_spend_batch",
+      "tests.test_pilot_spend"
+    ],
+    "ran": 47,
+    "passed": 47,
+    "skipped": 0,
+    "resource_warnings_are_errors": true,
+    "gpu_transport": "simulated_raw_evidence_not_live_modal"
+  },
+  "preparation": {
+    "run_id": "stock-control-1007b",
+    "path": "/home/rmh.guest/agent-collab-peer-pilot-09c4a67/.private/stock-control-1007b/stock-control.json",
+    "digest": "sha256:a005b9851066c7c28deda9d0d094f972541b4263e7faca6c32675a2c6dbda8a5",
+    "inventory_seal_digest": "sha256:584171e1c0b86b676824749a6e24289db3f68a9aeb8b57e7295c32a416d7f8ec",
+    "evaluator_profile_digest": "sha256:f1b14e0529fff5354ee077395b5c32438bc33629a6dab543fffe68a9ad5b2636",
+    "planned_gpu_calls": 7,
+    "authorization_count": 0,
+    "dispatch_count": 0,
+    "modal_allowance_usd_nanos": 8965888000
+  },
+  "cumulative_journal": {
+    "snapshot_digest": "sha256:5460c4c26a3af381a983833c01b2782163db0f7db789a510666ef8e6be6d533f",
+    "receipt_count": 98,
+    "provider_limits_usd_nanos": {"modal": 20000000000, "openrouter": 3100000000},
+    "reserved_usd_nanos": {"modal": 19847366480, "openrouter": 131750600},
+    "current_cap_rejected_control_before_any_grant": true,
+    "minimum_cumulative_modal_usd_nanos": 28813254480,
+    "new_batch_admitted": false,
+    "historical_reserves_preserved": true,
+    "actual_billing_settlement": "pending"
+  },
+  "proposal_digest": "sha256:fe5bd4fb05d0c5a56403a9cf9e620c039de3fbb7454ab2bd6edbba25c1d9bb56",
+  "execution_authorized": false,
+  "original_solo_checkout_commit": "9f4847e0b49859f7e32b0d3180e29f95f792b277",
+  "original_solo_checkout_unchanged": true,
+  "new_paid_model_calls": 0,
+  "new_paid_gpu_dispatches": 0,
+  "remote_wrapper_conformance": "pending",
+  "current_stock_control_outcome": "pending",
+  "scoreable": false
+}

@@ -83,6 +83,14 @@ not registration or evidence that collaboration already helps.
   re-resolves completed evidence; uncertain calls are not replaced or cancelled
   merely because the controller stopped. These are no-spend tests, not current
   stock qualification or live wrapper conformance.
+- The stock runner checkpoint `90bbc1c` is committed and deployed. All 47
+  targeted VM tests pass with resource warnings treated as errors. The fresh
+  `stock-control-1007b` preparation has seven frozen requests, zero grants, and
+  zero dispatches. The actual shared journal still has 98 receipts; its current
+  $20 Modal ceiling rejects the control before any authority is issued.
+  [Deployment record](../evidence/deployment/paired-stock-preparation-20261007.json)
+  binds the clean build and preparation. This closes the stock-runner deployment
+  step, not remote wrapper conformance or current reference qualification.
 
 The no-spend configs differ only in `condition`:
 `config/pilots/peer-isolated-no-spend-oci-v1.json` and
@@ -95,7 +103,7 @@ execution. OCI execution requires explicit host runtime dependencies.
 1. Retain the completed solo billing settlement when attributable provider
    evidence is available. Never release historical reserves without it.
    No new journal or implicit cap reset. The tested paired composition is
-   committed and separately deployed; the stock runner is the next checkpoint.
+   committed and separately deployed, including the stock runner.
 2. Qualify the actual
    restricted Modal wrapper. The new public/correctness/quality/performance
    factories share the declared same-GPU policy; the old solo factories remain
@@ -180,7 +188,7 @@ not expected charges or provider-enforced billing caps:
 
 These figures use `config/compute/modal-pilot-cost-v1.json`. Its L4, CPU, and
 memory rates still match [Modal's published pricing](https://modal.com/pricing)
-when checked on October 6, 2026. Reverify rates and provider routing before
+when checked on October 7, 2026. Reverify rates and provider routing before
 issuing approval; do not infer available funds from these calculations.
 Historical reserves and provider settlement remain separate obligations.
 
@@ -192,6 +200,16 @@ deployment before any paid authority is issued. Local CLI output also confirms
 that both peer candidates have the same request-inventory digest and budget
 geometry. Paid candidate digests are frozen after admission, not replaced by
 the stock bytes used for the offline composition check.
+
+The fresh VM preparation is `stock-control-1007b`, pinned to clean deployed
+commit `90bbc1c`. Its proposal is explicitly unauthorized. Keeping all old
+reserves, the control requires a cumulative Modal ceiling of at least
+$28.81325448; the proposed rounded ceiling is $29. OpenRouter remains $3.10,
+and this stock control makes no model API calls. No cap has changed and no
+batch has been admitted. Obtain explicit approval for this one control and
+verify the workspace gross-usage limit before issuing its expiring authority.
+If the control fails its gates, report the negative result and revisit the
+scenario version before launching the peer comparison.
 
 The proposed actor sandbox lifetime must cover the entire sequential evaluation
 schedule, including provider startup and collection. The offline check computes
