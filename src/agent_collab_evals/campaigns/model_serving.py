@@ -115,6 +115,12 @@ class ModelServingCampaign:
             measurement_repetitions=measurement_profile.repetitions,
         )
         quality_policy.validate_against(quality_profile)
+        if raw["campaign_id"] == "model-serving-calibration-v3" and (
+            quality_policy.calibration_status != "pending_current_control"
+            or quality_profile.decoding["thinking"].max_tokens != 8192
+            or quality_profile.request_timeout_seconds != 600
+        ):
+            raise ManifestValidationError("V3 calibration profile differs")
         hidden_quality = hidden_contract["quality_contract"]
         expected_quality_digests = {
             "quality_profile_digest": quality_profile.digest,
@@ -286,8 +292,6 @@ class ModelServingCampaign:
             "candidate_implementation_policy": (
                 "unrestricted_within_campaign_policy"
             ),
-            "task_mix_status": "calibration_v2_materialized_evaluator_private",
-            "threshold_status": "frozen_quality_policy_v0alpha1",
         }
         ModelServingCampaign._exact_keys(
             quality,
@@ -296,11 +300,18 @@ class ModelServingCampaign:
                 "quality_profile_digest",
                 "quality_policy_digest",
                 "quality_workload_digest",
+                "task_mix_status",
+                "threshold_status",
             },
             "hidden quality contract",
         )
         if any(quality.get(key) != value for key, value in expected_quality.items()):
             raise ManifestValidationError("unsupported hidden quality contract")
+        if (quality.get("task_mix_status"), quality.get("threshold_status")) not in {
+            ("calibration_v2_materialized_evaluator_private", "frozen_quality_policy_v0alpha1"),
+            ("calibration_v3_same_cases_evaluator_private", "frozen_rule_calibration_pending"),
+        }:
+            raise ManifestValidationError("hidden quality calibration status differs")
         for key in (
             "quality_profile_digest",
             "quality_policy_digest",
@@ -394,7 +405,7 @@ class ModelServingCampaign:
             raise ManifestValidationError("reference dependency lock mismatch")
         expected_engine_args = {
             "dtype": "bfloat16",
-            "max_model_len": 8192,
+            "max_model_len": 16384 if self.raw["campaign_id"] == "model-serving-calibration-v3" else 8192,
             "gpu_memory_utilization_ppm": 900_000,
             "stream_interval": 1,
             "max_num_seqs": None,

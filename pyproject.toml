@@ -9,6 +9,9 @@ description = "Modular infrastructure for agent collaboration experiments"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+calibration = ["tokenizers==0.22.2", "Jinja2==3.1.6"]
+
 [project.scripts]
 collab-evals = "agent_collab_evals.cli:main"
 

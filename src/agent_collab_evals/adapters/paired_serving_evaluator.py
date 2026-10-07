@@ -34,14 +34,19 @@ class PairedServingEvaluator:
         return {key: getattr(reservation, key) for key in ("reservation_id", "reservation_key", "campaign_run_id",
             "actor_id", "artifact_ref", "scope", "reserved_seconds")}
 
-    def _requests(self, candidate, reservation, evaluation_key, scope):
+    def _requests(self, candidate, reservation, evaluation_key, scope, *, diagnostic=False):
         self.profile.check_inputs()
         if scope is not self.scope or not evaluation_key.startswith(scope.value + ":"):
             raise ValueError("paired evaluation scope/key differs")
+        if diagnostic and (scope is not EvaluationScope.HIDDEN
+            or candidate != self.profile.campaign.reference_candidate_path.read_bytes()
+            or self.profile.quality_policy.calibration_status != "pending_current_control"):
+            raise PermissionError("diagnostic planning is only for pending stock calibration")
         if reservation is None:
             if scope is not EvaluationScope.VISIBLE or candidate != self.profile.campaign.reference_candidate_path.read_bytes():
                 raise PermissionError("unreserved evaluation is only for the stock public reference")
-        elif (reservation.scope is not scope or reservation.reserved_seconds != self.reserved_seconds):
+        elif (reservation.scope is not scope
+            or reservation.reserved_seconds != (2 * FUNCTION_SECONDS if diagnostic else self.reserved_seconds)):
             raise ValueError("paired evaluation reservation differs")
         descriptor = self.profile.campaign.validate_candidate_document(parse_json(candidate.decode()))
         identity = digest_value({"evaluation_key": evaluation_key, "evaluator": self.profile_digest,
@@ -51,13 +56,17 @@ class PairedServingEvaluator:
             reservation_id=reservation.reservation_id if reservation else "reference-" + identity,
             scope=scope, candidate_digest=digest_bytes(candidate), candidate_manifest_digest=descriptor.manifest_digest,
             evaluator_profile_digest=self.profile_digest, maximum_seconds=FUNCTION_SECONDS)
-            for slot in (("public-1",) if scope is EvaluationScope.VISIBLE else HIDDEN_SLOTS))
+            for slot in (("correctness-1", "quality-1") if diagnostic else
+                ("public-1",) if scope is EvaluationScope.VISIBLE else HIDDEN_SLOTS))
 
     def prepare_visible_request(self, candidate, reservation, evaluation_key):
         return self._requests(candidate, reservation, evaluation_key, EvaluationScope.VISIBLE)[0]
 
     def prepare_hidden_requests(self, candidate, reservation, evaluation_key):
         return self._requests(candidate, reservation, evaluation_key, EvaluationScope.HIDDEN)
+
+    def prepare_diagnostic_requests(self, candidate, reservation, evaluation_key):
+        return self._requests(candidate, reservation, evaluation_key, EvaluationScope.HIDDEN, diagnostic=True)
 
     def visible_evaluate(self, candidate, reservation, evaluation_key):
         return self._evaluate(candidate, reservation, evaluation_key, EvaluationScope.VISIBLE)

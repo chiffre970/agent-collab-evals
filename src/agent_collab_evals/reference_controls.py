@@ -82,6 +82,8 @@ def verify_reference_controls(*, campaign, policy, quality_workload, quality_sto
     proof about another workload, build, driver, or physical GPU pairing.
     """
     profile = campaign.quality_profile()
+    if policy.calibration_status != "historical_control_frozen":
+        raise RuntimeError("historical receipts cannot qualify a pending calibration")
     policy.validate_against(profile)
     workload = load_quality_workload(Path(quality_workload), profile)
     if workload.digest != policy.quality_workload_digest:

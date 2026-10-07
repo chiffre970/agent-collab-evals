@@ -11,7 +11,9 @@ from typing import Mapping
 from ..canonical import DuplicateKeyError, digest_bytes, digest_value, parse_json
 
 
-_CHECK_KINDS = {"exact", "regex", "casefold_exact"}
+_CHECK_KINDS = {"exact", "regex", "casefold_exact", "integer_sum"}
+_INTEGER = r"[+-]?[0-9]{1,20}"
+_ADDITION = re.compile(rf"\s*({_INTEGER})\s*\+\s*({_INTEGER})\s*=\s*({_INTEGER})\s*")
 
 
 class CorrectnessValidationError(ValueError):
@@ -25,6 +27,7 @@ class CorrectnessCase:
     max_tokens: int
     check_kind: str
     expected: str
+    operands: tuple[int, int] | None = None
 
     def request(self, served_model_name: str) -> dict[str, object]:
         if not served_model_name:
@@ -59,9 +62,10 @@ class CorrectnessResult:
     failures: tuple[str, ...]
     response_digests: Mapping[str, str]
     evidence_digest: str
+    formatting: Mapping[str, object] | None = None
 
     def to_document(self) -> dict[str, object]:
-        return {
+        document = {
             "workload_digest": self.workload_digest,
             "eligible": self.eligible,
             "passed_cases": self.passed_cases,
@@ -70,6 +74,9 @@ class CorrectnessResult:
             "response_digests": dict(self.response_digests),
             "evidence_digest": self.evidence_digest,
         }
+        if self.formatting is not None:
+            document["formatting"] = dict(self.formatting)
+        return document
 
 
 def load_correctness_workload(path: Path) -> CorrectnessWorkload:
@@ -118,6 +125,7 @@ def score_correctness_responses(
     failures: list[str] = []
     passed = 0
     response_digests: dict[str, str] = {}
+    formatting = {}
     for case in workload.cases:
         raw = responses[case.case_id]
         if not isinstance(raw, bytes):
@@ -127,7 +135,15 @@ def score_correctness_responses(
             content = _response_content(raw, served_model_name)
         except CorrectnessValidationError:
             failures.append(f"{case.case_id}:api_schema")
+            if case.check_kind == "integer_sum":
+                formatting[case.case_id] = "unavailable"
             continue
+        if case.check_kind == "integer_sum":
+            formatting[case.case_id] = (
+                "bare_integer" if re.fullmatch(_INTEGER, content.strip())
+                else "addition_equation" if _ADDITION.fullmatch(content)
+                else "other"
+            )
         if _matches(case, content):
             passed += 1
         else:
@@ -141,6 +157,9 @@ def score_correctness_responses(
         "failures": failures,
         "response_digests": response_digests,
     }
+    # Legacy results keep exactly their original fields and digest input.
+    if formatting:
+        result_authority["formatting"] = formatting
     return CorrectnessResult(
         workload_digest=workload.digest,
         eligible=not failures,
@@ -149,6 +168,7 @@ def score_correctness_responses(
         failures=tuple(failures),
         response_digests=response_digests,
         evidence_digest=digest_value(result_authority),
+        formatting=formatting or None,
     )
 
 
@@ -185,7 +205,8 @@ def _case(value: object) -> CorrectnessCase:
         )
     if (
         not isinstance(check, dict)
-        or set(check) != {"kind", "value"}
+        or set(check) != ({"kind", "value", "operands"}
+            if check.get("kind") == "integer_sum" else {"kind", "value"})
         or check.get("kind") not in _CHECK_KINDS
         or not isinstance(check.get("value"), str)
         or not check["value"]
@@ -198,12 +219,21 @@ def _case(value: object) -> CorrectnessCase:
             raise CorrectnessValidationError(
                 "correctness regex is invalid"
             ) from error
+    operands = None
+    if check["kind"] == "integer_sum":
+        values = check["operands"]
+        if (not isinstance(values, list) or len(values) != 2
+            or any(type(v) is not int or abs(v) > 10**12 for v in values)
+            or check["value"] != str(sum(values))):
+            raise CorrectnessValidationError("integer-sum authority is invalid")
+        operands = tuple(values)
     return CorrectnessCase(
         case_id=case_id,
         messages=tuple(normalized_messages),
         max_tokens=max_tokens,
         check_kind=str(check["kind"]),
         expected=str(check["value"]),
+        operands=operands,
     )
 
 
@@ -233,6 +263,15 @@ def _response_content(raw: bytes, served_model_name: str) -> str:
 
 
 def _matches(case: CorrectnessCase, content: str) -> bool:
+    if case.check_kind == "integer_sum":
+        if re.fullmatch(_INTEGER, content.strip()):
+            return int(content.strip()) == int(case.expected)
+        equation = _ADDITION.fullmatch(content)
+        if equation is None or case.operands is None:
+            return False
+        left, right, answer = (int(value) for value in equation.groups())
+        return (sorted((left, right)) == sorted(case.operands)
+            and left + right == answer == int(case.expected))
     if case.check_kind == "exact":
         return content == case.expected
     if case.check_kind == "casefold_exact":

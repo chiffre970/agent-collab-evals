@@ -1,0 +1,93 @@
+{
+  "schema_version": "serving-calibration-observation/v1",
+  "observed_on": "2026-10-08",
+  "scope": "local_working_tree_preparation_and_cpu_context_check",
+  "git_head": "fd5f283e533c70e9319fdbcb914a4d62bd89b11e",
+  "clean_committed_deployment": false,
+  "execution_authorized": false,
+  "scoreable": false,
+  "calibration_qualified": false,
+  "new_model_calls": 0,
+  "new_gpu_calls": 0,
+  "revision_id": "model-serving-calibration-v3",
+  "recipe": {
+    "path": "config/calibration/model-serving-v3.json",
+    "digest": "sha256:32982b6efbd5207fcfdea5a346c08375bd7467ae4b4ddf19663b298e78a49217"
+  },
+  "quality_profile": {
+    "path": "campaigns/model_serving_v0/evaluator/quality_calibration_v3.toml",
+    "file_digest": "sha256:7a7b413d5d722210d54f6305ce4c979bca12e6736683db6e7565989d2bf4b192",
+    "thinking_max_tokens": 8192,
+    "nonthinking_max_tokens": 512,
+    "request_timeout_seconds": 600,
+    "calibration_status": "pending_current_control"
+  },
+  "predecessor": {
+    "quality_profile_digest": "sha256:297f7e46f1d78b740ff22baf888a8ac3d7f2487573090b9755e00c197b14e36a",
+    "quality_policy_digest": "sha256:eae72dc6000cdc7ecb0b09c012030bed0d66e668644040f8a8f1faae57a2bee4",
+    "outcome_digest": "sha256:623e6253b454bcbd7a9bfbb8d68eacfc6752277035d022a4d1ff479a0d752fb7",
+    "source_inputs_unchanged": true,
+    "same_quality_cases_and_seeds": true,
+    "current_qualification_receipts_inherited": false,
+    "old_outcome_reinterpreted": false
+  },
+  "preparation": {
+    "root": ".private/serving-calibration/calibration-v3-1008-final",
+    "run_id": "calibration-v3-1008-final",
+    "derivation_digest": "sha256:8ba8673b313adff610d2f4c977f8c953216da981aaeaf0041d9ed728e990bacd",
+    "configuration_digest": "sha256:7a1181edca0e2c38dbe1d114496c166653e6f64b12dbd05302b6ef9d19b2d786",
+    "preparation_digest": "sha256:89c1a07e15e9c7ffa6c85726f4606d087f64d156674101e259d662ded8e0a5c9",
+    "hidden_manifest_digest": "sha256:5edb060a3e8c7484024cddd8c1ed8c35b425d35ac644fdfac40c5117146f6de5",
+    "evaluator_profile_digest": "sha256:9358fb6295de59695c552f0b2867f19714f1bb080b9e84f80f8e2118b9fa0ec8",
+    "inventory_seal_digest": "sha256:b9e49fc103f10fde53060bb2893af64d655a67cf1fff677530db2cdbbc938fa8",
+    "compute_manifest_digest": "sha256:d43c9ba67c621d55d499d19b4dd8f8a8368c0a9eca38b9ac385fed728b66f429",
+    "reference_candidate_digest": "sha256:f8ce6c322d8c56bd723ccec4a1deda7457dd8019ba42c165c3421c3d603ff11f",
+    "cost_profile_digest": "sha256:07d37383c7b39b5c51c4ee839a32e43cc5e82ee7bc5b2768f29effc511057b45",
+    "slots": ["correctness-1", "quality-1"],
+    "planned_gpu_calls": 2,
+    "authorization_count": 0,
+    "dispatch_count": 0,
+    "reserved_function_seconds": 6000,
+    "modal_admission_allowance_usd_nanos": 3275968000,
+    "openrouter_admission_allowance_usd_nanos": 0,
+    "allowance_is_provider_bill": false,
+    "full_gate_evaluation": false
+  },
+  "context_check": {
+    "digest": "sha256:14bd57fc7fc84b953e93c9df477964c64cf56e677252a4f720d3e34ed4081cf5",
+    "verifier_source_digest": "sha256:80d47148b46c491ed5e281c73ce0d44b49fbb9abd64572316e73c312159a6c05",
+    "model_id": "Qwen/Qwen3-4B",
+    "model_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+    "reference_context_tokens": 16384,
+    "all_case_contexts_fit": true,
+    "dependency_versions": {"Jinja2": "3.1.6", "tokenizers": "0.22.2"},
+    "tokenizer_digest": "sha256:aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+    "tokenizer_config_digest": "sha256:d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+    "correctness_case_count": 8,
+    "correctness_max_total_tokens": 57,
+    "quality_case_count": 64,
+    "quality_max_prompt_tokens": 394,
+    "quality_max_total_tokens": 8390,
+    "offline_replay_matches": true,
+    "function_timeout_seconds": 3000,
+    "quality_request_timeout_envelope_seconds": 9600,
+    "completion_guaranteed_by_timeouts": false
+  },
+  "validation": {
+    "command": ".venv/bin/python -W error::ResourceWarning -m unittest discover -s tests -q",
+    "tests_run": 511,
+    "tests_passed": 487,
+    "tests_skipped": 24,
+    "failed": 0,
+    "two_job_ledger_composition": "simulated_retained_transport_real_sqlite_authority_budget_closure_and_restart",
+    "live_modal_boundary_tested_for_v3": false
+  },
+  "remaining_gates": [
+    "commit and clean dedicated deployment with fresh private preparation",
+    "retain and rederive pinned tokenizer context evidence in that deployment",
+    "check current provider pricing and gross usage limits",
+    "reconcile original cumulative journal using attributable billing evidence",
+    "fresh exact two-job diagnostic approval and expiring currency authority",
+    "complete separately approved three-repetition qualification before a peer experiment"
+  ]
+}

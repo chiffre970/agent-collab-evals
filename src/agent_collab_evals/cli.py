@@ -181,6 +181,14 @@ def _parser() -> argparse.ArgumentParser:
     stock_control.add_argument("--config", type=Path, default=Path("config/pilots/solo-live-oci-v1.json"))
     stock_control.add_argument("--state-root", type=Path, required=True)
     stock_control.add_argument("--run-id", required=True)
+    calibration = subparsers.add_parser("prepare-serving-calibration",
+        help="derive a private V3 pack and freeze two diagnostic jobs; no grants or spend")
+    calibration.add_argument("--recipe", type=Path, default=Path("config/calibration/model-serving-v3.json"))
+    calibration.add_argument("--state-root", type=Path, default=Path(".private/serving-calibration"))
+    calibration.add_argument("--run-id", required=True)
+    context = subparsers.add_parser("check-calibration-context", help="verify exact chat-template lengths locally; no model or GPU calls")
+    context.add_argument("--root", type=Path, required=True)
+    context.add_argument("--fetch-tokenizer", action="store_true", help="fetch only the pinned public tokenizer metadata if missing")
     run_stock = subparsers.add_parser("run-peer-stock-control",
         help="run seven frozen stock controls under independently pinned cumulative spending authority")
     run_stock.add_argument("--root", type=Path, required=True)
@@ -740,6 +748,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif arguments.command == "run-peer-stock-control":
         from .peer_stock_control import run_stock_control
         output = run_stock_control(arguments.root, arguments.authorization, arguments.authorization_digest)
+    elif arguments.command == "check-calibration-context":
+        from .calibration_context import check_calibration_context
+        output = check_calibration_context(arguments.root, Path(__file__).resolve().parents[2], fetch=arguments.fetch_tokenizer)
+    elif arguments.command == "prepare-serving-calibration":
+        from .serving_calibration import prepare_serving_calibration
+        output = prepare_serving_calibration(arguments.recipe, Path(__file__).resolve().parents[2],
+            arguments.state_root / arguments.run_id, arguments.run_id)
     elif arguments.command == "prepare-peer-stock-control":
         import re
         from .peer_live_configuration import prepare_paired_stock_control

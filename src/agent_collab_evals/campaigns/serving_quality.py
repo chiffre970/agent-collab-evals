@@ -178,6 +178,7 @@ class QualityPolicy:
     reference_receipt_digests: tuple[str, ...]
     clean_control_measurement_id: str
     clean_control_receipt_digests: tuple[str, ...]
+    calibration_status: str = "historical_control_frozen"
 
     @classmethod
     def load(cls, path: Path) -> "QualityPolicy":
@@ -206,16 +207,17 @@ class QualityPolicy:
             confidence_ppm=_positive_int(uncertainty, "confidence_ppm"),
             bootstrap_resamples=_positive_int(uncertainty, "resamples"),
             bootstrap_seed=_positive_int(uncertainty, "seed"),
-            reference_measurement_id=str(calibration["reference_measurement_id"]),
+            reference_measurement_id=str(calibration.get("reference_measurement_id", "")),
             reference_receipt_digests=tuple(
-                calibration["reference_receipt_digests"]
+                calibration.get("reference_receipt_digests", ())
             ),
             clean_control_measurement_id=str(
-                calibration["clean_control_measurement_id"]
+                calibration.get("clean_control_measurement_id", "")
             ),
             clean_control_receipt_digests=tuple(
-                calibration["clean_control_receipt_digests"]
+                calibration.get("clean_control_receipt_digests", ())
             ),
+            calibration_status=calibration.get("status", "historical_control_frozen"),
         )
 
     def validate_against(self, profile: QualityProfile) -> None:
@@ -227,6 +229,11 @@ class QualityPolicy:
             raise QualityValidationError("quality policy case count differs")
         if self.families != tuple(sorted(profile.families)):
             raise QualityValidationError("quality policy family set differs")
+        if self.calibration_status == "pending_current_control" and (
+            profile.decoding["thinking"].max_tokens != 8192
+            or profile.request_timeout_seconds != 600
+        ):
+            raise QualityValidationError("pending V3 policy requires its V3 decoding profile")
 
 
 def materialize_quality_workload(
@@ -1052,13 +1059,14 @@ def _validate_quality_policy(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality policy fields differ")
     expected_literals = {
         "schema_version": QUALITY_POLICY_SCHEMA,
-        "phase": "calibration_frozen_v2",
         "pairing": "same_case_seed_and_repetition",
         "decision_rule": "paired_aggregate_and_family_noninferiority",
         "malformed_response_policy": "fail_case",
     }
     if any(raw.get(key) != value for key, value in expected_literals.items()):
         raise QualityValidationError("unsupported quality policy")
+    if raw.get("phase") not in {"calibration_frozen_v2", "calibration_pending_v3"}:
+        raise QualityValidationError("unsupported quality policy phase")
     if not _is_digest(raw.get("quality_profile_digest")) or not _is_digest(
         raw.get("quality_workload_digest")
     ):
@@ -1119,6 +1127,13 @@ def _validate_quality_policy(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality uncertainty parameters differ")
 
     calibration = _mapping(raw, "calibration")
+    if raw["phase"] == "calibration_pending_v3":
+        if (set(calibration) != {"status", "predecessor_policy_digest", "trigger_outcome_digest"}
+            or calibration["status"] != "pending_current_control"
+            or not _is_digest(calibration["predecessor_policy_digest"])
+            or not _is_digest(calibration["trigger_outcome_digest"])):
+            raise QualityValidationError("pending calibration authority differs")
+        return
     expected_calibration_keys = {
         "reference_measurement_id",
         "reference_receipt_digests",
@@ -1185,7 +1200,6 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality profile fields differ")
     expected_literals = {
         "schema_version": QUALITY_PROFILE_SCHEMA,
-        "phase": "qwen_quality_calibration_v2",
         "target_model": "Qwen/Qwen3-4B",
         "target_revision": "1cfa9a7208912126459214e8b04321603b3df60c",
         "workload_schema": QUALITY_WORKLOAD_SCHEMA,
@@ -1196,6 +1210,9 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
     for key, expected in expected_literals.items():
         if raw.get(key) != expected:
             raise QualityValidationError(f"quality profile {key} differs")
+    if raw.get("phase") not in {"qwen_quality_calibration_v2", "qwen_quality_calibration_v3"}:
+        raise QualityValidationError("quality profile phase differs")
+    version_three = raw["phase"] == "qwen_quality_calibration_v3"
     if _positive_int(raw, "repetitions") != 3:
         raise QualityValidationError("quality calibration requires three repetitions")
     materialization = _mapping(raw, "materialization")
@@ -1218,7 +1235,7 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality execution fields differ")
     if (
         _positive_int(execution, "max_concurrency") != 8
-        or _positive_int(execution, "request_timeout_seconds") != 300
+        or _positive_int(execution, "request_timeout_seconds") != (600 if version_three else 300)
     ):
         raise QualityValidationError("quality execution contract differs")
     decoding = _mapping(raw, "decoding")
@@ -1226,7 +1243,7 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
         raise QualityValidationError("quality decoding modes differ")
     expected_decoding = {
         "non_thinking": (False, 700, 800, 20, 0, 512),
-        "thinking": (True, 600, 950, 20, 0, 4096),
+        "thinking": (True, 600, 950, 20, 0, 8192 if version_three else 4096),
     }
     for mode, expected in expected_decoding.items():
         value = _mapping(decoding, mode)
@@ -1271,8 +1288,9 @@ def _validate_quality_profile(raw: Mapping[str, Any]) -> None:
     decision = _mapping(raw, "decision")
     if decision != {
         "rule": "paired_family_and_aggregate_noninferiority",
-        "margin_status": "unset_until_reference_and_clean-control_calibration",
-        "uncertainty": "paired_case_bootstrap_to_be_frozen",
+        "margin_status": ("inherited_frozen_margins_pending_current_control" if version_three
+            else "unset_until_reference_and_clean-control_calibration"),
+        "uncertainty": "frozen_paired_case_bootstrap" if version_three else "paired_case_bootstrap_to_be_frozen",
         "failure_policy": "any_missing_or_malformed_response_fails_its_case",
     }:
         raise QualityValidationError("quality decision contract differs")

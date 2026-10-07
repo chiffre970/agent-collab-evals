@@ -1,11 +1,103 @@
 # Matched exploratory peer pilot
 
-Updated: October 7, 2026.
+Updated: October 8, 2026.
 
 Next question: does communication improve the selected solution at matched
 model/provider, task material, budgets, and evaluation rules? Compare
 `peer_collab` with `peer_isolated` first. This is exploratory feasibility work,
 not registration or evidence that collaboration already helps.
+
+## Current live stock control
+
+On October 7, the user approved one seven-job stock control with cumulative
+ceilings of $29 Modal and $3.10 OpenRouter. The live prelaunch check passed for
+the pinned build, unused inventory, unchanged journal, rate card, and idle dev
+environment. The user confirmed a separate $20 workspace usage limit, covering
+the $4.64265009 prior October usage plus the $8.965888 control allowance.
+`stock-control-1007b` launched once at `2026-10-07T10:11:18Z`, with fresh
+18-hour authority and one atomic debit in the original journal. Cumulative
+Modal allowances are $28.81325448 under the approved $29 ceiling; all historical
+reserves remain held. OpenRouter remains $3.10, with no new API allowance.
+
+The control completed all seven jobs with no stop records. Raw replay verifies
+every execution and reproduces the final outcome. The median stock/stock
+performance ratio is 0.999860, or -0.014%, but overall eligibility is false.
+Both stock roles pass 7/8 correctness checks. The failing arithmetic case has
+the correct sum in a full equation instead of the required bare integer;
+this is a strict response-format failure, not incorrect arithmetic.
+
+Quality totals are equal at 165/192. All six pass/fail disagreements involve
+a generation hitting the 4,096-token limit without a final answer. The
+reasoning-family bootstrap resamples 16 case clusters, not 48 independent cases.
+Its lower confidence bound is -10.4167 percentage points against a 6.25-point
+margin. An independent discrete-bootstrap calculation reproduces that bound;
+there is no identified scoring or quantile bug. The control does not establish
+quality preservation, and it does not demonstrate degradation by an optimizer.
+See the [answer-free diagnosis](../evidence/calibration/stock-control-diagnosis-20261008.json).
+
+The restricted wrapper's seven-job execution path is now demonstrated live;
+current reference eligibility is not qualified. Preserve this result and its
+frozen inputs. No gate, old score, or spending authority has changed. Provider
+billing settlement remains pending; 7,251 function-body seconds are not a bill.
+
+## Immediate calibration checkpoint
+
+The V3 calibration is implemented and prepared locally without paid execution.
+It reuses the existing factories, durable compute backend, and currency runner;
+it does not introduce another evaluator or orchestration platform.
+
+- Arithmetic checks now measure semantic accuracy separately from formatting.
+  They accept a bare correct integer or a complete, correct addition equation
+  with the expected operands. Wrong sums, unrelated operands, prose, malformed
+  API responses, and truncated generations fail. Exact echo checks stay exact.
+- Thinking responses have an 8,192-token completion cap, a 16,384-token stock
+  context, and a 600-second request timeout. Nonthinking decoding, all cases,
+  prompts, seeds, margins, and the confidence rule remain unchanged.
+- The new quality policy is explicitly pending current calibration. Historical
+  control receipts are not copied into it as V3 qualification evidence.
+- CPU preflight uses the pinned Qwen tokenizer and chat template. Every request
+  fits; the largest prompt-plus-completion allowance is 8,390 tokens. No model
+  weights or GPU execution are needed for this check.
+- The diagnostic inventory contains only `correctness-1` and `quality-1`:
+  two physical stock/stock jobs, a 6,000-second reservation, a $3.275968 Modal
+  admission allowance, and no model API allowance. Preparation issues no grants.
+  The scoped runner requires an independently pinned context check before
+  admission and cannot report full qualification from this single repetition.
+
+The 3,000-second cap per function bounds exposure, not completion at every
+request's maximum timeout. The quality request-timeout envelope is 9,600
+seconds before engine startup; a timeout remains a possible diagnostic result.
+Increasing context also changes the reference configuration. This is a new
+baseline version, not a rescoring of V2 or evidence to pool with it.
+
+The [answer-free preflight](../evidence/calibration/model-serving-v3-preflight-20261008.json)
+records the local preparation. To reproduce it in a fresh private directory:
+
+```sh
+.venv/bin/python -m agent_collab_evals prepare-serving-calibration \
+  --recipe config/calibration/model-serving-v3.json \
+  --state-root .private/serving-calibration --run-id calibration-v3-new
+.venv/bin/python -m agent_collab_evals check-calibration-context \
+  --root .private/serving-calibration/calibration-v3-new --fetch-tokenizer
+```
+
+Next: commit and deploy a clean build, regenerate private preparation and
+context evidence there, reconcile the existing cumulative journal against
+attributable billing evidence, and obtain fresh two-job approval. The previous
+control's consumed authority cannot be reused. Held Modal allowances leave
+only $0.18674552 under the $29 cap, so this diagnostic is not yet funded.
+Do not release historical reserves without evidence or reset the journal.
+If the diagnostic supports the change, seek separate approval for the complete
+three-repetition qualification series. Do not proceed directly to a peer run.
+
+The pinned-version [vLLM reproducibility documentation](https://docs.vllm.ai/en/v0.21.0/usage/reproducibility/)
+does not guarantee default serving reproducibility. Identical request seeds
+therefore do not justify collapsing the repetitions or assuming equal answers.
+The [Qwen model card](https://huggingface.co/Qwen/Qwen3-4B#best-practices)
+also recommends substantially more output space for reasoning. Batch invariance
+is a possible separate calibration experiment, not an unqualified fix: [it can
+change serving performance](https://docs.vllm.ai/en/stable/features/batch_invariance/#implementation-details)
+and must not be silently enabled in either arm.
 
 ## Completed
 
@@ -70,7 +162,8 @@ not registration or evidence that collaboration already helps.
   their reservation, route manifest, and sealed inventory. It constructs the
   durable authorization store but leaves every request unissued. Preparation
   cannot reuse an authorized/dispatched control. A current-workload inventory
-  is retained locally; no stock-control result or remote conformance exists yet.
+  was retained locally before deployment. The later completed control is
+  reported above; preparation alone is not remote conformance.
 - Commit `9d0aa98` is deployed in a separate dedicated-VM checkout. Its 11 paired
   factory tests pass there without paid execution. The original live checkout,
   solo outcome, receipts, and cumulative journal are unchanged.
@@ -81,16 +174,17 @@ not registration or evidence that collaboration already helps.
   preserves old reserves and releases, permits only explicit approved ceiling
   changes, and disables unpinned readers from admitting more work. Restart
   re-resolves completed evidence; uncertain calls are not replaced or cancelled
-  merely because the controller stopped. These are no-spend tests, not current
-  stock qualification or live wrapper conformance.
+  merely because the controller stopped. These safeguards passed no-spend tests
+  before the live control described above; they do not imply stock eligibility.
 - The stock runner checkpoint `90bbc1c` is committed and deployed. All 47
-  targeted VM tests pass with resource warnings treated as errors. The fresh
-  `stock-control-1007b` preparation has seven frozen requests, zero grants, and
-  zero dispatches. The actual shared journal still has 98 receipts; its current
-  $20 Modal ceiling rejects the control before any authority is issued.
+  targeted VM tests pass with resource warnings treated as errors. At that
+  preparation checkpoint, `stock-control-1007b` had seven frozen requests,
+  zero grants, and zero dispatches. The journal had 98 receipts, and the earlier
+  $20 cumulative Modal ceiling rejected the control before authority issuance.
   [Deployment record](../evidence/deployment/paired-stock-preparation-20261007.json)
   binds the clean build and preparation. This closes the stock-runner deployment
-  step, not remote wrapper conformance or current reference qualification.
+  step. The later approved batch and completed live control are recorded above;
+  current reference eligibility still failed.
 
 The no-spend configs differ only in `condition`:
 `config/pilots/peer-isolated-no-spend-oci-v1.json` and
@@ -104,20 +198,25 @@ execution. OCI execution requires explicit host runtime dependencies.
    evidence is available. Never release historical reserves without it.
    No new journal or implicit cap reset. The tested paired composition is
    committed and separately deployed, including the stock runner.
-2. Qualify the actual
-   restricted Modal wrapper. The new public/correctness/quality/performance
+2. Retain the completed restricted Modal wrapper's live execution evidence.
+   The new public/correctness/quality/performance
    factories share the declared same-GPU policy; the old solo factories remain
-   exact-driver. Never silently mix those paths. Local imports, serialization,
-   and simulated receipts do not prove remote deployment conformance.
+   exact-driver. Never silently mix those paths. All seven hidden stock jobs
+   executed remotely and raw replay matches. This positive-path evidence is
+   not a claim of comprehensive adversarial sandbox conformance.
 3. Check the stock reference under the intended hidden correctness/quality
    gates, including a clean reference-versus-reference control where relevant.
    The retained calibration is independently replayed, but its correctness
-   workload and build do not fully match the next pilot. No new live hidden
-   stock control was run in this step. Preserve the old outcome;
+   workload and build do not fully match the next pilot. The current live hidden
+   stock control completed but failed eligibility for the reasons above.
+   The V3 implementation and local preflight are complete; its two-job live
+   diagnostic and complete qualification series remain pending.
+   Preserve the old outcome;
    any calibration change creates a new version, not a favorable rescoring.
 4. Extend request-bound dollar authority to the matched peer composition.
-   The stock runner now implements it for the exact seven-job control, without
-   approval or execution. The peer command still cannot authorize paid execution.
+   The stock runner implements it for the exact seven-job control. Its approved
+   spending scope is consumed, with all seven requests complete.
+   The peer command still cannot authorize paid execution.
    Bound every actor's public evaluation, shared
    hidden evaluation, startup, cleanup, and failures. Review provider/cache
    isolation and the shared-GPU timing limitation for this exploratory scope.
@@ -205,9 +304,10 @@ The fresh VM preparation is `stock-control-1007b`, pinned to clean deployed
 commit `90bbc1c`. Its proposal is explicitly unauthorized. Keeping all old
 reserves, the control requires a cumulative Modal ceiling of at least
 $28.81325448; the proposed rounded ceiling is $29. OpenRouter remains $3.10,
-and this stock control makes no model API calls. No cap has changed and no
-batch has been admitted. Obtain explicit approval for this one control and
-verify the workspace gross-usage limit before issuing its expiring authority.
+and this stock control makes no model API calls. The approved batch has now
+been admitted. The original journal has 99 receipts; none of its historical
+allowances were released. The separate workspace usage limit is $20, confirmed
+by the user. Current provider billing settlement remains pending.
 If the control fails its gates, report the negative result and revisit the
 scenario version before launching the peer comparison.
 

@@ -141,6 +141,18 @@ class ServingQualityTests(unittest.TestCase):
             with self.assertRaisesRegex(QualityValidationError, "digest differs"):
                 materialize_quality_workload(self.profile, sources, root, seed)
 
+    def test_v3_profile_is_explicit_and_cannot_mutate_v2_in_place(self) -> None:
+        profile = QualityProfile.load(PROFILE_PATH.with_name("quality_calibration_v3.toml"))
+        self.assertEqual(profile.decoding["thinking"].max_tokens, 8192)
+        self.assertEqual(profile.request_timeout_seconds, 600)
+        self.assertEqual(self.profile.decoding["thinking"].max_tokens, 4096)
+        self.assertEqual(self.profile.request_timeout_seconds, 300)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "profile.toml"
+            path.write_text(PROFILE_PATH.read_text().replace("max_tokens = 4096", "max_tokens = 8192"))
+            with self.assertRaisesRegex(QualityValidationError, "decoding"):
+                QualityProfile.load(path)
+
     def test_served_outputs_are_scored_and_compared_by_paired_case(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -316,6 +328,79 @@ class ServingQualityTests(unittest.TestCase):
                 decision["families"]["bbh_reasoning"]["lower_bound_ppm"],
                 -policy.family_margin_ppm,
             )
+
+    def test_equal_total_scores_can_fail_the_family_confidence_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            document = materialize_quality_workload(
+                self.profile, self._sources(root), root, bytes(range(32))
+            )
+            workload = load_quality_workload(
+                write_private_workload(root / "workload.json", document),
+                self.profile,
+            )
+            policy = replace(
+                self.policy,
+                quality_workload_digest=workload.digest,
+                bootstrap_resamples=10_000,
+            )
+            families = {
+                family: [c for c in workload.cases if c.family_id == family]
+                for family in policy.families
+            }
+            correct = {
+                case.case_id: f"<answer>{case.expected}</answer>"
+                for case in workload.cases
+            }
+            reference_runs, control_runs = [], []
+            # Match the live control's pass/fail pattern using synthetic cases.
+            # An unfinished generation remains a failure, not an inferred answer.
+            unfinished = "Reasoning ended before a final answer."
+            for repetition in range(1, 4):
+                reference, control = dict(correct), dict(correct)
+                shared = families["mmlu"][:7]
+                if repetition == 1:
+                    shared += families["structured_transform"][:1]
+                if repetition in (2, 3):
+                    shared += families["bbh_reasoning"][3:4]
+                for case in shared:
+                    reference[case.case_id] = control[case.case_id] = unfinished
+                reasoning = families["bbh_reasoning"]
+                if repetition == 1:
+                    reference[reasoning[0].case_id] = unfinished
+                    reference[reasoning[2].case_id] = unfinished
+                if repetition == 2:
+                    control[reasoning[0].case_id] = unfinished
+                if repetition in (1, 3):
+                    control[reasoning[1].case_id] = unfinished
+                if repetition == 3:
+                    reference[families["gsm8k"][0].case_id] = unfinished
+                reference_runs.append(score_quality_outputs(
+                    self.profile, workload, reference,
+                    repetition=repetition, role="reference",
+                ))
+                control_runs.append(score_quality_outputs(
+                    self.profile, workload, control,
+                    repetition=repetition, role="clean_control",
+                ))
+
+            decision = evaluate_quality_series(policy, reference_runs, control_runs)
+
+            self.assertEqual(decision["aggregate"]["reference_passes"], 165)
+            self.assertEqual(decision["aggregate"]["candidate_passes"], 165)
+            self.assertTrue(decision["aggregate"]["lower_bound_passes"])
+            self.assertEqual(decision["paired_transitions"], {
+                "pass_pass": 162, "pass_fail": 3, "fail_pass": 3, "fail_fail": 24,
+            })
+            reasoning = decision["families"]["bbh_reasoning"]
+            self.assertEqual(reasoning["reference_passes"], 44)
+            self.assertEqual(reasoning["candidate_passes"], 43)
+            self.assertTrue(reasoning["observed_passes"])
+            self.assertEqual(reasoning["lower_bound_ppm"], -104_167)
+            self.assertFalse(decision["eligible"])
+            self.assertEqual(decision["failures"], [
+                "bbh_reasoning quality lower bound exceeds margin",
+            ])
 
 
 if __name__ == "__main__":

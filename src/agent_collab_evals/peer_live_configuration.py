@@ -110,7 +110,7 @@ def prepare_peer_offline_requests(stack, configuration, organisation_size):
     return tuple(requests)
 
 
-def stock_control_components(root, configuration, run_id, hidden, policy):
+def stock_control_components(root, configuration, run_id, hidden, policy, *, diagnostic=False):
     """Reconstruct the same sealed control before or after authorization."""
     root = Path(root).resolve()
     stack, _ = build_paired_peer_stack(root / "evaluation", configuration, run_id, hidden, policy)
@@ -118,17 +118,25 @@ def stock_control_components(root, configuration, run_id, hidden, policy):
     reservation = EvaluationReservation("evaluation-" + digest_value({"stock_control": run_id,
         "profile": stack.hidden.profile_digest})[7:39], "hidden:stock-control", run_id, None,
         ArtifactRef("artifact-" + digest_value({"stock": digest_file(configuration.campaign.reference_candidate_path)})[7:39]),
-        EvaluationScope.HIDDEN, stack.hidden_seconds, EvaluationReservationStatus.RESERVED)
-    requests = stack.hidden.prepare_hidden_requests(reference, reservation, "hidden:stock-control")
+        EvaluationScope.HIDDEN, 2 * FUNCTION_SECONDS if diagnostic else stack.hidden_seconds,
+        EvaluationReservationStatus.RESERVED)
+    if diagnostic:
+        if (policy.calibration_status != "pending_current_control"
+            or configuration.campaign.quality_profile().decoding["thinking"].max_tokens != 8192
+            or configuration.campaign.quality_profile().request_timeout_seconds != 600
+            or parse_json(reference.decode())["server"]["engine_args"]["max_model_len"] != 16384):
+            raise ValueError("two-job diagnostic requires the declared V3 calibration")
+    requests = (stack.hidden.prepare_diagnostic_requests(reference, reservation, "hidden:stock-control") if diagnostic
+        else stack.hidden.prepare_hidden_requests(reference, reservation, "hidden:stock-control"))
     stack.inventory.register("hidden", requests)
     seal = stack.inventory.seal()
     return stack, reservation, requests, seal
 
 
-def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
-    """Freeze seven stock-versus-stock requests; issue no compute authority."""
+def prepare_paired_stock_control(root, configuration, run_id, hidden, policy, *, diagnostic=False):
+    """Freeze seven qualification jobs or two V3 diagnostic jobs; grant nothing."""
     root = Path(root).resolve()
-    stack, reservation, requests, seal = stock_control_components(root, configuration, run_id, hidden, policy)
+    stack, reservation, requests, seal = stock_control_components(root, configuration, run_id, hidden, policy, diagnostic=diagnostic)
     # Construct/reconcile original authority stores now, still without grants.
     sources = stack.inventory.sources()
     from .adapters.sqlite_compute_spend import SqliteComputeSpendAuthorizationService
@@ -158,6 +166,10 @@ def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
         "remaining_gates": ["clean committed deployment and pinned remote wrapper conformance",
             "fresh expiring one-use stock-control authority tied to the cumulative currency journal",
             "provider gross-usage cap and current billing/rate checks"]}
+    if diagnostic:
+        document.update(control_kind="calibration-diagnostic/v3",
+            diagnostic_slots=["correctness-1", "quality-1"], full_gate_evaluation=False,
+            reserved_function_seconds=sum(r.maximum_seconds for r in requests))
     retain_document(root / "stock-control.json", document)
     return parse_json(canonical_json_bytes(document).decode())
 

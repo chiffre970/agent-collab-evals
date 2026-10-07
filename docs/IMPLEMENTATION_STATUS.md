@@ -7,6 +7,62 @@ registered experiment has run. Follow the
 [current exploratory priority](#current-priority-exploratory-evidence) when
 choosing work; later sections retain the implementation history.
 
+October 8 completion: `stock-control-1007b` launched once at
+`2026-10-07T10:11:18Z` after the user confirmed a $20 workspace usage limit.
+Fresh 18-hour authority binds the clean deployed `90bbc1c` build and its seven
+frozen requests. One atomic batch was admitted into the original cumulative
+journal: $28.81325448 Modal allowances under $29, unchanged $3.10 OpenRouter
+ceiling, and no release of historical reserves. This control makes no model
+API calls. All seven jobs completed with no stop records. An answer-free raw
+replay verifies each execution and reproduces the final outcome. The median
+stock/stock performance ratio is 0.999860 (-0.014%), but overall eligibility
+is false. Both roles pass 7/8 correctness checks: the remaining answer gives
+the correct arithmetic in equation form instead of the required bare integer.
+Quality totals are 165/192 for each role, but the reasoning-family confidence
+gate fails. Every pass/fail disagreement comes from a 4,096-token-truncated
+generation with no final answer. An independent discrete calculation reproduces
+the -104,167 ppm reasoning bound; no scoring bug was identified.
+
+The [diagnosis](../evidence/calibration/stock-control-diagnosis-20261008.json)
+retains source and outcome pins without hidden prompts or answers. Two synthetic
+regressions preserve the current strict-format and family-confidence failures.
+The original scoring, workload, inference, and permission settings remain
+unchanged. V3 is a separate calibration version, described below; it does not
+reinterpret this outcome.
+The wrapper's live positive path works; current reference eligibility remains
+unqualified. Final billing is pending; 7,251 function-body seconds exclude
+provider startup, collection, and authoritative billing.
+
+October 8 V3 checkpoint: the semantic arithmetic contract, 8,192-token thinking
+cap, 16,384-token reference context, and 600-second request timeout are
+implemented. Cases, prompts, seeds, margins, nonthinking decoding, and the
+confidence rule stay fixed. Formatting is diagnostic; malformed responses,
+wrong arithmetic, and unfinished generations fail. Old packs, outcomes, and
+journals remain untouched. The new quality policy has no inherited current
+qualification receipts.
+
+The real configuration factory prepares only two stock/stock diagnostic jobs
+with a 6,000-second reservation and a $3.275968 Modal allowance. CPU verification
+using the pinned tokenizer and chat template proves all contexts fit, with
+8,390 tokens as the largest allowance. A simulated retained transport composes
+the actual SQLite backend, authorization service, cumulative currency journal,
+and two-job runner through closure and replay without redispatch. It produces
+no full-gate receipt or qualification claim. The original seven-job path remains
+covered. The [local preflight](../evidence/calibration/model-serving-v3-preflight-20261008.json)
+is working-tree evidence, not deployment or spending authority.
+
+Next: clean commit/deployment and fresh preparation, attributable journal
+settlement, and new diagnostic approval. Its allowance does not fit the current
+held Modal ceiling. The 3,000-second function limit bounds exposure but does not
+guarantee completion at every request's worst-case deadline. No new model API
+or GPU spend was incurred; reference qualification and paid peer execution
+remain pending.
+
+October 8 validation: 511 default tests ran, 487 passed, and 24 opt-in
+integrations were skipped, with resource warnings treated as errors. The
+context check also replays offline from retained tokenizer metadata. This
+validation incurred no new model API or GPU spend.
+
 Latest checkpoint (October 5): `solo-paired-performance-1005b` completed all
 three same-GPU performance pairs and reconciled their durable receipts plus
 the nine retained inputs. Median gain was 0.0625%, with overall eligibility
@@ -57,8 +113,10 @@ excluded from immutable request/receipt identity.
 The restricted paired Modal wrapper reuses the pinned stock server and request
 primitives with typed candidate settings, no secrets, no network, read-only
 model data, fresh role caches, and post-exit evaluator-owned evidence staging.
-Local SDK 1.5.4 import and serialization pass; the actual remote wrapper remains
-unqualified. The seven-job stock control and paid peer command require fresh
+Local SDK 1.5.4 import and serialization pass; the October 7 stock control now
+demonstrates the actual remote wrapper's seven hidden jobs. Current reference
+eligibility failed; full sandbox conformance is not inferred from this result.
+New calibration runs and the paid peer command require fresh
 run-bound currency authority. The old authority and caps are not inherited.
 The two `peer-live-composition/v1` configs differ only in condition. The
 `peer-pilot --check` command constructs the actual paired factory and planners
@@ -68,10 +126,11 @@ composition readiness, not deployment or spending approval. See the
 
 The stock-control preparation command now freezes all seven current-workload
 requests, the 21,000-second reservation, compute manifest, and sealed inventory
-without issuing authority. The local operator command succeeded with zero
+without issuing authority. The initial local operator command succeeded with zero
 authorizations and zero dispatches. It refuses to relabel an already authorized
-or dispatched preparation as unused. This is uncommitted working-tree evidence,
-not a stock-control outcome, clean deployment, or new spending approval.
+or dispatched preparation as unused. That initial working-tree preparation was
+not a stock-control outcome, clean deployment, or new spending approval. The
+later clean deployed preparation and live outcome are recorded separately.
 
 Validation: 488 default tests, 464 passed and 24 opt-in integrations skipped;
 resource warnings are errors. The separately enabled real OCI test passed both
@@ -105,11 +164,11 @@ admission, stale history, missing pins, tampered receipts, preserved retry
 releases, exhausted caps, and uncertain dispatch without a second spawn.
 
 The final stock-runner guard is deployed as `90bbc1c`. Its separate VM checkout
-passes 47 targeted tests and the clean-build gate. A fresh seven-request
-preparation remains unissued. [The deployment record](../evidence/deployment/paired-stock-preparation-20261007.json)
-also retains the unchanged journal digest and refusal under the current cap.
-Next is a fresh stock-only spending decision, the workspace gross-usage limit
-check, and one bounded live control; the matched peer run remains disabled.
+passes 47 targeted tests and the clean-build gate. The seven-request preparation
+was initially unissued. [The deployment record](../evidence/deployment/paired-stock-preparation-20261007.json)
+retains that preapproval journal digest and refusal under the earlier cap.
+The later approved batch funded and completed the control as described above;
+the matched peer run remains disabled.
 
 Earlier October 5 checkpoint: `solo-evalonly-1004` stopped at
 `2026-10-04T05:19:29Z`. Its three outstanding quality jobs completed with

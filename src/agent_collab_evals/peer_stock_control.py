@@ -68,7 +68,7 @@ def controller_lock(root):
 
 
 def run_stock_control(root, authorization_path, authorization_digest):
-    """Admit all seven jobs before issuing any, then reuse only their exact calls.
+    """Admit the whole frozen inventory, then reuse only its exact calls.
 
     This is bounded live conformance and current-workload calibration, not an
     agent run or a registered experiment. An in-flight deadline never releases
@@ -78,9 +78,11 @@ def run_stock_control(root, authorization_path, authorization_digest):
     authorization = pinned_document({"file": str(Path(authorization_path).resolve(strict=True)), "digest": authorization_digest})
     fields = {"schema_version", "scope", "run_id", "expires_at", "preparation_digest",
         "configuration", "state_root", "repository", "git_commit", "journal", "batch_approval"}
+    if isinstance(authorization, dict) and authorization.get("scope") == "one_bounded_calibration_diagnostic":
+        fields.add("context_check")
     if (not isinstance(authorization, dict) or set(authorization) != fields
         or authorization["schema_version"] != "paired-stock-control-authorization/v1"
-        or authorization["scope"] != "one_bounded_wrapper_conformance_and_stock_control"
+        or authorization["scope"] not in {"one_bounded_wrapper_conformance_and_stock_control", "one_bounded_calibration_diagnostic"}
         or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,80}", authorization["run_id"])
         or not re.fullmatch(r"[0-9a-f]{40}", authorization["git_commit"])
         or any(not isinstance(authorization[k], str) or not Path(authorization[k]).is_absolute()
@@ -98,21 +100,35 @@ def _run(root, authorization, authorization_digest):
     preparation = pinned_document({"file": str(preparation_path), "digest": authorization["preparation_digest"]})
     pinned_document(authorization["configuration"])
     configuration = LivePilotConfiguration.load(Path(authorization["configuration"]["file"]), repository)
+    diagnostic = authorization["scope"] == "one_bounded_calibration_diagnostic"
+    if diagnostic != (preparation.get("control_kind") == "calibration-diagnostic/v3"):
+        raise PermissionError("stock-control scope differs from its preparation")
+    if diagnostic and (preparation.get("diagnostic_slots") != ["correctness-1", "quality-1"]
+        or preparation.get("full_gate_evaluation") is not False
+        or preparation.get("reserved_function_seconds") != 6000):
+        raise PermissionError("calibration diagnostic scope differs")
+    if diagnostic:
+        from .calibration_context import calibration_context_report
+        context = pinned_document(authorization["context_check"])
+        checked = calibration_context_report(Path(authorization["configuration"]["file"]), repository,
+            Path(authorization["context_check"]["file"]).parent / "tokenizer")
+        if context != checked or context.get("all_case_contexts_fit") is not True:
+            raise PermissionError("calibration context evidence differs")
     if (preparation.get("repository") != str(repository) or preparation.get("git_commit") != authorization["git_commit"]
         or preparation.get("run_id") != authorization["run_id"]
         or preparation.get("configuration_digest") != digest_value(configuration.document)
         or preparation.get("execution_authorized") is not False or preparation.get("scoreable") is not False):
         raise PermissionError("stock-control preparation differs from authority")
     stack, reservation, requests, seal = stock_control_components(root, configuration,
-        authorization["run_id"], configuration.hidden_bundle(), configuration.campaign.quality_policy())
+        authorization["run_id"], configuration.hidden_bundle(), configuration.campaign.quality_policy(), diagnostic=diagnostic)
     source_pins = [{"file": str(s.manifest.path), "digest": s.manifest.manifest_digest} for s in stack.inventory.sources()]
     estimate = paired_peer_cost(configuration, 2)
     if (seal != preparation["inventory_seal_digest"] or [r.document for r in requests] != preparation["requests"]
-        or source_pins != preparation["compute_manifests"] or len(requests) != 7
+        or source_pins != preparation["compute_manifests"] or len(requests) != (2 if diagnostic else 7)
         or stack.hidden.profile_digest != preparation["evaluator_profile_digest"]
         or digest_value(reservation) != digest_value(preparation["reservation"])
         or preparation["modal_allowance_usd_nanos"] != estimate["shared_overhead_allowance_usd_nanos"]
-            + 7 * estimate["per_execution_allowance_usd_nanos"]
+            + len(requests) * estimate["per_execution_allowance_usd_nanos"]
         or preparation["cost_profile_digest"] != estimate["cost_profile_digest"]):
         raise PermissionError("stock-control inventory, evaluator, or costing differs")
     journal = authorization["journal"]
@@ -136,7 +152,8 @@ def _run(root, authorization, authorization_digest):
         "maximum_usd_nanos": preparation["modal_allowance_usd_nanos"], "plan_digest": journal["plan_digest"]}
     if (not isinstance(batch, dict) or batch.get("batch_id") != authorization["run_id"]
         or batch.get("admissions") != [expected_record]):
-        raise PermissionError("stock control cannot fund work outside its seven frozen requests")
+        raise PermissionError("stock control cannot fund work outside its "
+            + ("two" if diagnostic else "seven") + " frozen requests")
     envelope = PilotSpendEnvelope(journal_root, plan, retry=retry, batch_approvals=(*previous, batch))
     has_claim = (root / "operator-authorization.json").exists()
     # A persisted controller claim is not permission to mint a new currency
@@ -170,10 +187,25 @@ def _run(root, authorization, authorization_digest):
             stack.inventory.require_authorized((request,), consumed=True)
             _, evidence = backend.resolve(request)
             retain_document(root / "completed" / (request.request_digest[7:] + ".json"), evidence)
-        receipt = stack.hidden.hidden_evaluate(reference, reservation, "hidden:stock-control")
-        result = stack.hidden.resolve(receipt, reference, reservation, EvaluationScope.HIDDEN)
+        if diagnostic:
+            receipt = None
+            phases = {}
+            for request in requests:
+                _, evidence = backend.resolve(request)
+                pair = evidence["result"]["paired_evaluation"]
+                phases[stack.hidden.profile.slot(request)] = {role: {
+                    k: value for k, value in score.items()
+                    if k in {"eligible", "passed_cases", "total_cases", "failures", "formatting", "pass_count", "case_count", "family_scores"}
+                } for role, score in pair["scores"].items()}
+                if "generation" in pair:
+                    phases[stack.hidden.profile.slot(request)]["generation"] = pair["generation"]
+            result = {"full_gate_evaluation": False, "quality_noninferiority": "not_evaluated_single_repetition",
+                "calibration_qualified": False, "phases": phases}
+        else:
+            receipt = stack.hidden.hidden_evaluate(reference, reservation, "hidden:stock-control")
+            result = stack.hidden.resolve(receipt, reference, reservation, EvaluationScope.HIDDEN)
         receipts = tuple(r for source in stack.inventory.sources() for r in source.backend.reconcile(authorization["run_id"]))
-        if (len(receipts) != 7 or {r.request_digest for r in receipts} != {r.request_digest for r in requests}
+        if (len(receipts) != len(requests) or {r.request_digest for r in receipts} != {r.request_digest for r in requests}
             or any(r.status is not ComputeExecutionStatus.COMPLETE or r.used_seconds > 3000 for r in receipts)):
             raise RuntimeError("stock-control closure differs from its complete funded inventory")
         stack.inventory.require_authorized(requests, consumed=True)
@@ -181,8 +213,8 @@ def _run(root, authorization, authorization_digest):
         outcome = {"schema_version": "paired-stock-control-outcome/v1", "status": "complete",
             "run_id": authorization["run_id"], "scoreable": False, "model_calls": 0,
             "preparation_digest": authorization["preparation_digest"], "authorization_digest": authorization_digest,
-            "evaluation_receipt": receipt, "result": result, "new_gpu_calls": 7,
-            "compute_receipts": receipts, "used_seconds": stack.hidden.used_seconds(receipt),
+            "evaluation_receipt": receipt, "result": result, "new_gpu_calls": len(requests),
+            "compute_receipts": receipts, "used_seconds": sum(r.used_seconds for r in receipts),
             "spend_admission": envelope.snapshot(), "provider_billing_settlement": "pending"}
         retain_document(root / "outcome.json", outcome)
         return parse_json((root / "outcome.json").read_text())

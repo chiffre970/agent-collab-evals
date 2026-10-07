@@ -1,0 +1,15 @@
+{
+  "schema_version": "serving-calibration-revision/v1",
+  "revision_id": "model-serving-calibration-v3",
+  "execution_authorized": false,
+  "scoreable": false,
+  "source_configuration": "config/pilots/solo-live-oci-v1.json",
+  "source_quality_profile_digest": "sha256:297f7e46f1d78b740ff22baf888a8ac3d7f2487573090b9755e00c197b14e36a",
+  "source_quality_policy_digest": "sha256:eae72dc6000cdc7ecb0b09c012030bed0d66e668644040f8a8f1faae57a2bee4",
+  "source_outcome_digest": "sha256:623e6253b454bcbd7a9bfbb8d68eacfc6752277035d022a4d1ff479a0d752fb7",
+  "quality_profile": "campaigns/model_serving_v0/evaluator/quality_calibration_v3.toml",
+  "arithmetic_check": "integer_sum",
+  "arithmetic_format": "diagnostic_only",
+  "reference_context_tokens": 16384,
+  "diagnostic_slots": ["correctness-1", "quality-1"]
+}
