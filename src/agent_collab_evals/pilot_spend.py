@@ -35,7 +35,7 @@ class PilotSpendEnvelope:
     Do not create a new directory to recover from exhausted or corrupt evidence.
     """
 
-    def __init__(self, root: Path, plan: dict, *, retry=None):
+    def __init__(self, root: Path, plan: dict, *, retry=None, batch_approvals=()):
         if (not isinstance(plan, dict) or set(plan) != {
             "schema_version", "plan_id", "total_limit_usd_nanos",
             "provider_limits_usd_nanos", "accounting"
@@ -57,6 +57,7 @@ class PilotSpendEnvelope:
         self.plan_digest = digest_bytes(self._plan_bytes)
         self._limits = dict(limits)
         self._total = plan["total_limit_usd_nanos"]
+        self._batch_approvals = tuple(batch_approvals)
         self.retry = retry
         self.retry_digest = digest_value(retry) if retry is not None else None
         self._prior_receipts = None
@@ -165,6 +166,8 @@ class PilotSpendEnvelope:
     def reserve(self, *, operation_key: str, provider: str, purpose: str,
                 request_digest: str, maximum_usd_nanos: int, allow_existing: bool = True) -> dict:
         """Durably debit an exact operation before any authority is issued."""
+        if self._batch_approvals:
+            raise PermissionError("batch journal accepts only its exact approved inventory")
         record = dict(operation_key=operation_key, provider=provider, purpose=purpose,
             request_digest=request_digest, maximum_usd_nanos=maximum_usd_nanos,
             plan_digest=self.plan_digest)
@@ -193,6 +196,15 @@ class PilotSpendEnvelope:
     def snapshot(self) -> dict:
         with self._locked():
             return self._snapshot()
+
+    def admit_batch(self) -> dict:
+        """Reserve the entire latest approved inventory before any job is issued."""
+        if not self._batch_approvals:
+            raise PermissionError("batch admission requires independently pinned approval")
+        from .pilot_spend_batch import retain_batch
+        with self._locked():
+            self._snapshot()  # Validate history, ceilings, and the whole inventory.
+            return retain_batch(self.root, self._batch_approvals[-1])
 
     def _snapshot(self) -> dict:
         amendment = self.root / "retry/approval.json"
@@ -300,13 +312,15 @@ class PilotSpendEnvelope:
                 totals[provider] -= release
         if any(totals[key] > self._limits[key] for key in totals) or sum(totals.values()) > self._total:
             raise RuntimeError("pilot admission journal exceeds its plan")
-        return {"plan_digest": self.plan_digest, "reserved_usd_nanos": totals,
+        snapshot = {"plan_digest": self.plan_digest, "reserved_usd_nanos": totals,
             "remaining_usd_nanos": {key: self._limits[key] - totals[key] for key in totals},
             "provider_limits_usd_nanos": dict(self._limits), "receipts": receipts,
             "actual_spend_usd_nanos": None, "provider_billing_cap_verified": False,
             **({"retry_amendment_digest": self.retry_digest,
                 "released_unused_model_usd_nanos": self._model_release,
                 "released_allowances_usd_nanos": self._releases} if self.retry is not None else {})}
+        from .pilot_spend_batch import apply_batches
+        return apply_batches(self.root, snapshot, self._batch_approvals, self._validate_receipt)
 
     def _validate_receipt(self, record):
         if (not isinstance(record, dict) or set(record) != {"operation_key", "provider", "purpose",

@@ -183,6 +183,26 @@ class PilotSpendTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unapproved retry"):
             PilotSpendEnvelope(self.envelope.root, self.plan, retry=document)
 
+    def test_exact_batch_extends_a_retry_journal_without_releasing_its_reserves(self):
+        retry = self.retry_document()
+        envelope = PilotSpendEnvelope(self.envelope.root, self.plan, retry=retry)
+        prior = envelope.snapshot()
+        approval = {"schema_version": "pilot-spend-batch/v1", "batch_id": "stock-control",
+            "prior_snapshot_digest": digest_value(prior),
+            "provider_limits_usd_nanos": prior["provider_limits_usd_nanos"],
+            "total_limit_usd_nanos": sum(prior["provider_limits_usd_nanos"].values()),
+            "admissions": [{"operation_key": "pilot:batch-stock-control:modal:control", "provider": "modal",
+                "purpose": "pilot", "request_digest": digest_value("seven-frozen-requests"),
+                "maximum_usd_nanos": 8_965_888_000, "plan_digest": envelope.plan_digest}]}
+        extended = PilotSpendEnvelope(envelope.root, self.plan, retry=retry, batch_approvals=(approval,))
+        extended.admit_batch()
+        current = extended.snapshot()
+        self.assertEqual(current["reserved_usd_nanos"]["modal"], prior["reserved_usd_nanos"]["modal"] + 8_965_888_000)
+        self.assertEqual(current["reserved_usd_nanos"]["openrouter"], prior["reserved_usd_nanos"]["openrouter"])
+        self.assertEqual(current["released_allowances_usd_nanos"], prior["released_allowances_usd_nanos"])
+        with self.assertRaisesRegex(PermissionError, "independently pinned"):
+            envelope.snapshot()
+
     def settlement_document(self):
         previous = self.retry_document()
         previous_path = self.root / "previous.json"

@@ -246,7 +246,7 @@ class PairedServingStackTests(unittest.TestCase):
         self.assertFalse(cost["execution_authorized"])
 
     def test_stock_preparation_freezes_all_seven_requests_without_issuing_authority(self):
-        with patch("subprocess.run", side_effect=AssertionError("no subprocess allowed")):
+        with patch.object(ModalPairedServingTransport, "dispatch", side_effect=AssertionError("no dispatch allowed")):
             document = prepare_paired_stock_control(self.root / "control", self.configuration,
                 "stock-control", self.bundle, self.policy)
         self.assertEqual(document["planned_gpu_calls"], 7)

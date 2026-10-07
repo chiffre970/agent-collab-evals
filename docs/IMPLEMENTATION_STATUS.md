@@ -77,6 +77,33 @@ Validation: 488 default tests, 464 passed and 24 opt-in integrations skipped;
 resource warnings are errors. The separately enabled real OCI test passed both
 peer formats. No new API/GPU spend was incurred.
 
+October 7: commit `9d0aa98` is deployed into a separate dedicated-VM checkout;
+all 11 paired-factory tests pass there without paid execution. The original
+solo checkout and evidence remain intact. Cumulative journal reconciliation
+still records 98 receipts and $19.84736648 Modal allowances under its $20 cap,
+leaving $0.15263352. The $3.10 OpenRouter cap has $2.9682494 remaining.
+These are admission allowances, not invoices or current provider balances.
+
+The new `run-peer-stock-control` path admits the whole seven-job control in one
+write-once batch before issuing any durable request authority. Its independently
+pinned operator document binds an expiring scope, clean commit, configuration,
+preparation, immutable requests, sealed route inventory, prior journal snapshot,
+and explicit cumulative ceilings. Batch replay preserves historical reserves
+and releases. Missing pins, changed history, unfunded inventory, expired new
+dispatches, and conflicting controllers fail closed. Completed raw-backed
+evidence re-resolves after restart; an uncertain dispatch cannot spawn again.
+The control can finish with measured ineligibility rather than pretending that
+failed correctness is an infrastructure success. No current control, remote
+wrapper conformance, or paid peer experiment is claimed. Fresh spending approval
+and current pricing/provider-limit checks remain required.
+
+Latest local validation: 501 default tests, 477 passed and 24 opt-in integrations
+skipped, with resource warnings treated as errors. The added tests compose the
+stock runner with real currency admissions, durable request authorization,
+compute routes, and raw evidence resolution. They also cover concurrent batch
+admission, stale history, missing pins, tampered receipts, preserved retry
+releases, exhausted caps, and uncertain dispatch without a second spawn.
+
 Earlier October 5 checkpoint: `solo-evalonly-1004` stopped at
 `2026-10-04T05:19:29Z`. Its three outstanding quality jobs completed with
 564, 560, and 545 measured function-body seconds. The first performance job

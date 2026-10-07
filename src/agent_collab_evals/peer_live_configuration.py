@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from dataclasses import replace
+import subprocess
 
 from .adapters.modal_paired_serving import ModalPairedServingEvidence, ModalPairedServingTransport
 from .adapters.paired_serving_evaluator import PairedServingEvaluator
@@ -109,8 +110,8 @@ def prepare_peer_offline_requests(stack, configuration, organisation_size):
     return tuple(requests)
 
 
-def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
-    """Freeze seven stock-versus-stock requests; issue no compute authority."""
+def stock_control_components(root, configuration, run_id, hidden, policy):
+    """Reconstruct the same sealed control before or after authorization."""
     root = Path(root).resolve()
     stack, _ = build_paired_peer_stack(root / "evaluation", configuration, run_id, hidden, policy)
     reference = configuration.campaign.reference_candidate_path.read_bytes()
@@ -121,6 +122,13 @@ def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
     requests = stack.hidden.prepare_hidden_requests(reference, reservation, "hidden:stock-control")
     stack.inventory.register("hidden", requests)
     seal = stack.inventory.seal()
+    return stack, reservation, requests, seal
+
+
+def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
+    """Freeze seven stock-versus-stock requests; issue no compute authority."""
+    root = Path(root).resolve()
+    stack, reservation, requests, seal = stock_control_components(root, configuration, run_id, hidden, policy)
     # Construct/reconcile original authority stores now, still without grants.
     sources = stack.inventory.sources()
     from .adapters.sqlite_compute_spend import SqliteComputeSpendAuthorizationService
@@ -135,6 +143,8 @@ def prepare_paired_stock_control(root, configuration, run_id, hidden, policy):
     # Validate the wrapper's actual resources, not only the legacy base script.
     paired_peer_cost(configuration, 2)
     document = {"schema_version": "paired-stock-control-preparation/v1", "run_id": run_id,
+        "repository": str(configuration.repository.resolve()),
+        "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=configuration.repository, text=True).strip(),
         "execution_authorized": False, "scoreable": False, "new_model_calls": 0, "planned_gpu_calls": len(requests),
         "candidate_digest": digest_file(configuration.campaign.reference_candidate_path),
         "hidden_manifest_digest": hidden.manifest_digest, "evaluator_profile_digest": stack.hidden.profile_digest,

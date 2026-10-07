@@ -253,6 +253,9 @@ class RoutedComputeBackend:
     def collect(self, request, *, timeout_seconds):
         return self._backend(request).collect(request, timeout_seconds=timeout_seconds)
 
+    def inspect(self, request):
+        return self._backend(request).inspect(request)
+
     def resolve(self, request):
         return self._backend(request).resolve(request)
 

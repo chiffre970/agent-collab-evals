@@ -1,6 +1,6 @@
 # Matched exploratory peer pilot
 
-Updated: October 6, 2026.
+Updated: October 7, 2026.
 
 Next question: does communication improve the selected solution at matched
 model/provider, task material, budgets, and evaluation rules? Compare
@@ -71,6 +71,18 @@ not registration or evidence that collaboration already helps.
   durable authorization store but leaves every request unissued. Preparation
   cannot reuse an authorized/dispatched control. A current-workload inventory
   is retained locally; no stock-control result or remote conformance exists yet.
+- Commit `9d0aa98` is deployed in a separate dedicated-VM checkout. Its 11 paired
+  factory tests pass there without paid execution. The original live checkout,
+  solo outcome, receipts, and cumulative journal are unchanged.
+- `run-peer-stock-control` now binds the clean commit, configuration,
+  preparation, seven requests, sealed inventory, and preceding journal snapshot
+  to independently pinned, expiring operator authority. One atomic currency
+  batch includes all seven jobs and overhead before any compute grant. It
+  preserves old reserves and releases, permits only explicit approved ceiling
+  changes, and disables unpinned readers from admitting more work. Restart
+  re-resolves completed evidence; uncertain calls are not replaced or cancelled
+  merely because the controller stopped. These are no-spend tests, not current
+  stock qualification or live wrapper conformance.
 
 The no-spend configs differ only in `condition`:
 `config/pilots/peer-isolated-no-spend-oci-v1.json` and
@@ -80,10 +92,11 @@ execution. OCI execution requires explicit host runtime dependencies.
 
 ## Next, before any paid peer comparison
 
-1. Commit the tested implementation and retain the completed solo billing
-   settlement. Never release historical reserves without terminal, attributable
-   provider evidence. No new journal or implicit cap reset.
-2. Commit and deploy the tested paired composition, then qualify its actual
+1. Retain the completed solo billing settlement when attributable provider
+   evidence is available. Never release historical reserves without it.
+   No new journal or implicit cap reset. The tested paired composition is
+   committed and separately deployed; the stock runner is the next checkpoint.
+2. Qualify the actual
    restricted Modal wrapper. The new public/correctness/quality/performance
    factories share the declared same-GPU policy; the old solo factories remain
    exact-driver. Never silently mix those paths. Local imports, serialization,
@@ -94,9 +107,9 @@ execution. OCI execution requires explicit host runtime dependencies.
    workload and build do not fully match the next pilot. No new live hidden
    stock control was run in this step. Preserve the old outcome;
    any calibration change creates a new version, not a favorable rescoring.
-4. Extend request-bound dollar authority to the matched peer composition and
-   stock control. The configuration, exact planners, backend, and closure now
-   compose without spend, but the command still cannot authorize paid execution.
+4. Extend request-bound dollar authority to the matched peer composition.
+   The stock runner now implements it for the exact seven-job control, without
+   approval or execution. The peer command still cannot authorize paid execution.
    Bound every actor's public evaluation, shared
    hidden evaluation, startup, cleanup, and failures. Review provider/cache
    isolation and the shared-GPU timing limitation for this exploratory scope.

@@ -195,8 +195,11 @@ The paired live-composition factory also passes the complete candidate and
 evaluation lifecycle against simulated raw GPU receipts, including restart and
 closure. It uses one physical stock/candidate pair per public or hidden job.
 `peer-pilot --check` constructs this factory without spending; remote wrapper
-conformance, current stock qualification, and new currency authority remain
-required before paid execution.
+conformance and current stock qualification remain required before a paid peer
+comparison. `run-peer-stock-control` now accepts independently pinned, expiring
+authority for the frozen seven-job control. It debits the entire inventory in
+the existing cumulative journal before issuing a request. No current stock
+control has run; a new ceiling requires explicit approval, not a new journal.
 
 ADR 0001's stock-runtime, matched peer-tool and minimal collaboration,
 publication and storage gates now pass, as do the development provider-route,
