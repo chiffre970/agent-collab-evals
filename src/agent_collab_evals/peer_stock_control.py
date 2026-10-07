@@ -14,6 +14,7 @@ from .evaluation import EvaluationInProgress, EvaluationScope
 from .peer_live_configuration import paired_peer_cost, stock_control_components
 from .pilot_evidence import retain_document
 from .pilot_spend import PilotSpendEnvelope
+from .pilot_spend_batch import batch_paths
 from .solo_live_configuration import LivePilotConfiguration
 
 
@@ -138,7 +139,9 @@ def _run(root, authorization, authorization_digest):
         raise PermissionError("stock control cannot fund work outside its seven frozen requests")
     envelope = PilotSpendEnvelope(journal_root, plan, retry=retry, batch_approvals=(*previous, batch))
     has_claim = (root / "operator-authorization.json").exists()
-    if not has_claim:
+    # A persisted controller claim is not permission to mint a new currency
+    # debit after expiry. Only an already funded inventory can be resumed.
+    if not has_claim or not batch_paths(journal_root, batch)[1].exists():
         require_current(authorization)
     retain_document(root / "operator-authorization.json", authorization)
     admission = envelope.admit_batch()

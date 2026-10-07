@@ -121,6 +121,8 @@ class PeerStockControlTests(unittest.TestCase):
         self.assertEqual(self.statuses(), [None] * 7)
         self.assertEqual(_RetainedPairedTransport.dispatches, [])
 
+        self.assertFalse((self.envelope.root / "batches").exists())
+
     def test_pending_call_is_preserved_and_cannot_be_replaced(self):
         original = _RetainedPairedTransport.dispatch
         def interrupted(transport, request, candidate):
