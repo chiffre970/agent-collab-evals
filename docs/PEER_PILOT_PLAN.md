@@ -81,12 +81,29 @@ records the local preparation. To reproduce it in a fresh private directory:
   --root .private/serving-calibration/calibration-v3-new --fetch-tokenizer
 ```
 
-Next: commit and deploy a clean build, regenerate private preparation and
-context evidence there, reconcile the existing cumulative journal against
-attributable billing evidence, and obtain fresh two-job approval. The previous
-control's consumed authority cannot be reused. Held Modal allowances leave
-only $0.18674552 under the $29 cap, so this diagnostic is not yet funded.
-Do not release historical reserves without evidence or reset the journal.
+October 8 deployment: `36da3d5` is pushed and deployed in a separate clean VM
+checkout. Fresh preparation and offline context verification pass there;
+487 default tests pass, with 24 opt-in integrations skipped. This qualifies the
+diagnostic controller composition, not live OpenCode or a registered study.
+
+Read-only provider metadata and resource billing attribute $2.26301961 to the
+previous control's seven successful calls. Raw snapshots are retained locally
+and mirrored in the VM. This is a current billing snapshot, not a final invoice;
+no old allowance was released. The journal's existing batch contract remains
+irrevocable rather than introducing a new settlement implementation here.
+
+The user approved cumulative ceilings of $33 Modal and unchanged $3.10
+OpenRouter, with all historical reserves preserved. The final launch check
+confirms current usage plus the full diagnostic allowance fits the separately
+confirmed $20 workspace limit. One fresh, 18-hour, context-pinned authority
+launched `calibration-v3-1008-deployed` at `2026-10-08T00:18:40Z`. The two jobs
+are atomically funded in the original journal; cumulative Modal allowances are
+$32.08922248. The correctness job is dispatched, the controller is alive, and
+no stop record or outcome is present at the initial observation. No API calls
+are planned. See the [deployment and launch record](../evidence/deployment/serving-v3-diagnostic-20261008.json).
+
+Next: collect and replay these exact two calls. Do not rerun the launcher,
+replace uncertain dispatches, reset the journal, or reuse the old authority.
 If the diagnostic supports the change, seek separate approval for the complete
 three-repetition qualification series. Do not proceed directly to a peer run.
 

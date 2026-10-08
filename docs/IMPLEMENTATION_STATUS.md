@@ -51,12 +51,27 @@ no full-gate receipt or qualification claim. The original seven-job path remains
 covered. The [local preflight](../evidence/calibration/model-serving-v3-preflight-20261008.json)
 is working-tree evidence, not deployment or spending authority.
 
-Next: clean commit/deployment and fresh preparation, attributable journal
-settlement, and new diagnostic approval. Its allowance does not fit the current
-held Modal ceiling. The 3,000-second function limit bounds exposure but does not
-guarantee completion at every request's worst-case deadline. No new model API
-or GPU spend was incurred; reference qualification and paid peer execution
-remain pending.
+The 3,000-second function limit bounds exposure but does not guarantee
+completion at every request's worst-case deadline. The preparation and synthetic
+validation incurred no model API or GPU spend; live execution is separate.
+
+October 8 deployment and launch: `36da3d5` is pushed and separately deployed in
+the dedicated VM. Fresh preparation, pinned offline context replay, and all
+487 default tests pass there, with 24 opt-in skips. Provider metadata and raw
+resource billing attribute $2.26301961 to the prior stock control's seven
+successful calls. These snapshots are retained and mirrored, not treated as a
+final invoice or automatic release. The original journal is preserved.
+
+Following explicit approval of $33 Modal / $3.10 OpenRouter cumulative ceilings,
+one new two-job authority launched at `2026-10-08T00:18:40Z`. Its complete
+$3.275968 allowance is atomically admitted, taking Modal held allowances to
+$32.08922248. Current provider usage plus the allowance fits the separate
+$20 workspace usage limit. Correctness is dispatched; the controller is alive
+with no stop record or final outcome at the initial observation. No model API
+calls are planned. The [deployment record](../evidence/deployment/serving-v3-diagnostic-20261008.json)
+binds the clean source, context, authority, journal, and billing observations.
+Next: collect and replay the two exact calls. Full reference qualification and
+paid peer execution remain pending and require separate approval.
 
 October 8 validation: 511 default tests ran, 487 passed, and 24 opt-in
 integrations were skipped, with resource warnings treated as errors. The
